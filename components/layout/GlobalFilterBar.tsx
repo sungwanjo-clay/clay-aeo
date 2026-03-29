@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getDistinctTags, getLastRunDate } from '@/lib/queries/visibility'
+import { getDistinctTags, getDistinctPromptTypes, getLastRunDate } from '@/lib/queries/visibility'
 import { formatDate } from '@/lib/utils/formatters'
 
 const PLATFORMS = ['all', 'ChatGPT', 'Claude']
@@ -48,11 +48,17 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
 export default function GlobalFilterBar() {
   const { filters, setFilters, clearAll } = useGlobalFilters()
   const [tags, setTags] = useState<string[]>([])
+  const [promptTypes, setPromptTypes] = useState<string[]>([])
   const [lastRunDate, setLastRunDate] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([getDistinctTags(supabase), getLastRunDate(supabase)]).then(([tg, lr]) => {
+    Promise.all([
+      getDistinctTags(supabase),
+      getDistinctPromptTypes(supabase),
+      getLastRunDate(supabase),
+    ]).then(([tg, pt, lr]) => {
       setTags(tg)
+      setPromptTypes(pt)
       setLastRunDate(lr)
     })
   }, [])
@@ -60,9 +66,8 @@ export default function GlobalFilterBar() {
   const isStale = lastRunDate ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000 : false
 
   const keywordOptions = [
-    { value: 'benchmark', label: 'Benchmark' },
-    { value: 'campaign', label: 'Campaign' },
     { value: 'all', label: 'All' },
+    ...promptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
   ]
 
   const tagOptions = [

@@ -4,14 +4,15 @@ import { useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import {
-  getVisibilityScore, getVisibilityTimeseries, getVisibilityByTopic,
+  getVisibilityScore, getVisibilityByTopic,
   getShareOfVoice, getAvgPosition, getMentionShare,
-  getCompetitorVisibilityTimeseries, getCompetitorLeaderboard,
-  getVisibilityByPMM, getPMMTable,
+  getCompetitorVisibilityTimeseries, getFullLeaderboard,
+  getVisibilityByPMM, getPMMTable, getClayOverallTimeseries,
 } from '@/lib/queries/visibility'
 import type { TimeseriesRow, CompetitorRow } from '@/lib/queries/types'
 import KpiCard from '@/components/cards/KpiCard'
 import VisibilityLineChart from '@/components/charts/VisibilityLineChart'
+import CompetitorComparisonChart from '@/components/charts/CompetitorComparisonChart'
 import SOVDonutChart from '@/components/charts/SOVDonutChart'
 import CompetitorLeaderboard from '@/components/tables/CompetitorLeaderboard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
@@ -35,8 +36,7 @@ export default function VisibilityPage() {
   const [visibility, setVisibility] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [mentionShare, setMentionShare] = useState<number | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
-  const [timeseries, setTimeseries] = useState<TimeseriesRow[]>([])
-  const [prevTimeseries, setPrevTimeseries] = useState<TimeseriesRow[]>([])
+  const [clayTimeseries, setClayTimeseries] = useState<{ date: string; value: number }[]>([])
   const [topicSeries, setTopicSeries] = useState<TimeseriesRow[]>([])
   const [sov, setSov] = useState<CompetitorRow[]>([])
   const [leaderboard, setLeaderboard] = useState<CompetitorRow[]>([])
@@ -50,24 +50,21 @@ export default function VisibilityPage() {
 
   useEffect(() => {
     setLoading(true)
-    const prevF = { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }
     Promise.all([
       getVisibilityScore(supabase, f),
       getMentionShare(supabase, f),
       getAvgPosition(supabase, f),
-      getVisibilityTimeseries(supabase, f),
-      getVisibilityTimeseries(supabase, prevF),
+      getClayOverallTimeseries(supabase, f),
       getVisibilityByTopic(supabase, f),
       getShareOfVoice(supabase, f),
-      getCompetitorLeaderboard(supabase, f),
+      getFullLeaderboard(supabase, f),
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
-    ]).then(([vis, ms, pos, ts, prevTs, topicTs, sovData, lb, pmmTs, pmmTbl]) => {
+    ]).then(([vis, ms, pos, clayTs, topicTs, sovData, lb, pmmTs, pmmTbl]) => {
       setVisibility(vis)
       setMentionShare(ms)
       setAvgPos(pos)
-      setTimeseries(ts)
-      setPrevTimeseries(prevTs)
+      setClayTimeseries(clayTs)
       setTopicSeries(topicTs)
       setSov(sovData)
       setLeaderboard(lb)
@@ -90,15 +87,7 @@ export default function VisibilityPage() {
   const posDelta = (avgPos?.current != null && avgPos?.previous != null)
     ? avgPos.current - avgPos.previous : null
 
-  // Convert competitor timeseries to TimeseriesRow[] for VisibilityLineChart overlay
-  const competitorAsTimeseries: TimeseriesRow[] = competitorTimeseries.map(r => ({
-    date: r.date,
-    value: r.value,
-    platform: r.competitor,
-  }))
-  const combinedTimeseries = showCompetitors
-    ? [...timeseries, ...competitorAsTimeseries]
-    : timeseries
+  const chartCompetitorData = showCompetitors ? competitorTimeseries : []
 
   // PMM table sorting
   const sortedPmmTable = [...pmmTable].sort((a, b) => {
@@ -159,11 +148,10 @@ export default function VisibilityPage() {
           </button>
         </div>
         {loading ? <SkeletonChart /> : (
-          <VisibilityLineChart
-            data={combinedTimeseries}
-            groupKey="platform"
+          <CompetitorComparisonChart
+            clayData={clayTimeseries}
+            competitorData={chartCompetitorData}
             height={280}
-            compareData={filters.compareEnabled ? prevTimeseries : undefined}
           />
         )}
       </div>

@@ -37,6 +37,7 @@ export interface CompetitorRow {
   visibility_score?: number
   avg_position?: number
   delta?: number | null
+  isOwned?: boolean
 }
 
 export interface CitationDomainRow {

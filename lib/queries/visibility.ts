@@ -26,9 +26,9 @@ export async function getVisibilityScore(
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null; total: number }> {
   const [cur, prev] = await Promise.all([
-    applyFilters(sb.from('responses').select('clay_mentioned'), f).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('clay_mentioned, prompt_id'), f).then((r: any) => r.data ?? []),
     applyFilters(
-      sb.from('responses').select('clay_mentioned'),
+      sb.from('responses').select('clay_mentioned, prompt_id'),
       { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }
     ).then((r: any) => r.data ?? []),
   ])
@@ -37,7 +37,67 @@ export async function getVisibilityScore(
     const yes = rows.filter((r: any) => r.clay_mentioned === 'Yes').length
     return (yes / rows.length) * 100
   }
-  return { current: pct(cur), previous: pct(prev), total: cur.length }
+  // total = distinct prompts (not total response rows)
+  const distinctPrompts = new Set(cur.map((r: any) => r.prompt_id)).size
+  return { current: pct(cur), previous: pct(prev), total: distinctPrompts }
+}
+
+export async function getClayOverallTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; value: number }[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('run_date, run_day, clay_mentioned'),
+    f
+  )
+  if (!data) return []
+
+  const map = new Map<string, { total: number; mentioned: number }>()
+  for (const row of data) {
+    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const cur = map.get(date) ?? { total: 0, mentioned: 0 }
+    cur.total++
+    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    map.set(date, cur)
+  }
+
+  return Array.from(map.entries()).map(([date, { total, mentioned }]) => ({
+    date,
+    value: total > 0 ? (mentioned / total) * 100 : 0,
+  })).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export async function getFullLeaderboard(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<CompetitorRow[]> {
+  const [clayScore, competitors] = await Promise.all([
+    getVisibilityScore(sb, f),
+    getCompetitorLeaderboard(sb, f),
+  ])
+
+  const entries = [...competitors]
+
+  if (clayScore.current != null) {
+    const clayDelta = clayScore.current != null && clayScore.previous != null
+      ? clayScore.current - clayScore.previous : null
+    entries.push({
+      competitor_name: 'Clay',
+      mention_count: 0,
+      sov_pct: clayScore.current,
+      visibility_score: clayScore.current,
+      delta: clayDelta,
+      isOwned: true,
+    })
+  }
+
+  return entries.sort((a, b) => (b.visibility_score ?? 0) - (a.visibility_score ?? 0))
+}
+
+export async function getDistinctPromptTypes(sb: SupabaseClient): Promise<string[]> {
+  const { data } = await sb.from('responses').select('prompt_type').not('prompt_type', 'is', null)
+  if (!data) return []
+  return [...new Set(data.map(r => r.prompt_type).filter(Boolean))].sort() as string[]
 }
 
 export async function getVisibilityTimeseries(
