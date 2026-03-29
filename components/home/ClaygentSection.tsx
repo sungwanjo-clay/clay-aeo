@@ -2,10 +2,14 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatShortDate } from '@/lib/utils/formatters'
+import MentionBreakdownTable from './MentionBreakdownTable'
+import type { MentionTopicRow } from '@/lib/queries/visibility'
 
 interface Props {
   claygentData: { date: string; count: number }[]
   followupData: { date: string; count: number }[]
+  claygentBreakdown: MentionTopicRow[]
+  followupBreakdown: MentionTopicRow[]
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -16,26 +20,32 @@ function CountChart({
   title,
   subtitle,
   color,
+  breakdown,
 }: {
   data: { date: string; count: number }[]
   title: string
   subtitle: string
   color: string
+  breakdown: MentionTopicRow[]
 }) {
   const total = data.reduce((s, d) => s + d.count, 0)
 
   return (
-    <div className="p-5" style={cardStyle}>
-      <div className="flex items-start justify-between mb-1">
-        <h2 style={labelStyle}>{title}</h2>
-        <span className="text-2xl font-extrabold tabular-nums" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>
-          {total.toLocaleString()}
-        </span>
+    <div className="p-5 space-y-5" style={cardStyle}>
+      {/* Header + total */}
+      <div>
+        <div className="flex items-start justify-between mb-1">
+          <h2 style={labelStyle}>{title}</h2>
+          <span className="text-2xl font-extrabold tabular-nums" style={{ color: 'var(--clay-black)', letterSpacing: '-0.03em' }}>
+            {total.toLocaleString()}
+          </span>
+        </div>
+        <p className="text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
       </div>
-      <p className="text-[11px] font-semibold mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
 
+      {/* Bar chart */}
       {data.length > 1 ? (
-        <ResponsiveContainer width="100%" height={140}>
+        <ResponsiveContainer width="100%" height={130}>
           <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barSize={14}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" vertical={false} />
             <XAxis
@@ -69,31 +79,44 @@ function CountChart({
           </BarChart>
         </ResponsiveContainer>
       ) : data.length === 1 ? (
-        <div className="py-4 text-center">
+        <div className="py-3 text-center">
           <p className="text-xl font-bold" style={{ color: 'var(--clay-black)' }}>{data[0].count} mentions</p>
           <p style={{ ...labelStyle, marginTop: '4px', display: 'block' }}>Only 1 data point — run again tomorrow to see a trend</p>
         </div>
       ) : (
-        <p className="py-4 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No data yet</p>
+        <p className="py-3 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No data yet</p>
       )}
+
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid var(--clay-border-dashed)' }} />
+
+      {/* Breakdown table */}
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
+          By topic & prompt — click to expand
+        </p>
+        <MentionBreakdownTable data={breakdown} accentColor={color} />
+      </div>
     </div>
   )
 }
 
-export default function ClaygentSection({ claygentData, followupData }: Props) {
+export default function ClaygentSection({ claygentData, followupData, claygentBreakdown, followupBreakdown }: Props) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
       <CountChart
         data={claygentData}
         title="ClayMCP & Agent Mentions"
         subtitle="Times ClayMCP or Clay Agent was mentioned per day"
         color="#4A5AFF"
+        breakdown={claygentBreakdown}
       />
       <CountChart
         data={followupData}
         title="Clay Recommended as Follow-up"
         subtitle="Times Clay was recommended as a follow-up action per day"
-        color="var(--clay-matcha)"
+        color="#3DAA6A"
+        breakdown={followupBreakdown}
       />
     </div>
   )

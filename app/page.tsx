@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
+import type { MentionTopicRow } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationCount, getCitationOverallTimeseries, getTopCitedDomainsWithURLs } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
@@ -43,6 +44,8 @@ export default function HomePage() {
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
   const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
+  const [claygentBreakdown, setClaygentBreakdown] = useState<MentionTopicRow[]>([])
+  const [followupBreakdown, setFollowupBreakdown] = useState<MentionTopicRow[]>([])
 
   useEffect(() => {
     setLoading(true)
@@ -83,13 +86,17 @@ export default function HomePage() {
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
       getFollowupTimeseries(supabase, f),
-    ]).then(([citTs, citDom, pmmTs, pmmTbl, claygentTs, followupTs]) => {
+      getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned'),
+      getMentionBreakdown(supabase, f, 'clay_recommended_followup'),
+    ]).then(([citTs, citDom, pmmTs, pmmTbl, claygentTs, followupTs, claygentBd, followupBd]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
       setClaygentTimeseries(claygentTs)
       setFollowupTimeseries(followupTs)
+      setClaygentBreakdown(claygentBd)
+      setFollowupBreakdown(followupBd)
       setLoadingExtra(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,7 +273,14 @@ export default function HomePage() {
       {/* ClayMCP & Agent */}
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>ClayMCP & Agent</h2>
-        {loadingExtra ? <SkeletonChart /> : <ClaygentSection claygentData={claygentTimeseries} followupData={followupTimeseries} />}
+        {loadingExtra ? <SkeletonChart /> : (
+          <ClaygentSection
+            claygentData={claygentTimeseries}
+            followupData={followupTimeseries}
+            claygentBreakdown={claygentBreakdown}
+            followupBreakdown={followupBreakdown}
+          />
+        )}
       </div>
 
       {/* Data freshness */}

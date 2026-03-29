@@ -460,6 +460,120 @@ export async function getClaygentTimeseries(
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
+export interface MentionResponseRow {
+  id: string
+  platform: string
+  run_date: string
+  snippet: string | null
+  response_text: string | null
+  other_cited_domains: string[]
+}
+
+export interface MentionPromptRow {
+  prompt_id: string
+  prompt_text: string
+  topic: string | null
+  count: number
+  responses: MentionResponseRow[]
+}
+
+export interface MentionTopicRow {
+  topic: string
+  count: number
+  prompts: MentionPromptRow[]
+}
+
+/**
+ * Generic breakdown for any Yes/No column.
+ * Returns topics → prompts → response rows where column = 'Yes'.
+ */
+export async function getMentionBreakdown(
+  sb: SupabaseClient,
+  f: FilterParams,
+  column: 'claygent_or_mcp_mentioned' | 'clay_recommended_followup'
+): Promise<MentionTopicRow[]> {
+  const snippetCol = column === 'clay_recommended_followup'
+    ? 'clay_followup_snippet'
+    : 'clay_mention_snippet'
+
+  const { data } = await applyFilters(
+    sb.from('responses').select(
+      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, ${column}, ${snippetCol}`
+    ),
+    f
+  ).eq(column, 'Yes')
+
+  if (!data?.length) return []
+
+  // Collect unique prompt IDs to fetch prompt_text
+  const promptIds = [...new Set(data.map((r: any) => r.prompt_id).filter(Boolean))]
+  const { data: prompts } = await sb
+    .from('prompts')
+    .select('prompt_id, prompt_text')
+    .in('prompt_id', promptIds)
+  const textMap = new Map((prompts ?? []).map((p: any) => [p.prompt_id, p.prompt_text]))
+
+  // Group by topic → prompt
+  const topicMap = new Map<string, Map<string, {
+    prompt_text: string; topic: string | null; rows: MentionResponseRow[]
+  }>>()
+
+  for (const row of data) {
+    const topic = row.topic ?? 'Uncategorized'
+    const promptId = row.prompt_id ?? ''
+
+    if (!topicMap.has(topic)) topicMap.set(topic, new Map())
+    const promptMap = topicMap.get(topic)!
+
+    if (!promptMap.has(promptId)) {
+      promptMap.set(promptId, {
+        prompt_text: textMap.get(promptId) ?? '(unknown prompt)',
+        topic,
+        rows: [],
+      })
+    }
+
+    // Parse cited domains
+    let domains: string[] = []
+    try {
+      domains = Array.isArray(row.cited_domains)
+        ? row.cited_domains
+        : JSON.parse(row.cited_domains ?? '[]')
+    } catch { /* ignore */ }
+
+    const otherDomains = domains
+      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('clay.com'))
+      .slice(0, 5)
+
+    promptMap.get(promptId)!.rows.push({
+      id: row.id,
+      platform: row.platform,
+      run_date: (row.run_date ?? '').substring(0, 10),
+      snippet: row[snippetCol] ?? null,
+      response_text: row.response_text ?? null,
+      other_cited_domains: otherDomains,
+    })
+  }
+
+  return Array.from(topicMap.entries())
+    .map(([topic, promptMap]) => {
+      const promptRows = Array.from(promptMap.entries()).map(([prompt_id, { prompt_text, topic, rows }]) => ({
+        prompt_id,
+        prompt_text,
+        topic,
+        count: rows.length,
+        responses: rows.sort((a, b) => b.run_date.localeCompare(a.run_date)),
+      })).sort((a, b) => b.count - a.count)
+
+      return {
+        topic,
+        count: promptRows.reduce((s, p) => s + p.count, 0),
+        prompts: promptRows,
+      }
+    })
+    .sort((a, b) => b.count - a.count)
+}
+
 export async function getFollowupTimeseries(
   sb: SupabaseClient,
   f: FilterParams
