@@ -4,20 +4,18 @@ import { useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies, getTopCompetitorThisWeek } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getVisibilityTimeseries } from '@/lib/queries/visibility'
+import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
 import type { InsightRow, AnomalyRow } from '@/lib/queries/types'
-import type { TimeseriesRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
 import KpiCard from '@/components/cards/KpiCard'
-import SparklineChart from '@/components/charts/SparklineChart'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
 import { formatDate } from '@/lib/utils/formatters'
-
-interface SparkPoint { date: string; [k: string]: string | number }
+import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { formatShortDate } from '@/lib/utils/formatters'
 
 export default function HomePage() {
   const { toQueryParams } = useGlobalFilters()
@@ -31,7 +29,7 @@ export default function HomePage() {
   const [citationShare, setCitationShare] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [topComp, setTopComp] = useState<{ name: string; pct: number } | null>(null)
-  const [sparkData, setSparkData] = useState<SparkPoint[]>([])
+  const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
   const [freshness, setFreshness] = useState<{ lastRunDate: string | null; promptCount: number; platformCount: number } | null>(null)
 
   useEffect(() => {
@@ -44,7 +42,7 @@ export default function HomePage() {
       getCitationShare(supabase, f),
       getAvgPosition(supabase, f),
       getTopCompetitorThisWeek(supabase, f.startDate, f.endDate),
-      getVisibilityTimeseries(supabase, f),
+      getClayOverallTimeseries(supabase, f),
       getDataFreshnessStats(supabase),
     ]).then(([ins, ano, vis, sent, cit, pos, comp, spark, fresh]) => {
       setInsight(ins)
@@ -55,26 +53,12 @@ export default function HomePage() {
       setAvgPos(pos)
       setTopComp(comp)
       setFreshness(fresh)
-
-      // Pivot sparkline data: date → { platform: score }
-      const map = new Map<string, Record<string, number>>()
-      for (const row of spark as TimeseriesRow[]) {
-        const entry = map.get(row.date) ?? {}
-        if (row.platform) entry[row.platform] = row.value
-        map.set(row.date, entry)
-      }
-      setSparkData(
-        Array.from(map.entries())
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([date, vals]) => ({ date, ...vals }))
-      )
+      setSparkData(spark)
 
       setLoading(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
-
-  const platforms = [...new Set(sparkData.flatMap(d => Object.keys(d).filter(k => k !== 'date')))]
 
   function visDelta() {
     if (!visibility?.current || !visibility?.previous) return null
@@ -157,19 +141,41 @@ export default function HomePage() {
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Visibility Score — 7-day trend</h3>
           {loading ? (
             <SkeletonChart />
-          ) : sparkData.length > 0 ? (
-            <SparklineChart data={sparkData} platforms={platforms} height={80} />
+          ) : sparkData.length > 1 ? (
+            <ResponsiveContainer width="100%" height={100}>
+              <LineChart data={sparkData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={formatShortDate}
+                  tick={{ fontSize: 10, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tickFormatter={v => `${Number(v).toFixed(0)}%`}
+                  tick={{ fontSize: 10, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={32}
+                  domain={[0, 100]}
+                />
+                <Tooltip
+                  formatter={(val: number) => [`${val.toFixed(1)}%`, 'Visibility']}
+                  labelFormatter={(l: string) => formatShortDate(l)}
+                  contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
+                />
+                <Line type="monotone" dataKey="value" stroke="var(--clay-black)" strokeWidth={2.5} dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : sparkData.length === 1 ? (
+            <div className="py-6 text-center">
+              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>{sparkData[0].value.toFixed(1)}%</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Only 1 data point — run again tomorrow to see a trend</p>
+            </div>
           ) : (
             <p className="text-xs font-bold py-6 text-center" style={{ color: 'rgba(26,25,21,0.35)' }}>No trend data yet</p>
           )}
-          <div className="flex gap-3 mt-2">
-            {platforms.map(p => (
-              <div key={p} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.45)' }}>
-                <span className="w-3 h-0.5 rounded-full inline-block" style={{ backgroundColor: p === 'ChatGPT' ? '#3DAA6A' : '#CC3D8A' }} />
-                {p}
-              </div>
-            ))}
-          </div>
         </div>
 
         <div className="p-4" style={{ background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }}>
