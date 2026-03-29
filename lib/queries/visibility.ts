@@ -492,6 +492,7 @@ export interface PMMPromptResponseRow {
   clay_mentioned: string | null
   clay_mention_position: number | null
   clay_mention_snippet: string | null
+  response_text: string | null
   clay_cited: boolean
   other_cited_domains: string[]
 }
@@ -512,7 +513,7 @@ export async function getPMMPromptDrilldown(
 ): Promise<PMMPromptDrillRow[]> {
   const { data } = await applyFilters(
     sb.from('responses').select(
-      'id, prompt_id, platform, run_date, clay_mentioned, clay_mention_position, clay_mention_snippet, cited_domains, pmm_use_case'
+      'id, prompt_id, platform, run_date, clay_mentioned, clay_mention_position, clay_mention_snippet, response_text, cited_domains, pmm_use_case'
     ),
     { ...f }
   ).eq('pmm_use_case', pmmUseCase)
@@ -549,7 +550,8 @@ export async function getPMMPromptDrilldown(
       run_date: (row.run_date ?? '').substring(0, 10),
       clay_mentioned: row.clay_mentioned,
       clay_mention_position: row.clay_mention_position,
-      clay_mention_snippet: row.clay_mention_snippet,
+      clay_mention_snippet: row.clay_mention_snippet ?? null,
+      response_text: row.response_text ?? null,
       clay_cited: clayCited,
       other_cited_domains: otherDomains,
     })

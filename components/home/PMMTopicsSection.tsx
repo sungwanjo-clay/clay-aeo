@@ -27,6 +27,20 @@ interface Props {
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
 const labelStyle = { color: 'rgba(26,25,21,0.45)', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }
 
+/** Strip common markdown syntax so raw LLM output displays cleanly */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')   // **bold**
+    .replace(/\*([^*]+)\*/g, '$1')        // *italic*
+    .replace(/`([^`]+)`/g, '$1')          // `code`
+    .replace(/#+\s+/g, '')                // ## headings
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [link](url)
+    .replace(/^\s*[-*>]\s+/gm, '')        // list bullets / blockquotes
+    .replace(/\|\s*/g, ' ')               // table pipes
+    .replace(/\s{2,}/g, ' ')             // collapse extra whitespace
+    .trim()
+}
+
 function buildChartData(series: TimeseriesRow[]) {
   const groups = [...new Set(series.map(r => r.pmm_use_case).filter(Boolean))]
   const dates = [...new Set(series.map(r => r.date))].sort()
@@ -36,6 +50,32 @@ function buildChartData(series: TimeseriesRow[]) {
     for (const g of groups) row[g!] = lookup.get(`${date}|||${g}`) ?? 0
     return row
   })}
+}
+
+// ── Full response expandable block ─────────────────────────────────────────
+function FullResponseBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const cleaned = stripMarkdown(text)
+  const preview = cleaned.slice(0, 180)
+  const hasMore = cleaned.length > 180
+
+  return (
+    <div className="rounded-lg px-3 py-2.5" style={{ background: 'rgba(26,25,21,0.03)', border: '1px solid rgba(26,25,21,0.07)' }}>
+      <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'rgba(26,25,21,0.45)' }}>Full AI Response</p>
+      <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(26,25,21,0.75)' }}>
+        {open ? cleaned : preview}{!open && hasMore ? '…' : ''}
+      </p>
+      {hasMore && (
+        <button
+          onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
+          className="mt-1.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+          style={{ color: 'rgba(26,25,21,0.45)' }}
+        >
+          {open ? 'Show less ↑' : 'Show full response ↓'}
+        </button>
+      )}
+    </div>
+  )
 }
 
 // ── Per-response detail row ────────────────────────────────────────────────
@@ -105,9 +145,9 @@ function ResponseRow({ r }: { r: PMMPromptResponseRow }) {
           )}
         </div>
 
-        {/* Expand toggle (only if there's a snippet) */}
+        {/* Expand toggle */}
         <div>
-          {r.clay_mention_snippet ? (
+          {(r.clay_mention_snippet || r.response_text) ? (
             open
               ? <ChevronDown size={11} style={{ color: 'rgba(26,25,21,0.35)' }} />
               : <ChevronRight size={11} style={{ color: 'rgba(26,25,21,0.35)' }} />
@@ -115,17 +155,27 @@ function ResponseRow({ r }: { r: PMMPromptResponseRow }) {
         </div>
       </div>
 
-      {/* Expanded snippet */}
-      {open && r.clay_mention_snippet && (
-        <div className="px-3 pb-3">
-          <div className="rounded-lg px-3 py-2.5" style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
-            <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
-            <p className="text-[12px] font-semibold leading-relaxed" style={{ color: 'var(--clay-black)' }}>
-              &ldquo;{r.clay_mention_snippet}&rdquo;
-            </p>
-          </div>
+      {/* Expanded detail */}
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {/* Snippet */}
+          {r.clay_mention_snippet && (
+            <div className="rounded-lg px-3 py-2.5" style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
+              <p className="text-[12px] font-semibold leading-relaxed" style={{ color: 'var(--clay-black)' }}>
+                &ldquo;{stripMarkdown(r.clay_mention_snippet)}&rdquo;
+              </p>
+            </div>
+          )}
+
+          {/* Full response — expandable */}
+          {r.response_text && (
+            <FullResponseBlock text={r.response_text} />
+          )}
+
+          {/* Co-cited domains */}
           {r.other_cited_domains.length > 0 && (
-            <div className="mt-2">
+            <div>
               <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>
                 All cited domains alongside Clay
               </p>
@@ -204,11 +254,14 @@ function PromptBlock({ p, colSpan }: { p: PMMPromptDrillRow; colSpan: number }) 
   )
 }
 
+const PROMPT_LIMIT = 10
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function PMMTopicsSection({ series, table, compareEnabled, onDrilldown }: Props) {
   const [expandedPMM, setExpandedPMM] = useState<string | null>(null)
   const [drillRows, setDrillRows] = useState<Record<string, PMMPromptDrillRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
+  const [showAllPrompts, setShowAllPrompts] = useState<Record<string, boolean>>({})
 
   const { groups, chartData } = buildChartData(series)
 
@@ -340,14 +393,32 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                                   <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...labelStyle, fontSize: '9px' }}>{h}</span>
                                 ))}
                               </div>
-                              {/* Prompt rows — each manages its own response expansion */}
-                              <table className="w-full">
-                                <tbody>
-                                  {drill.map(p => (
-                                    <PromptBlock key={p.prompt_id} p={p} colSpan={4} />
-                                  ))}
-                                </tbody>
-                              </table>
+                              {/* Prompt rows sorted by response count — limited to top 10 */}
+                              {(() => {
+                                const sorted = [...drill].sort((a, b) => b.response_count - a.response_count)
+                                const showAll = showAllPrompts[row.pmm_use_case]
+                                const visible = showAll ? sorted : sorted.slice(0, PROMPT_LIMIT)
+                                return (
+                                  <>
+                                    <table className="w-full">
+                                      <tbody>
+                                        {visible.map(p => (
+                                          <PromptBlock key={p.prompt_id} p={p} colSpan={4} />
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                    {sorted.length > PROMPT_LIMIT && (
+                                      <button
+                                        onClick={e => { e.stopPropagation(); setShowAllPrompts(prev => ({ ...prev, [row.pmm_use_case]: !showAll })) }}
+                                        className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+                                        style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)' }}
+                                      >
+                                        {showAll ? `Show top ${PROMPT_LIMIT} ↑` : `Show all ${sorted.length} prompts ↓`}
+                                      </button>
+                                    )}
+                                  </>
+                                )
+                              })()}
                             </div>
                           )}
                         </td>
