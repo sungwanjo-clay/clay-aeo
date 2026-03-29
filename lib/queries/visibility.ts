@@ -47,14 +47,15 @@ export async function getClayOverallTimeseries(
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, run_day, clay_mentioned'),
+    sb.from('responses').select('run_date, clay_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
     const cur = map.get(date) ?? { total: 0, mentioned: 0 }
     cur.total++
     if (row.clay_mentioned === 'Yes') cur.mentioned++
@@ -105,14 +106,15 @@ export async function getVisibilityTimeseries(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, platform, clay_mentioned, run_day'),
+    sb.from('responses').select('run_date, platform, clay_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
     const key = `${date}|||${row.platform}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
@@ -132,14 +134,15 @@ export async function getCompetitorVisibilityTimeseries(
 ): Promise<{ date: string; competitor: string; value: number }[]> {
   // Get total responses per day for denominator
   const { data: responses } = await applyFilters(
-    sb.from('responses').select('id, run_day, run_date'),
+    sb.from('responses').select('id, run_date'),
     f
   )
   if (!responses?.length) return []
 
   const totalByDate = new Map<string, number>()
   for (const r of responses) {
-    const date = r.run_day ?? r.run_date?.split('T')[0] ?? ''
+    const date = (r.run_date ?? '').substring(0, 10)
+    if (!date) continue
     totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
   }
   const responseIds = responses.map(r => r.id)
@@ -155,7 +158,7 @@ export async function getCompetitorVisibilityTimeseries(
   // Build a map of response_id -> date
   const responseIdToDate = new Map<string, string>()
   for (const r of responses) {
-    responseIdToDate.set(r.id, r.run_day ?? r.run_date?.split('T')[0] ?? '')
+    responseIdToDate.set(r.id, (r.run_date ?? '').substring(0, 10))
   }
 
   const map = new Map<string, number>()
@@ -222,7 +225,7 @@ export async function getVisibilityByPMM(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, run_day, pmm_use_case, clay_mentioned'),
+    sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'),
     f
   )
   if (!data) return []
@@ -230,7 +233,8 @@ export async function getVisibilityByPMM(
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
     if (!row.pmm_use_case) continue
-    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
     const key = `${date}|||${row.pmm_use_case}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
@@ -249,7 +253,7 @@ export async function getPMMTable(
   f: FilterParams
 ): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
   const [cur, prev] = await Promise.all([
-    applyFilters(sb.from('responses').select('run_date, run_day, pmm_use_case, clay_mentioned'), f).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'), f).then((r: any) => r.data ?? []),
     applyFilters(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
   ])
 
@@ -257,7 +261,7 @@ export async function getPMMTable(
   const curMap = new Map<string, { mentioned: number; total: number; byDate: Map<string, { m: number; t: number }> }>()
   for (const row of cur) {
     if (!row.pmm_use_case) continue
-    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const date = (row.run_date ?? '').substring(0, 10)
     if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, byDate: new Map() })
     const entry = curMap.get(row.pmm_use_case)!
     entry.total++
@@ -300,14 +304,15 @@ export async function getVisibilityByTopic(
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
   const { data } = await applyFilters(
-    sb.from('responses').select('run_date, run_day, topic, clay_mentioned'),
+    sb.from('responses').select('run_date, topic, clay_mentioned'),
     f
   )
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
-    const date = row.run_day ?? row.run_date?.split('T')[0] ?? ''
+    const date = (row.run_date ?? '').substring(0, 10)
+    if (!date) continue
     const key = `${date}|||${row.topic ?? 'Unknown'}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
