@@ -7,7 +7,7 @@ import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
 import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import type { MentionTopicRow } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
-import { getCitationCount, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
+import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
 import { getAvgPosition } from '@/lib/queries/visibility'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
@@ -33,7 +33,7 @@ export default function HomePage() {
   const [anomalies, setAnomalies] = useState<AnomalyRow[]>([])
   const [visibility, setVisibility] = useState<{ current: number | null; previous: number | null; total: number } | null>(null)
   const [sentiment, setSentiment] = useState<{ positive: number | null } | null>(null)
-  const [citationCount, setCitationCount] = useState<{ current: number; previous: number } | null>(null)
+  const [citationRate, setCitationRate] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [claygentCount, setClaygentCount] = useState<{ current: number; previous: number } | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
@@ -60,18 +60,18 @@ export default function HomePage() {
       getActiveAnomalies(supabase),
       getVisibilityScore(supabase, f),
       getSentimentBreakdown(supabase, f),
-      getCitationCount(supabase, f),
+      getCitationShare(supabase, f),
       getClaygentCount(supabase, f),
       getAvgPosition(supabase, f),
       getCompetitorLeaderboard(supabase, f),
       getClayOverallTimeseries(supabase, f),
       getDataFreshnessStats(supabase),
-    ]).then(([ins, ano, vis, sent, citCnt, claygentCnt, pos, comp, spark, fresh]) => {
+    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, fresh]) => {
       setInsight(ins)
       setAnomalies(ano)
       setVisibility(vis)
       setSentiment({ positive: sent.positive })
-      setCitationCount(citCnt)
+      setCitationRate(citRate)
       setClaygentCount(claygentCnt)
       setAvgPos(pos)
       setCompetitors((comp as CompetitorRow[]).slice(0, 6))
@@ -185,11 +185,10 @@ export default function HomePage() {
               deltaLabel="vs prev period"
             />
             <KpiCard
-              label="Citation Count"
-              value={citationCount?.current != null ? citationCount.current.toLocaleString() : '—'}
-              delta={citationCount?.current != null && citationCount?.previous != null ? citationCount.current - citationCount.previous : null}
+              label="Citation Rate"
+              value={citationRate?.current != null ? `${citationRate.current.toFixed(1)}%` : '—'}
+              delta={citationRate?.current != null && citationRate?.previous != null ? citationRate.current - citationRate.previous : null}
               deltaLabel="vs prev period"
-              deltaIsCount
             />
             <KpiCard
               label="Avg Position"

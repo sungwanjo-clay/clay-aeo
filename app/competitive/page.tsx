@@ -652,9 +652,6 @@ export default function CompetitivePage() {
                 onClick={() => !selectedComps.includes(w.competitor_name) && selectedComps.length < MAX_SELECT && toggleComp(w.competitor_name)}
               >
                 {w.competitor_name}
-                {w.isNew && (
-                  <span className="ml-1.5" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 4px', fontSize: '9px', fontWeight: 700 }}>New</span>
-                )}
               </button>
               <span className="text-[13px] font-bold tabular-nums shrink-0" style={{ color: 'var(--clay-black)' }}>
                 {w.current.toFixed(1)}%

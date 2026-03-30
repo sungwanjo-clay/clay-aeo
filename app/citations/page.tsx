@@ -498,8 +498,8 @@ function CitationActivityChart({ competitorTs }: {
   return (
     <>
       <div className="flex items-center mb-4">
-        <span style={LABEL}>Citation Share Over Time</span>
-        <InfoTip text="% of AI responses per day that cited each domain. Clay.com is always shown; top 5 other domains shown for comparison. All lines use the same metric so they're directly comparable." />
+        <span style={LABEL}>Citation Rate Over Time</span>
+        <InfoTip text="% of responses with citations that cited each domain. Clay.com is always shown; top 5 other domains shown for comparison. All lines use the same denominator (responses with any citations) so they're directly comparable." />
       </div>
       <ResponsiveContainer width="100%" height={210}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
@@ -632,7 +632,7 @@ export default function CitationsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard label="Citation Share"
+          <KpiCard label="Citation Rate"
             value={citShare?.current != null ? `${citShare.current.toFixed(1)}%` : '—'}
             delta={citDelta} deltaLabel="vs prev period" />
           <KpiCard label="Citation Count"
@@ -693,7 +693,7 @@ export default function CitationsPage() {
                   <th className="pb-2 px-3 text-right w-24" style={LABEL}>
                     <span className="inline-flex items-center justify-end gap-0.5">
                       Response %
-                      <InfoTip text="% of all AI responses in this period that cited this domain at least once. Same denominator as the Citation Share KPI above." />
+                      <InfoTip text="% of responses with citations that cited this domain at least once. Same denominator as the Citation Rate KPI above." />
                     </span>
                   </th>
                   <th style={{ width: '28px' }} />
