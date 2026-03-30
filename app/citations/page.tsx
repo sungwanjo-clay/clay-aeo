@@ -423,33 +423,33 @@ export default function CitationsPage() {
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      getCitationShare(supabase, f),
-      getCitationCount(supabase, f),
-      getCitationOverallTimeseries(supabase, f),
+      getCitationShare(supabase, f).catch(() => null),
+      getCitationCount(supabase, f).catch(() => null),
+      getCitationOverallTimeseries(supabase, f).catch(() => []),
     ]).then(([share, count, ts]) => {
-      setCitShare(share)
-      setCitCount(count)
-      setClayTs(ts)
+      if (share) setCitShare(share)
+      if (count) setCitCount(count)
+      setClayTs(ts ?? [])
       setLoading(false)
-    })
+    }).catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
 
-  // Slow: competitor ts + clay url types + top domains + gaps
+  // Slow: competitor ts + clay url types + top domains + gaps (each isolated)
   useEffect(() => {
     setLoadingExtra(true)
     Promise.all([
-      getCompetitorCitationTimeseries(supabase, f, 5),
-      getClayURLsByType(supabase, f),
-      getTopCitedDomainsEnhanced(supabase, f),
-      getCitationGaps(supabase, f),
+      getCompetitorCitationTimeseries(supabase, f, 5).catch(() => []),
+      getClayURLsByType(supabase, f).catch(() => []),
+      getTopCitedDomainsEnhanced(supabase, f).catch(() => []),
+      getCitationGaps(supabase, f).catch(() => []),
     ]).then(([compTs, urlTypes, domains, gapData]) => {
-      setCompetitorTs(compTs)
-      setClayUrlTypes(urlTypes)
-      setTopDomains(domains)
-      setGaps(gapData)
+      setCompetitorTs(compTs ?? [])
+      setClayUrlTypes(urlTypes ?? [])
+      setTopDomains(domains ?? [])
+      setGaps(gapData ?? [])
       setLoadingExtra(false)
-    })
+    }).catch(() => setLoadingExtra(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
 

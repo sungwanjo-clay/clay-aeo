@@ -354,22 +354,26 @@ export async function getClayURLsByType(
 ): Promise<ClayURLTypeGroup[]> {
   let query = sb
     .from('citation_domains')
-    .select('url, title, url_type, citation_type, platform, topic')
+    .select('url, title, url_type, citation_type, platform, topic, domain')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
-    .ilike('domain', '%clay%')
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data } = await query
+  const { data, error } = await query
+  if (error) { console.error('getClayURLsByType', error); return [] }
   if (!data?.length) return []
 
-  const grandTotal = data.length
+  // Filter to clay.com domains client-side (avoids ilike index issues)
+  const clayRows = data.filter(r => (r.domain ?? '').toLowerCase().includes('clay'))
+
+  if (!clayRows.length) return []
+  const grandTotal = clayRows.length
 
   type URLAcc = { count: number; title: string | null; topics: Set<string>; platforms: Set<string>; citation_type: string | null }
   const typeMap = new Map<string, Map<string, URLAcc>>()
 
-  for (const row of data) {
+  for (const row of clayRows) {
     const ut = row.url_type ?? 'Other'
     const url = row.url ?? ''
     if (!url) continue
@@ -434,7 +438,8 @@ export async function getTopCitedDomainsEnhanced(
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data } = await query
+  const { data, error } = await query
+  if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
   if (!data?.length) return []
 
   const total = data.length
