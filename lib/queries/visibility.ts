@@ -182,19 +182,29 @@ export async function getCompetitorLeaderboard(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  const [rcCur, rcPrev, totalCur, totalPrev] = await Promise.all([
-    sb.from('response_competitors')
-      .select('competitor_name, response_id')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('response_competitors')
-      .select('competitor_name, response_id')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+  // Step 1: get filtered response IDs for both periods — this is the source of truth
+  // for the denominator AND ensures RC is scoped to the same responses
+  const [curResponses, prevResponses] = await Promise.all([
     applyFilters(sb.from('responses').select('id'), f).then((r: any) => r.data ?? []),
     applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
   ])
 
-  const totalNow = totalCur.length
-  const totalPrevCount = totalPrev.length
+  const curIds: string[] = curResponses.map((r: any) => r.id)
+  const prevIds: string[] = prevResponses.map((r: any) => r.id)
+  const totalNow = curIds.length
+  const totalPrevCount = prevIds.length
+
+  if (totalNow === 0) return []
+
+  // Step 2: fetch RC rows only for the filtered response IDs
+  const [rcCur, rcPrev] = await Promise.all([
+    curIds.length
+      ? sb.from('response_competitors').select('competitor_name, response_id').in('response_id', curIds.slice(0, 5000))
+      : { data: [] },
+    prevIds.length
+      ? sb.from('response_competitors').select('competitor_name, response_id').in('response_id', prevIds.slice(0, 5000))
+      : { data: [] },
+  ])
 
   const curCounts = new Map<string, Set<string>>()
   for (const r of rcCur.data ?? []) {
@@ -337,16 +347,17 @@ export async function getShareOfVoice(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  let query = sb
+  // Filter by response IDs so topic/branded/promptType filters are respected
+  const { data: responses } = await applyFilters(sb.from('responses').select('id'), f)
+  if (!responses?.length) return []
+  const ids = responses.map((r: any) => r.id)
+
+  const { data } = await sb
     .from('response_competitors')
-    .select('competitor_name, run_date, platform')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .select('competitor_name, response_id')
+    .in('response_id', ids.slice(0, 5000))
 
-  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
-
-  const { data } = await query
-  if (!data || !data.length) return []
+  if (!data?.length) return []
 
   const counts = new Map<string, number>()
   let total = 0
@@ -389,6 +400,10 @@ export async function getAvgPosition(
 
     if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
     if (f.topics && f.topics.length > 0) q = q.in('topic', f.topics)
+    if (f.brandedFilter !== 'all') {
+      const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
+      q = q.eq('branded_or_non_branded', val)
+    }
     if (f.promptType === 'benchmark') q = q.eq('prompt_type', 'benchmark')
     else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
     if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)

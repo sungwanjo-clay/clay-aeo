@@ -4,6 +4,23 @@ import type { FilterParams, CompetitorRow } from './types'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
+function applyFilters(query: any, f: FilterParams): any {
+  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+  if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
+  if (f.brandedFilter !== 'all') {
+    const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
+    query = query.eq('branded_or_non_branded', val)
+  }
+  if (f.promptType === 'benchmark') {
+    query = query.eq('prompt_type', 'benchmark')
+  } else if (f.promptType === 'campaign') {
+    query = query.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+  }
+  if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
+  return query
+}
+
 /** Derive a search slug from a competitor name for domain matching.
  *  "Apollo.io" → "apollo", "Clay" → "clay", "HubSpot" → "hubspot" */
 function domainSlug(competitor: string): string {
@@ -37,17 +54,17 @@ export async function getClayKPIs(
   topTopic: string | null
   topPlatform: string | null
 }> {
+  const citPlatformFilter = (q: any) => f.platforms?.length ? q.in('platform', f.platforms) : q
+
   const [curData, prevData, citCur, citPrev] = await Promise.all([
-    sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('responses').select('clay_mentioned, cited_domains')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
-    sb.from('citation_domains').select('domain')
+    applyFilters(sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains'), f),
+    applyFilters(sb.from('responses').select('clay_mentioned, cited_domains'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+    citPlatformFilter(sb.from('citation_domains').select('domain')
       .gte('run_date', f.startDate).lte('run_date', f.endDate)
-      .ilike('domain', '%clay%'),
-    sb.from('citation_domains').select('domain')
+      .ilike('domain', '%clay%')),
+    citPlatformFilter(sb.from('citation_domains').select('domain')
       .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
-      .ilike('domain', '%clay%'),
+      .ilike('domain', '%clay%')),
   ])
 
   const cur = curData.data ?? []
@@ -98,11 +115,10 @@ export async function getClayVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data } = await sb
-    .from('responses')
-    .select('run_date, clay_mentioned')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+  const { data } = await applyFilters(
+    sb.from('responses').select('run_date, clay_mentioned'),
+    f
+  )
   if (!data) return []
 
   const map = new Map<string, { total: number; yes: number }>()

@@ -645,10 +645,10 @@ export default function CitationsPage() {
             delta={countDelta} deltaLabel="vs prev period" deltaIsCount />
           <KpiCard label="Citation Coverage"
             value={coverage?.coveragePct != null ? `${coverage.coveragePct.toFixed(1)}%` : '—'}
-            delta={null} deltaLabel="of responses cite any source" />
+            delta={null} deltaLabel="responses cite any source" />
           <KpiCard label="Avg per Response"
             value={coverage?.avgPerCited != null && coverage.avgPerCited > 0 ? coverage.avgPerCited.toFixed(1) : '—'}
-            delta={null} deltaLabel="domains cited per cited response" />
+            delta={null} deltaLabel="domains per cited response" />
         </div>
       )}
 
@@ -695,7 +695,12 @@ export default function CitationsPage() {
                   <th className="pb-2 pl-4 text-left w-10" style={LABEL}>#</th>
                   <th className="pb-2 text-left" style={LABEL}>Domain</th>
                   <th className="pb-2 px-3 text-left w-36" style={LABEL}>Category</th>
-                  <th className="pb-2 px-3 text-right w-20" style={LABEL}>Share</th>
+                  <th className="pb-2 px-3 text-right w-24" style={LABEL}>
+                    <span className="inline-flex items-center justify-end gap-0.5">
+                      Response %
+                      <InfoTip text="% of all AI responses in this period that cited this domain at least once. Same denominator as the Citation Share KPI above." />
+                    </span>
+                  </th>
                   <th style={{ width: '28px' }} />
                 </tr>
               </thead>

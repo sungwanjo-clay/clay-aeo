@@ -436,21 +436,28 @@ export async function getTopCitedDomainsEnhanced(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TopDomainRow[]> {
+  // Fetch citation rows and total response count in parallel
   let query = sb
     .from('citation_domains')
-    .select('domain, url, title, citation_type, url_type, responses(topic)')
+    .select('domain, url, title, citation_type, url_type, response_id, responses(topic)')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data, error } = await query.limit(5000)
+  const [{ data, error }, totalRes] = await Promise.all([
+    query.limit(5000),
+    applyResponseFilters(sb.from('responses').select('id'), f).limit(20000),
+  ])
+
   if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
   if (!data?.length) return []
 
-  const total = data.length
+  // Use total responses as denominator so share_pct matches the Citation Share KPI
+  const totalResponses = totalRes.data?.length ?? data.length
+
   type DomainAcc = {
-    count: number; is_clay: boolean; typeCounts: Map<string, number>
+    responseIds: Set<string>; is_clay: boolean; typeCounts: Map<string, number>
     urls: Map<string, { title: string | null; count: number; url_type: string | null; topics: Set<string> }>
   }
   const domainMap = new Map<string, DomainAcc>()
@@ -459,8 +466,8 @@ export async function getTopCitedDomainsEnhanced(
     const d = (row.domain ?? '').toLowerCase()
     if (!d) continue
     const topic: string | null = row.responses?.topic ?? null
-    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
-    cur.count++
+    const cur = domainMap.get(d) ?? { responseIds: new Set(), is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
+    if (row.response_id) cur.responseIds.add(row.response_id)
     if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
     if (row.url) {
       const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0, url_type: row.url_type ?? null, topics: new Set<string>() }
@@ -472,14 +479,15 @@ export async function getTopCitedDomainsEnhanced(
   }
 
   return Array.from(domainMap.entries())
-    .map(([domain, { count, is_clay, typeCounts, urls }]) => {
+    .map(([domain, { responseIds, is_clay, typeCounts, urls }]) => {
+      const citation_count = responseIds.size || [...urls.values()].reduce((s, u) => s + u.count, 0)
       const citation_type = typeCounts.size > 0
         ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
         : (is_clay ? 'Clay' : null)
       return {
         domain,
-        citation_count: count,
-        share_pct: total > 0 ? (count / total) * 100 : 0,
+        citation_count,
+        share_pct: totalResponses > 0 ? (citation_count / totalResponses) * 100 : 0,
         is_clay,
         citation_type,
         top_urls: Array.from(urls.entries())
