@@ -58,6 +58,10 @@ export default function CompetitorComparisonChart({
 
   const allKeys = ['Clay', ...competitors]
 
+  // Dynamic Y-axis max: 20% headroom, rounded to nearest 5, capped at 100
+  const allVals = chartData.flatMap(r => allKeys.map(k => Number(r[k] ?? 0)))
+  const yMax = Math.min(100, Math.ceil(Math.max(...allVals, 1) * 1.2 / 5) * 5)
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
@@ -74,7 +78,7 @@ export default function CompetitorComparisonChart({
           tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.5)' }}
           tickLine={false}
           axisLine={false}
-          domain={[0, 100]}
+          domain={[0, yMax]}
         />
         <Tooltip
           formatter={fmtVal}

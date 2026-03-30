@@ -285,7 +285,10 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
       {/* Line chart */}
       <div className="p-5" style={cardStyle}>
         <h2 style={labelStyle} className="mb-4">Visibility by PMM Solution</h2>
-        {chartData.length > 0 && groups.length > 0 ? (
+        {chartData.length > 0 && groups.length > 0 ? (() => {
+          const pmmAllVals = chartData.flatMap(r => groups.map(g => Number((r as any)[g!] ?? 0)))
+          const pmmYMax = Math.min(100, Math.ceil(Math.max(...pmmAllVals, 1) * 1.2 / 5) * 5)
+          return (
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
@@ -294,7 +297,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                 tickLine={false} axisLine={false} />
               <YAxis tickFormatter={v => `${Number(v).toFixed(0)}%`}
                 tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
-                tickLine={false} axisLine={false} width={36} domain={[0, 100]} />
+                tickLine={false} axisLine={false} width={36} domain={[0, pmmYMax]} />
               <Tooltip
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}
@@ -310,7 +313,8 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
               ))}
             </LineChart>
           </ResponsiveContainer>
-        ) : (
+          )
+        })() : (
           <p className="py-8 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM use case data</p>
         )}
       </div>

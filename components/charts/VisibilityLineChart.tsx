@@ -47,6 +47,10 @@ export default function VisibilityLineChart({
 }: VisibilityLineChartProps) {
   const { chartData, keys } = pivot(data, groupKey)
 
+  // Dynamic Y-axis max: 20% headroom above max value, rounded to nearest 5, capped at 100
+  const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
+  const yMax = Math.min(100, Math.ceil(Math.max(...allVals, 1) * 1.2 / 5) * 5)
+
   // Merge compare data as separate keys with _prev suffix
   let mergedData = chartData
   const compareKeys: string[] = []
@@ -84,7 +88,7 @@ export default function VisibilityLineChart({
           tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.5)' }}
           tickLine={false}
           axisLine={false}
-          domain={[0, 100]}
+          domain={[0, yMax]}
           label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: 11 } : undefined}
         />
         <Tooltip

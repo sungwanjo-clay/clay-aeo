@@ -44,7 +44,7 @@ export default function HomePage() {
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
   const [competitorVisTimeseries, setCompetitorVisTimeseries] = useState<{ date: string; competitor: string; value: number }[]>([])
-  const [showVisCompetitors, setShowVisCompetitors] = useState(false)
+  const [showVisCompetitors, setShowVisCompetitors] = useState(true)
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
@@ -126,27 +126,26 @@ export default function HomePage() {
     return avgPos.current - avgPos.previous
   }
 
-  // Build visibility trend chart data (Clay + optional top-5 competitors)
-  const visChartDates = [...new Set([
-    ...sparkData.map(r => r.date),
-    ...(showVisCompetitors ? competitorVisTimeseries.map(r => r.date) : []),
-  ])].sort()
+  // Build visibility trend chart data (Clay + top-5 competitors, always included)
   const visCompTotals = new Map<string, number>()
-  if (showVisCompetitors) {
-    for (const r of competitorVisTimeseries) {
-      visCompTotals.set(r.competitor, (visCompTotals.get(r.competitor) ?? 0) + r.value)
-    }
+  for (const r of competitorVisTimeseries) {
+    visCompTotals.set(r.competitor, (visCompTotals.get(r.competitor) ?? 0) + r.value)
   }
   const topVisComps = [...visCompTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c)
   const sparkLookup = new Map(sparkData.map(r => [r.date, r.value]))
   const visCompLookup = new Map(competitorVisTimeseries.map(r => [`${r.date}|||${r.competitor}`, r.value]))
+  const visChartDates = [...new Set([
+    ...sparkData.map(r => r.date),
+    ...competitorVisTimeseries.map(r => r.date),
+  ])].sort()
   const visChartData = visChartDates.map(date => {
     const row: Record<string, string | number> = { date, Clay: sparkLookup.get(date) ?? 0 }
-    if (showVisCompetitors) {
-      for (const c of topVisComps) row[c] = visCompLookup.get(`${date}|||${c}`) ?? 0
-    }
+    for (const c of topVisComps) row[c] = visCompLookup.get(`${date}|||${c}`) ?? 0
     return row
   })
+  // Dynamic Y-axis max: headroom above actual data, capped at 100
+  const visAllVals = visChartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
+  const visYMax = Math.min(100, Math.ceil(Math.max(...visAllVals, 1) * 1.2 / 5) * 5)
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
@@ -250,7 +249,7 @@ export default function HomePage() {
           {loading ? (
             <SkeletonChart />
           ) : visChartData.length > 1 ? (
-            <ResponsiveContainer width="100%" height={showVisCompetitors ? 140 : 100}>
+            <ResponsiveContainer width="100%" height={showVisCompetitors ? 180 : 110}>
               <LineChart data={visChartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
                 <XAxis
@@ -266,7 +265,7 @@ export default function HomePage() {
                   tickLine={false}
                   axisLine={false}
                   width={32}
-                  domain={[0, 100]}
+                  domain={[0, visYMax]}
                 />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -275,9 +274,7 @@ export default function HomePage() {
                   labelFormatter={(l: any) => formatShortDate(String(l))}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
-                {showVisCompetitors && (
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
-                )}
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
                 <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
                   dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
                 {showVisCompetitors && topVisComps.map((c, i) => (
