@@ -71,8 +71,8 @@ function DeltaBadge({ delta }: { delta: number | null }) {
   const pos = delta >= 0
   return (
     <span style={{
-      background: pos ? 'var(--clay-lime)' : '#FFE0DD',
-      color: pos ? 'var(--clay-black)' : 'var(--clay-pomegranate)',
+      background: pos ? 'rgba(61,184,204,0.15)' : '#FFE0DD',
+      color: pos ? 'var(--clay-slushie)' : 'var(--clay-pomegranate)',
       borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: 700,
       display: 'inline-flex', alignItems: 'center', gap: '2px',
     }}>

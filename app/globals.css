@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --background: #EDE8DC;
+  --background: #FFF2ED;
   --foreground: #1A1915;
   --clay-black: #1A1915;
-  --clay-oat: #EDE8DC;
+  --clay-oat: #FFF2ED;
   --clay-white: #FFFFFF;
   --clay-lime: #C8F040;
   --clay-tangerine: #FF6B35;
@@ -15,8 +15,8 @@
   --clay-slushie: #3DB8CC;
   --clay-border: rgba(29, 32, 38, 0.12);
   --clay-border-dashed: #E7E7E7;
-  --clay-positive-bg: rgba(200, 240, 64, 0.2);
-  --clay-positive-text: #3a6200;
+  --clay-positive-bg: rgba(61, 184, 204, 0.15);
+  --clay-positive-text: var(--clay-slushie);
   --clay-negative-bg: rgba(229, 54, 42, 0.1);
   --clay-negative-text: var(--clay-pomegranate);
 }

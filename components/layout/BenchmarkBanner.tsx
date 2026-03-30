@@ -13,7 +13,7 @@ export default function BenchmarkBanner() {
   return (
     <div
       className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider flex items-center gap-2"
-      style={{ background: 'var(--clay-lime)', borderBottom: '1px solid rgba(29,32,38,0.1)', color: 'var(--clay-black)' }}
+      style={{ background: 'rgba(61,184,204,0.12)', borderBottom: '1px solid rgba(61,184,204,0.25)', color: 'var(--clay-slushie)' }}
     >
       <span>Viewing:</span>
       <span>{tag}</span>

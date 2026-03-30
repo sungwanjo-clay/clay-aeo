@@ -49,8 +49,8 @@ export default function KpiCard({
             className="flex items-center gap-1 px-1.5 py-0.5"
             style={{
               borderRadius: '4px',
-              background: isGood === true ? 'var(--clay-lime)' : isGood === false ? '#FFE0DD' : '#F0F0EE',
-              color: isGood === true ? 'var(--clay-black)' : isGood === false ? 'var(--clay-pomegranate)' : 'rgba(26,25,21,0.5)',
+              background: isGood === true ? 'rgba(61,184,204,0.15)' : isGood === false ? '#FFE0DD' : '#F0F0EE',
+              color: isGood === true ? 'var(--clay-slushie)' : isGood === false ? 'var(--clay-pomegranate)' : 'rgba(26,25,21,0.5)',
             }}
           >
             {isUp === true && <TrendingUp size={11} />}

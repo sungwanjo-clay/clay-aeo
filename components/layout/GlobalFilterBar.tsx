@@ -137,7 +137,7 @@ export default function GlobalFilterBar() {
               position: 'absolute', top: '2px',
               left: filters.compareEnabled ? '18px' : '2px',
               width: '16px', height: '16px', borderRadius: '50%',
-              background: filters.compareEnabled ? 'var(--clay-lime)' : '#fff',
+              background: filters.compareEnabled ? 'var(--clay-slushie)' : '#fff',
               transition: 'left 0.2s',
               boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
             }} />

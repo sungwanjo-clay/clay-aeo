@@ -76,8 +76,8 @@ export default function CompetitorLeaderboard({ data, compareEnabled = false }: 
                         className="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5"
                         style={{
                           borderRadius: '4px',
-                          background: isUp ? 'var(--clay-lime)' : '#FFE0DD',
-                          color: isUp ? 'var(--clay-black)' : 'var(--clay-pomegranate)',
+                          background: isUp ? 'rgba(61,184,204,0.15)' : '#FFE0DD',
+                          color: isUp ? 'var(--clay-slushie)' : 'var(--clay-pomegranate)',
                         }}
                       >
                         {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}

@@ -62,13 +62,13 @@ export default function Sidebar() {
               )}
               style={{
                 borderRadius: '7px',
-                color: active ? 'var(--clay-black)' : 'rgba(26,25,21,0.6)',
-                background: active ? 'var(--clay-lime)' : 'transparent',
+                color: active ? '#FFFFFF' : 'rgba(26,25,21,0.6)',
+                background: active ? 'var(--clay-slushie)' : 'transparent',
               }}
             >
               <Icon
                 size={14}
-                style={{ color: active ? 'var(--clay-black)' : 'rgba(26,25,21,0.4)', flexShrink: 0 }}
+                style={{ color: active ? '#FFFFFF' : 'rgba(26,25,21,0.4)', flexShrink: 0 }}
               />
               {label}
             </Link>
