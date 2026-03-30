@@ -456,26 +456,30 @@ function ContentTypeRow({ urlType, total, grandTotal, urls }: {
 }
 
 // ── Citation activity chart ────────────────────────────────────────────────────
-// competitorTs includes clay.com as a pinned domain alongside top 5 competitors.
-// All lines use the same metric: citation_domains records / total responses per day.
-function CitationActivityChart({ competitorTs }: {
+// clay.com line uses citationRateKPI (period-aggregate from responses table) so it
+// always matches the KPI card. Competitor lines use per-day rates from competitorTs.
+function CitationActivityChart({ competitorTs, citationRateKPI }: {
   competitorTs: { date: string; domain: string; value: number }[]
+  citationRateKPI?: number | null
 }) {
   const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
-  // Separate clay.com from competitor domains
-  const allDates = [...new Set(competitorTs.map(r => r.date))].sort()
-  const compMap = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
+  const nonClayTs = competitorTs.filter(r => !r.domain.includes('clay.com'))
+  const allDates = [...new Set(nonClayTs.map(r => r.date))].sort()
+  const compMap = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const totals = new Map<string, number>()
-  for (const r of competitorTs) {
-    if (!r.domain.includes('clay')) totals.set(r.domain, (totals.get(r.domain) ?? 0) + r.value)
+  for (const r of nonClayTs) {
+    totals.set(r.domain, (totals.get(r.domain) ?? 0) + r.value)
   }
   const top5 = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d)
 
+  // Clay is a flat line at the KPI value — matches the Citation Rate KPI card exactly
+  const clayValue = citationRateKPI ?? 0
+
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
-    row['clay.com'] = compMap.get(`${date}|||clay.com`) ?? 0
+    row['clay.com'] = clayValue
     for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
     return row
   })
@@ -500,7 +504,7 @@ function CitationActivityChart({ competitorTs }: {
         </div>
         <div className="flex flex-wrap gap-4 py-2">
           {allDomains.map((domain, i) => {
-            const val = Number(d[domain] ?? 0)
+            const val = domain === 'clay.com' ? clayValue : Number(d[domain] ?? 0)
             const color = domain === 'clay.com' ? 'var(--clay-black)' : COMP_COLORS[(i - 1) % COMP_COLORS.length]
             return (
               <div key={domain} className="flex flex-col gap-0.5">
@@ -690,7 +694,7 @@ export default function CitationsPage() {
       {/* Citation Activity Chart */}
       <div style={CARD} className="p-4">
         {loading ? <SkeletonChart /> : (
-          <CitationActivityChart competitorTs={competitorTs} />
+          <CitationActivityChart competitorTs={competitorTs} citationRateKPI={citShare?.current} />
         )}
       </div>
 
