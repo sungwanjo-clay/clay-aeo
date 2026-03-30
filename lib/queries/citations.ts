@@ -329,3 +329,156 @@ export async function getTopCitedDomainsWithURLs(
     .sort((a, b) => b.citation_count - a.citation_count)
     .slice(0, 20)
 }
+
+// ── Clay citations grouped by URL type ───────────────────────────────────────
+
+export interface ClayURLItem {
+  url: string
+  title: string | null
+  count: number
+  topics: string[]
+  platforms: string[]
+  citation_type: string | null
+}
+
+export interface ClayURLTypeGroup {
+  url_type: string
+  total: number
+  share_pct: number   // % of Clay's total citations
+  urls: ClayURLItem[]
+}
+
+export async function getClayURLsByType(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<ClayURLTypeGroup[]> {
+  let query = sb
+    .from('citation_domains')
+    .select('url, title, url_type, citation_type, platform, topic')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .ilike('domain', '%clay%')
+
+  if (f.platforms?.length) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return []
+
+  const grandTotal = data.length
+
+  type URLAcc = { count: number; title: string | null; topics: Set<string>; platforms: Set<string>; citation_type: string | null }
+  const typeMap = new Map<string, Map<string, URLAcc>>()
+
+  for (const row of data) {
+    const ut = row.url_type ?? 'Other'
+    const url = row.url ?? ''
+    if (!url) continue
+
+    if (!typeMap.has(ut)) typeMap.set(ut, new Map())
+    const urlMap = typeMap.get(ut)!
+    const cur = urlMap.get(url) ?? { count: 0, title: row.title ?? null, topics: new Set(), platforms: new Set(), citation_type: row.citation_type ?? null }
+    cur.count++
+    if (row.topic) cur.topics.add(row.topic)
+    if (row.platform) cur.platforms.add(row.platform)
+    urlMap.set(url, cur)
+  }
+
+  return Array.from(typeMap.entries())
+    .map(([url_type, urlMap]) => {
+      const urls: ClayURLItem[] = Array.from(urlMap.entries())
+        .map(([url, acc]) => ({
+          url,
+          title: acc.title,
+          count: acc.count,
+          topics: Array.from(acc.topics).sort(),
+          platforms: Array.from(acc.platforms).sort(),
+          citation_type: acc.citation_type,
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 20)
+
+      const total = Array.from(urlMap.values()).reduce((s, u) => s + u.count, 0)
+      return { url_type, total, share_pct: grandTotal > 0 ? (total / grandTotal) * 100 : 0, urls }
+    })
+    .sort((a, b) => b.total - a.total)
+}
+
+// ── Top cited domains (enhanced, with url_type + topics per URL) ──────────────
+
+export interface TopDomainURL {
+  url: string
+  title: string | null
+  count: number
+  url_type: string | null
+  topics: string[]
+}
+
+export interface TopDomainRow {
+  domain: string
+  citation_count: number
+  share_pct: number
+  is_clay: boolean
+  citation_type: string | null
+  top_urls: TopDomainURL[]
+}
+
+export async function getTopCitedDomainsEnhanced(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<TopDomainRow[]> {
+  let query = sb
+    .from('citation_domains')
+    .select('domain, url, title, citation_type, url_type, topic')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+
+  if (f.platforms?.length) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return []
+
+  const total = data.length
+  type DomainAcc = {
+    count: number; is_clay: boolean; typeCounts: Map<string, number>
+    urls: Map<string, { title: string | null; count: number; url_type: string | null; topics: Set<string> }>
+  }
+  const domainMap = new Map<string, DomainAcc>()
+
+  for (const row of data) {
+    const d = (row.domain ?? '').toLowerCase()
+    if (!d) continue
+    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
+    cur.count++
+    if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
+    if (row.url) {
+      const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0, url_type: row.url_type ?? null, topics: new Set<string>() }
+      u.count++
+      if (row.topic) u.topics.add(row.topic)
+      cur.urls.set(row.url, u)
+    }
+    domainMap.set(d, cur)
+  }
+
+  return Array.from(domainMap.entries())
+    .map(([domain, { count, is_clay, typeCounts, urls }]) => {
+      const citation_type = typeCounts.size > 0
+        ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        : (is_clay ? 'Clay' : null)
+      return {
+        domain,
+        citation_count: count,
+        share_pct: total > 0 ? (count / total) * 100 : 0,
+        is_clay,
+        citation_type,
+        top_urls: Array.from(urls.entries())
+          .map(([url, u]) => ({
+            url, title: u.title, count: u.count, url_type: u.url_type,
+            topics: Array.from(u.topics).sort(),
+          }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 15),
+      }
+    })
+    .sort((a, b) => b.citation_count - a.citation_count)
+    .slice(0, 30)
+}
