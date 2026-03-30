@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { CompetitorRow } from '@/lib/queries/types'
 import { cn } from '@/lib/utils/cn'
 import DownloadButton, { downloadCSV } from '@/components/shared/DownloadButton'
+import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
 interface CompetitorRankTableProps {
   data: CompetitorRow[]
@@ -75,8 +76,11 @@ export default function CompetitorRankTable({ data }: CompetitorRankTableProps) 
                 >
                   <td className="px-3 py-2.5 text-gray-400 text-xs">{page * PAGE_SIZE + i + 1}</td>
                   <td className="px-3 py-2.5 font-medium text-gray-900">
-                    {row.competitor_name}
-                    {isClay && <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Clay</span>}
+                    <div className="flex items-center gap-2">
+                      <CompetitorIcon name={row.competitor_name} size={16} />
+                      {row.competitor_name}
+                      {isClay && <span className="ml-0.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Clay</span>}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-gray-700 tabular-nums">{row.mention_count.toLocaleString()}</td>
                   <td className="px-3 py-2.5 text-gray-700 tabular-nums">{row.sov_pct.toFixed(1)}%</td>

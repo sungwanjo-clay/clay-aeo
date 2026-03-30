@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import type { CompetitorRow } from '@/lib/queries/types'
+import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
 interface CompetitorLeaderboardProps {
   data: CompetitorRow[]
@@ -51,6 +52,7 @@ export default function CompetitorLeaderboard({ data, compareEnabled = false }: 
                 </td>
                 <td className="py-3">
                   <div className="flex items-center gap-2">
+                    <CompetitorIcon name={row.competitor_name} size={18} />
                     <span className="text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
                       {row.competitor_name}
                     </span>

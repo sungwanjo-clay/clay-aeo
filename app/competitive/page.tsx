@@ -40,6 +40,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from 'recharts'
+import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
 const LABEL = {
   color: 'rgba(26,25,21,0.45)',
@@ -644,6 +645,7 @@ export default function CompetitivePage() {
             <div key={w.competitor_name} className="flex items-center gap-2 py-2"
               style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
               <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px', fontWeight: 700, width: '16px', flexShrink: 0 }}>{i + 1}</span>
+              <CompetitorIcon name={w.competitor_name} size={16} />
               <button
                 className="flex-1 text-left text-[13px] font-semibold truncate hover:opacity-70 transition-opacity"
                 style={{ color: 'var(--clay-black)', background: 'none', border: 'none', padding: 0, cursor: selectedComps.includes(w.competitor_name) ? 'default' : 'pointer' }}

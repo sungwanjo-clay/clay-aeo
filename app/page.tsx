@@ -22,6 +22,7 @@ import { CHART_COLORS } from '@/lib/utils/colors'
 import CitationSection from '@/components/home/CitationSection'
 import PMMTopicsSection from '@/components/home/PMMTopicsSection'
 import ClaygentSection from '@/components/home/ClaygentSection'
+import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
 export default function HomePage() {
   const { filters, toQueryParams } = useGlobalFilters()
@@ -316,12 +317,7 @@ export default function HomePage() {
                       <td className="py-1.5 text-[11px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.3)', width: '20px' }}>{idx + 1}</td>
                       <td className="py-1.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
                         <span className="flex items-center gap-1.5">
-                          {isClay && (
-                            <span className="inline-flex items-center justify-center text-[8px] font-extrabold px-1 py-0.5 rounded leading-none"
-                              style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', letterSpacing: '-0.01em' }}>
-                              C
-                            </span>
-                          )}
+                          <CompetitorIcon name={row.competitor_name} size={16} />
                           {row.competitor_name}
                         </span>
                       </td>
