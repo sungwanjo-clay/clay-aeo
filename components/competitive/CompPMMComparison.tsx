@@ -51,8 +51,8 @@ function FullResponseBlock({ text }: { text: string }) {
 }
 
 // ── Response row ──────────────────────────────────────────────────────────────
-function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0]; selected: string }) {
-  const [open, setOpen] = useState(false)
+function CompResponseRow({ r, selected, defaultOpen = false }: { r: PMMCompPromptRow['responses'][0]; selected: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
   const hasDetail = !!(r.clay_mention_snippet || r.response_text)
   const clayYes = r.clay_mentioned === 'Yes'
   const compYes = r.competitor_mentioned
@@ -183,7 +183,7 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
               <span style={{ ...LABEL, fontSize: '9px', width: '80px' }}>Date</span>
               <span style={{ ...LABEL, fontSize: '9px' }}>Clay mentioned · Competitor mentioned</span>
             </div>
-            {visibleResponses.map(r => <CompResponseRow key={r.id} r={r} selected={selected} />)}
+            {visibleResponses.map((r, idx) => <CompResponseRow key={r.id} r={r} selected={selected} defaultOpen={idx < 4} />)}
             {p.responses.length > PROMPT_LIMIT && (
               <button
                 onClick={e => { e.stopPropagation(); setShowAllResponses(v => !v) }}

@@ -81,8 +81,8 @@ function FullResponseBlock({ text }: { text: string }) {
 }
 
 // ── Per-response detail row ────────────────────────────────────────────────
-function ResponseRow({ r }: { r: PMMPromptResponseRow }) {
-  const [open, setOpen] = useState(false)
+function ResponseRow({ r, defaultOpen = false }: { r: PMMPromptResponseRow; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
   const mentioned = r.clay_mentioned === 'Yes'
 
   return (
@@ -246,8 +246,8 @@ function PromptBlock({ p, colSpan }: { p: PMMPromptDrillRow; colSpan: number }) 
                   <span key={h} style={{ ...labelStyle, fontSize: '9px' }}>{h}</span>
                 ))}
               </div>
-              {/* Response rows */}
-              {p.responses.map(r => <ResponseRow key={r.id} r={r} />)}
+              {/* Response rows — first 4 auto-open showing snippet */}
+              {p.responses.map((r, idx) => <ResponseRow key={r.id} r={r} defaultOpen={idx < 4} />)}
             </div>
           </td>
         </tr>
@@ -319,7 +319,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
       <div className="p-5" style={cardStyle}>
         <h2 style={labelStyle} className="mb-1">PMM Breakdown</h2>
         <p className="text-[11px] font-semibold mb-4" style={{ color: 'rgba(26,25,21,0.4)' }}>
-          Click a row to expand prompts → click a prompt to see individual responses
+          Click a row to expand prompts → click a prompt to see responses with snippets
         </p>
         {table.length === 0 ? (
           <p className="py-6 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM data</p>

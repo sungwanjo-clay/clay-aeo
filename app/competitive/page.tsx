@@ -413,9 +413,17 @@ export default function CompetitivePage() {
   // Derived
   const isMulti = selectedComps.length > 1
   const nonClaySelected = selectedComps.filter(c => c !== 'Clay')
-  const topCompetitors = [...movers].sort((a, b) => b.current - a.current).slice(0, 5)
-  const biggestLosers = [...movers].filter(r => (r.delta ?? 0) < 0).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5)
-  const emerging = movers.filter(r => r.isNew)
+  // Patch Clay's visibility in movers to always match the KPI tile (getClayKPIs uses
+  // clay_mentioned='Yes' from responses; getWinnersAndLosers uses response_competitors — different sources)
+  const clayKpiScore = kpisMap['Clay']?.visibilityScore
+  const patchedMovers = movers.map(m =>
+    m.competitor_name === 'Clay' && clayKpiScore != null
+      ? { ...m, current: clayKpiScore }
+      : m
+  )
+  const topCompetitors = [...patchedMovers].sort((a, b) => b.current - a.current).slice(0, 5)
+  const biggestLosers = [...patchedMovers].filter(r => (r.delta ?? 0) < 0).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5)
+  const emerging = patchedMovers.filter(r => r.isNew)
 
   const heatmapComps = [...new Set(heatmap.map(d => d.competitor))].sort((a, b) => {
     const aS = heatmap.filter(d => d.competitor === a).reduce((s, r) => s + r.visibility_score, 0)
