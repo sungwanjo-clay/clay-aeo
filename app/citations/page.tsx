@@ -270,38 +270,6 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
   )
 }
 
-// ── Category group (grouped view) ──────────────────────────────────────────────
-function CategoryGroup({ typeName, domains, rankOffset }: {
-  typeName: string; domains: TopDomainRow[]; rankOffset: number
-}) {
-  const [open, setOpen] = useState(false)
-  const color = typeColor(typeName)
-  const total = domains.reduce((s, d) => s + d.citation_count, 0)
-  return (
-    <tbody>
-      <tr onClick={() => setOpen(v => !v)}
-        className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
-        style={{ background: `${color}08`, borderBottom: open ? 'none' : '1px solid rgba(26,25,21,0.07)' }}>
-        <td className="py-2.5 pl-4" colSpan={2}>
-          <div className="flex items-center gap-2">
-            {open ? <ChevronDown size={12} style={{ color }} /> : <ChevronRight size={12} style={{ color }} />}
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-              style={{ background: `${color}18`, color, border: `1px solid ${color}30` }}>{typeName}</span>
-            <span className="text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.5)' }}>
-              {domains.length} domain{domains.length !== 1 ? 's' : ''} · {total.toLocaleString()} citations
-            </span>
-          </div>
-        </td>
-        <td colSpan={3} />
-      </tr>
-      {open && domains.map((row, i) => (
-        <DomainRowItem key={row.domain} row={row} rank={rankOffset + i + 1} />
-      ))}
-      {!open && <tr style={{ height: 0 }} />}
-    </tbody>
-  )
-}
-
 // ── Clay citations by content type ─────────────────────────────────────────────
 function ClayURLTypeRow({ group, totalCitations }: { group: ClayURLTypeGroup; totalCitations: number }) {
   const [open, setOpen] = useState(true)
@@ -642,18 +610,6 @@ export default function CitationsPage() {
     return list
   }, [topDomains, selectedType, domainSearch])
 
-  const groupedDomains = useMemo(() => {
-    const map = new Map<string, TopDomainRow[]>()
-    for (const d of topDomains.slice(0, 20)) {
-      const t = d.citation_type ?? 'Other'
-      if (!map.has(t)) map.set(t, [])
-      map.get(t)!.push(d)
-    }
-    return [...map.entries()].sort((a, b) =>
-      b[1].reduce((s, d) => s + d.citation_count, 0) - a[1].reduce((s, d) => s + d.citation_count, 0)
-    )
-  }, [topDomains])
-
   // Aggregate all domains' URLs by url_type (for Content Types section)
   const contentTypeGroups = useMemo(() => {
     const map = new Map<string, { total: number; urls: Array<{ url: string; title: string | null; domain: string; count: number; topics: string[] }> }>()
@@ -727,12 +683,12 @@ export default function CitationsPage() {
           <div>
             <div className="flex items-center">
               <span style={LABEL}>Top Cited Domains</span>
-              <InfoTip text="Websites most frequently cited by AI. Grouped by citation category by default. Click a category in the bar above to filter." />
+              <InfoTip text="Websites most frequently cited by AI. Click a category in the bar above to filter. Expand any domain to see the individual pages cited." />
             </div>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(26,25,21,0.45)' }}>
               {selectedType
                 ? `Filtered to ${selectedType} — ${displayDomains.length} domain${displayDomains.length !== 1 ? 's' : ''}`
-                : 'Top 20 domains grouped by citation type. Expand a group to see domains, expand a domain to see pages.'}
+                : `Top ${displayDomains.length} domains · expand any row to see cited pages`}
             </p>
           </div>
           <input type="text" value={domainSearch} onChange={e => setDomainSearch(e.target.value)}
@@ -741,48 +697,26 @@ export default function CitationsPage() {
         </div>
 
         {loadingExtra ? <SkeletonChart /> : (
-          <>
-            {(selectedType || domainSearch) ? (
-              displayDomains.length === 0 ? (
-                <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No domains match</div>
-              ) : (
-                <table className="w-full mt-3">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
-                      <th className="pb-2 pl-4 text-left w-10" style={LABEL}>#</th>
-                      <th className="pb-2 text-left" style={LABEL}>Domain</th>
-                      <th className="pb-2 px-3 text-left w-36" style={LABEL}>Category</th>
-                      <th className="pb-2 px-3 text-right w-20" style={LABEL}>Share</th>
-                      <th style={{ width: '28px' }} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayDomains.map((row, i) => <DomainRowItem key={row.domain} row={row} rank={i + 1} />)}
-                  </tbody>
-                </table>
-              )
-            ) : (
-              topDomains.length === 0 ? (
-                <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No domain citation data</div>
-              ) : (
-                <table className="w-full mt-3">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
-                      <th className="pb-2 pl-4 text-left w-10" style={LABEL}>#</th>
-                      <th className="pb-2 text-left" style={LABEL}>Domain</th>
-                      <th className="pb-2 px-3 text-left w-36" style={LABEL}>Category</th>
-                      <th className="pb-2 px-3 text-right w-20" style={LABEL}>Share</th>
-                      <th style={{ width: '28px' }} />
-                    </tr>
-                  </thead>
-                  {groupedDomains.map(([typeName, domains], gi) => (
-                    <CategoryGroup key={typeName} typeName={typeName} domains={domains}
-                      rankOffset={groupedDomains.slice(0, gi).reduce((s, [, ds]) => s + ds.length, 0)} />
-                  ))}
-                </table>
-              )
-            )}
-          </>
+          displayDomains.length === 0 ? (
+            <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
+              {topDomains.length === 0 ? 'No domain citation data' : 'No domains match'}
+            </div>
+          ) : (
+            <table className="w-full mt-3">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
+                  <th className="pb-2 pl-4 text-left w-10" style={LABEL}>#</th>
+                  <th className="pb-2 text-left" style={LABEL}>Domain</th>
+                  <th className="pb-2 px-3 text-left w-36" style={LABEL}>Category</th>
+                  <th className="pb-2 px-3 text-right w-20" style={LABEL}>Share</th>
+                  <th style={{ width: '28px' }} />
+                </tr>
+              </thead>
+              <tbody>
+                {displayDomains.map((row, i) => <DomainRowItem key={row.domain} row={row} rank={i + 1} />)}
+              </tbody>
+            </table>
+          )
         )}
       </div>
 
