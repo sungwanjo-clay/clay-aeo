@@ -494,3 +494,69 @@ export async function getTopCitedDomainsEnhanced(
     .sort((a, b) => b.citation_count - a.citation_count)
     .slice(0, 30)
 }
+
+// ── Citation activity timeseries from citation_domains ─────────────────────────
+// Uses the citation_domains table (not cited_domains on responses) so it works
+// even when cited_domains column is unpopulated.
+export async function getCitationActivityTimeseries(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; clayShare: number; total: number }[]> {
+  let q = sb
+    .from('citation_domains')
+    .select('run_date, domain')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+
+  if (f.platforms?.length) q = q.in('platform', f.platforms)
+
+  const { data, error } = await (q as any).limit(50000)
+  if (error) { console.error('getCitationActivityTimeseries', error); return [] }
+  if (!data?.length) return []
+
+  const byDate = new Map<string, { total: number; clay: number }>()
+  for (const r of data) {
+    const date = (r.run_date ?? '').substring(0, 10)
+    if (!date) continue
+    const cur = byDate.get(date) ?? { total: 0, clay: 0 }
+    cur.total++
+    if ((r.domain ?? '').toLowerCase().includes('clay')) cur.clay++
+    byDate.set(date, cur)
+  }
+
+  return [...byDate.entries()]
+    .map(([date, { total, clay }]) => ({
+      date,
+      total,
+      clayShare: total > 0 ? (clay / total) * 100 : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// ── Citation coverage: % of responses with any citation + avg per cited ────────
+export async function getCitationCoverage(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ coveragePct: number; avgPerCited: number }> {
+  const { data, error } = await applyResponseFilters(
+    sb.from('responses').select('cited_domains'),
+    f
+  ).limit(10000)
+  if (error || !data?.length) return { coveragePct: 0, avgPerCited: 0 }
+
+  let withCitations = 0
+  let totalDomains = 0
+
+  for (const r of data) {
+    const domains = Array.isArray(r.cited_domains) ? r.cited_domains : []
+    if (domains.length > 0) {
+      withCitations++
+      totalDomains += domains.length
+    }
+  }
+
+  return {
+    coveragePct: (withCitations / data.length) * 100,
+    avgPerCited: withCitations > 0 ? totalDomains / withCitations : 0,
+  }
+}
