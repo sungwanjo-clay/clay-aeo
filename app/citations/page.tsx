@@ -447,7 +447,6 @@ function CitationActivityChart({ activityTs, competitorTs }: {
   activityTs: { date: string; clayShare: number; total: number }[]
   competitorTs: { date: string; domain: string; value: number }[]
 }) {
-  const [showComp, setShowComp] = useState(false)
   const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
 
   const totals = new Map<string, number>()
@@ -466,7 +465,7 @@ function CitationActivityChart({ activityTs, competitorTs }: {
       date,
       Clay: activityMap.get(date)?.clayShare ?? 0,
     }
-    if (showComp) for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
+    for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
     return row
   })
 
@@ -500,23 +499,11 @@ function CitationActivityChart({ activityTs, competitorTs }: {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center">
-          <span style={LABEL}>Citation Share Over Time</span>
-          <InfoTip text="Clay's share of all AI citations per day. Clay citations ÷ total citations in citation_domains table." />
-        </div>
-        {competitorTs.length > 0 && (
-          <button onClick={() => setShowComp(v => !v)}
-            className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded transition-colors"
-            style={{
-              background: showComp ? 'var(--clay-black)' : 'rgba(26,25,21,0.06)',
-              color: showComp ? 'white' : 'rgba(26,25,21,0.55)',
-            }}>
-            {showComp ? 'Hide competitors' : 'Show top 5 competitors'}
-          </button>
-        )}
+      <div className="flex items-center mb-4">
+        <span style={LABEL}>Citation Share Over Time</span>
+        <InfoTip text="% of responses that cited each domain per day. Clay always shown; top 5 competitor domains shown alongside for comparison." />
       </div>
-      <ResponsiveContainer width="100%" height={showComp ? 210 : 180}>
+      <ResponsiveContainer width="100%" height={top5.length > 0 ? 210 : 180}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
           <XAxis dataKey="date" tickFormatter={(v: any) => formatShortDate(v)}
@@ -528,14 +515,14 @@ function CitationActivityChart({ activityTs, competitorTs }: {
             labelFormatter={(l: any) => formatShortDate(String(l))}
             contentStyle={{ fontSize: 11, border: '1px solid var(--clay-border)', borderRadius: '8px' }}
           />
-          {showComp && <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />}
-          <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
-          {showComp && top5.map((d, i) => (
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+          {top5.map((d, i) => (
             <Line key={d} type="monotone" dataKey={d}
               stroke={COMP_COLORS[i % COMP_COLORS.length]}
               strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d} />
           ))}
+          <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
         </LineChart>
       </ResponsiveContainer>
     </>
