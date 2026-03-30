@@ -107,17 +107,6 @@ function SnippetCard({ s }: { s: SentimentThemeSnippet }) {
       {/* Expanded */}
       {open && (
         <div className="px-3 pb-3 pt-2 space-y-2" style={{ borderTop: `1px solid ${style.border}` }}>
-          {s.theme_snippet && (
-            <div className="rounded px-2.5 py-2"
-              style={{ background: `${style.bg}`, border: `1px solid ${style.border}` }}>
-              <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: style.text, opacity: 0.8 }}>
-                Theme snippet
-              </p>
-              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
-                &ldquo;{stripMarkdown(s.theme_snippet)}&rdquo;
-              </p>
-            </div>
-          )}
           {s.positioning_vs_competitors && (
             <div className="rounded px-2.5 py-2"
               style={{ background: 'rgba(74,90,255,0.05)', border: '1px solid rgba(74,90,255,0.18)' }}>
