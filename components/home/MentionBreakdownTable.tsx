@@ -61,8 +61,8 @@ function FullResponseBlock({ text }: { text: string }) {
 }
 
 // ── Single response row ─────────────────────────────────────────────────────
-function ResponseRow({ r, accentColor }: { r: MentionResponseRow; accentColor: string }) {
-  const [open, setOpen] = useState(false)
+function ResponseRow({ r, accentColor, defaultOpen }: { r: MentionResponseRow; accentColor: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen ?? false)
   const hasDetail = !!(r.snippet || r.response_text)
 
   return (
@@ -146,8 +146,8 @@ function ResponseRow({ r, accentColor }: { r: MentionResponseRow; accentColor: s
 }
 
 // ── Prompt row (expands to responses) ──────────────────────────────────────
-function PromptRow({ p, accentColor }: { p: MentionPromptRow; accentColor: string }) {
-  const [open, setOpen] = useState(false)
+function PromptRow({ p, accentColor, defaultOpen }: { p: MentionPromptRow; accentColor: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen ?? false)
 
   return (
     <React.Fragment>
@@ -183,7 +183,7 @@ function PromptRow({ p, accentColor }: { p: MentionPromptRow; accentColor: strin
                   <span key={h} style={labelStyle}>{h}</span>
                 ))}
               </div>
-              {p.responses.map(r => <ResponseRow key={r.id} r={r} accentColor={accentColor} />)}
+              {p.responses.map((r, idx) => <ResponseRow key={r.id} r={r} accentColor={accentColor} defaultOpen={defaultOpen && idx < 4} />)}
             </div>
           </td>
         </tr>
@@ -234,7 +234,7 @@ function TopicRow({ topic, accentColor }: { topic: MentionTopicRow; accentColor:
               </div>
               <table className="w-full">
                 <tbody>
-                  {visible.map(p => <PromptRow key={p.prompt_id} p={p} accentColor={accentColor} />)}
+                  {visible.map((p, idx) => <PromptRow key={p.prompt_id} p={p} accentColor={accentColor} defaultOpen={idx < 4} />)}
                 </tbody>
               </table>
               {topic.prompts.length > PROMPT_LIMIT && (
