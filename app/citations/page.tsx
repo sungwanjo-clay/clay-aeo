@@ -474,22 +474,33 @@ function CitationActivityChart({ competitorTs }: {
     )
   }
 
-  // Single data point — show metrics instead of a line
+  // Single data point — show all domain metrics as stat cards
   if (chartData.length === 1) {
     const d = chartData[0]
-    const clayVal = Number(d['clay.com'])
+    const allDomains = ['clay.com', ...top5]
     return (
-      <div className="flex flex-wrap items-end gap-6 py-6">
-        <div>
-          <p className="text-3xl font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-            {clayVal.toFixed(1)}%
-          </p>
-          <p className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.4)' }}>
-            clay.com citation rate · {d.date as string}
-          </p>
+      <div>
+        <div className="flex items-center mb-3">
+          <span style={LABEL}>Citation Rate Over Time</span>
+          <InfoTip text="% of responses with citations that cited each domain. Only 1 data point so far — run again tomorrow to see a trend." />
         </div>
-        <p className="text-xs" style={{ color: 'rgba(26,25,21,0.4)' }}>
-          Only 1 data point — run again tomorrow to see a trend.
+        <div className="flex flex-wrap gap-4 py-2">
+          {allDomains.map((domain, i) => {
+            const val = Number(d[domain] ?? 0)
+            const color = domain === 'clay.com' ? 'var(--clay-black)' : COMP_COLORS[(i - 1) % COMP_COLORS.length]
+            return (
+              <div key={domain} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.4)' }}>{domain}</span>
+                </div>
+                <p className="text-2xl font-bold tabular-nums" style={{ color }}>{val.toFixed(1)}%</p>
+              </div>
+            )
+          })}
+        </div>
+        <p className="text-[10px] mt-2" style={{ color: 'rgba(26,25,21,0.4)' }}>
+          {d.date as string} · Only 1 data point — run again tomorrow to see a trend.
         </p>
       </div>
     )
