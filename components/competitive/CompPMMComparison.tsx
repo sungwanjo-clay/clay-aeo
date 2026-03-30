@@ -54,57 +54,73 @@ function FullResponseBlock({ text }: { text: string }) {
 function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0]; selected: string }) {
   const [open, setOpen] = useState(false)
   const hasDetail = !!(r.clay_mention_snippet || r.response_text)
-
   const clayYes = r.clay_mentioned === 'Yes'
   const compYes = r.competitor_mentioned
+  const showComp = selected !== 'Clay'
 
   return (
-    <div style={{ borderBottom: '1px solid rgba(26,25,21,0.05)', background: open ? 'rgba(26,25,21,0.01)' : 'transparent' }}>
+    <div style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
       <div
-        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+        className={`flex items-center gap-3 px-3 py-2.5 ${hasDetail ? 'cursor-pointer hover:bg-[rgba(26,25,21,0.02)]' : ''} transition-colors`}
         onClick={() => hasDetail && setOpen(v => !v)}
       >
-        {/* Platform */}
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
-          style={{ background: getPlatformColor(r.platform) + '20', color: getPlatformColor(r.platform), minWidth: '56px', textAlign: 'center' }}>
+        {/* Platform badge */}
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded shrink-0"
+          style={{ background: getPlatformColor(r.platform) + '20', color: getPlatformColor(r.platform), minWidth: '52px', textAlign: 'center' }}>
           {r.platform}
         </span>
-        {/* Date */}
-        <span className="text-[11px] tabular-nums shrink-0" style={{ color: 'rgba(26,25,21,0.45)', width: '72px' }}>{r.run_date}</span>
 
-        {/* Mention status — clear side-by-side */}
-        <div className="flex items-center gap-2 flex-1">
-          {/* Clay */}
-          <div className="flex items-center gap-1 rounded px-2 py-1"
-            style={{ background: clayYes ? 'rgba(200,240,64,0.15)' : 'rgba(229,54,42,0.07)', border: `1px solid ${clayYes ? 'rgba(200,240,64,0.4)' : 'rgba(229,54,42,0.2)'}` }}>
-            <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'rgba(26,25,21,0.5)' }}>Clay</span>
-            <span className="text-[11px] font-bold" style={{ color: clayYes ? '#3a6200' : 'var(--clay-pomegranate)' }}>
-              {clayYes ? '✓' : '✗'}
-            </span>
+        {/* Date */}
+        <span className="text-[11px] tabular-nums shrink-0 w-20" style={{ color: 'rgba(26,25,21,0.45)' }}>
+          {r.run_date}
+        </span>
+
+        {/* Clay mention indicator */}
+        <div className="flex items-center gap-1.5">
+          <div className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded`}
+            style={{
+              background: clayYes ? 'rgba(200,240,64,0.2)' : 'rgba(229,54,42,0.07)',
+              color: clayYes ? '#3a6200' : 'var(--clay-pomegranate)',
+              border: `1px solid ${clayYes ? 'rgba(200,240,64,0.5)' : 'rgba(229,54,42,0.2)'}`,
+            }}>
+            <span>{clayYes ? '✓' : '✗'}</span>
+            <span className="text-[9px] font-bold uppercase tracking-wide">Clay</span>
           </div>
-          {/* Competitor */}
-          <div className="flex items-center gap-1 rounded px-2 py-1"
-            style={{ background: compYes ? 'rgba(74,90,255,0.1)' : 'rgba(26,25,21,0.05)', border: `1px solid ${compYes ? 'rgba(74,90,255,0.25)' : 'rgba(26,25,21,0.1)'}` }}>
-            <span className="text-[9px] font-bold uppercase tracking-wide truncate" style={{ color: 'rgba(26,25,21,0.5)', maxWidth: '60px' }}>{selected}</span>
-            <span className="text-[11px] font-bold" style={{ color: compYes ? '#4A5AFF' : 'rgba(26,25,21,0.35)' }}>
-              {compYes ? '✓' : '✗'}
-            </span>
-          </div>
+
+          {/* Competitor mention indicator — only when a non-Clay competitor is selected */}
+          {showComp && (
+            <div className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded`}
+              style={{
+                background: compYes ? 'rgba(74,90,255,0.1)' : 'rgba(26,25,21,0.05)',
+                color: compYes ? '#4A5AFF' : 'rgba(26,25,21,0.35)',
+                border: `1px solid ${compYes ? 'rgba(74,90,255,0.25)' : 'rgba(26,25,21,0.1)'}`,
+              }}>
+              <span>{compYes ? '✓' : '✗'}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wide truncate" style={{ maxWidth: '64px' }}>{selected}</span>
+            </div>
+          )}
         </div>
 
-        {hasDetail
-          ? open
-            ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
-            : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
-          : null}
+        <div className="flex-1" />
+
+        {/* Expand hint */}
+        {hasDetail && (
+          <span className="text-[10px] font-semibold shrink-0" style={{ color: 'rgba(26,25,21,0.3)' }}>
+            {open ? '↑' : 'View response ↓'}
+          </span>
+        )}
       </div>
 
+      {/* Expanded detail */}
       {open && (
-        <div className="px-3 pb-3 space-y-2">
+        <div className="px-3 pb-3 space-y-2" style={{ borderTop: '1px solid rgba(26,25,21,0.05)', background: 'rgba(26,25,21,0.01)' }}>
           {r.clay_mention_snippet && (
-            <div className="rounded px-2.5 py-2" style={{ background: 'rgba(200,240,64,0.1)', border: '1px solid rgba(200,240,64,0.3)' }}>
-              <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>Clay mention snippet</p>
-              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
+            <div className="rounded-lg px-3 py-2 mt-2"
+              style={{ background: 'rgba(200,240,64,0.08)', border: '1px solid rgba(200,240,64,0.25)' }}>
+              <p className="text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: 'rgba(26,25,21,0.45)' }}>
+                How Clay was mentioned
+              </p>
+              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
                 &ldquo;{stripMarkdown(r.clay_mention_snippet)}&rdquo;
               </p>
             </div>
@@ -163,9 +179,9 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
             {/* Response sub-header */}
             <div className="flex items-center gap-2 px-3 py-1.5"
               style={{ background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
-              <span style={{ ...LABEL, fontSize: '9px', width: '56px' }}>Platform</span>
-              <span style={{ ...LABEL, fontSize: '9px', width: '72px' }}>Date</span>
-              <span style={{ ...LABEL, fontSize: '9px' }}>Mentioned in response</span>
+              <span style={{ ...LABEL, fontSize: '9px', width: '52px' }}>Platform</span>
+              <span style={{ ...LABEL, fontSize: '9px', width: '80px' }}>Date</span>
+              <span style={{ ...LABEL, fontSize: '9px' }}>Clay mentioned · Competitor mentioned</span>
             </div>
             {visibleResponses.map(r => <CompResponseRow key={r.id} r={r} selected={selected} />)}
             {p.responses.length > PROMPT_LIMIT && (
@@ -297,10 +313,9 @@ interface Props {
   selectedComps: string[]
   selected: string   // activeComp for drilldown
   onDrilldown: (pmmUseCase: string) => Promise<PMMCompPromptRow[]>
-  headerSlot?: React.ReactNode
 }
 
-export default function CompPMMComparison({ allRows, selectedComps, selected, onDrilldown, headerSlot }: Props) {
+export default function CompPMMComparison({ allRows, selectedComps, selected, onDrilldown }: Props) {
   const [drillCache, setDrillCache] = useState<Record<string, PMMCompPromptRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
 
@@ -347,7 +362,6 @@ export default function CompPMMComparison({ allRows, selectedComps, selected, on
 
   return (
     <div style={CARD} className="p-4">
-      {headerSlot}
       <div style={LABEL} className="mb-1">
         Visibility by PMM Topic — {nonClayComps.length > 0 ? `${nonClayComps.join(', ')} vs Clay` : 'Clay'}
       </div>

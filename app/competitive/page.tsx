@@ -19,14 +19,12 @@ import {
   getPromptsForCitation,
   getCompetitorPMMComparison,
   getCompetitorPMMPromptDrilldown,
-  getCompetitorSentimentVsClay,
 } from '@/lib/queries/competitive'
 import type {
   CitationFlatItem,
   CitationPromptRow,
   PMMCompRow,
   PMMCompPromptRow,
-  SentimentVsClayData,
 } from '@/lib/queries/competitive'
 import KpiCard from '@/components/cards/KpiCard'
 import HeatmapMatrix from '@/components/charts/HeatmapMatrix'
@@ -35,7 +33,7 @@ import { getPlatformColor, CHART_COLORS } from '@/lib/utils/colors'
 import { formatShortDate } from '@/lib/utils/formatters'
 import CompCitationProfile from '@/components/competitive/CompCitationProfile'
 import CompPMMComparison from '@/components/competitive/CompPMMComparison'
-import CompSentimentVsClay from '@/components/competitive/CompSentimentVsClay'
+import CompTopicGap from '@/components/competitive/CompTopicGap'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -196,7 +194,6 @@ export default function CompetitivePage() {
 
   const [loading, setLoading] = useState(true)
   const [loadingExtra, setLoadingExtra] = useState(true)
-  const [loadingSentiment, setLoadingSentiment] = useState(true)
 
   // Competitor list + multi-select
   const [competitors, setCompetitors] = useState<string[]>([])
@@ -216,7 +213,6 @@ export default function CompetitivePage() {
   // Drill-down data
   const [citations, setCitations] = useState<CitationFlatItem[]>([])
   const [pmmRowsMap, setPmmRowsMap] = useState<Record<string, PMMCompRow[]>>({})
-  const [sentimentData, setSentimentData] = useState<SentimentVsClayData | null>(null)
 
   // Citation drill-down cache
   const [citPromptCache, setCitPromptCache] = useState<Record<string, CitationPromptRow[]>>({})
@@ -355,24 +351,17 @@ export default function CompetitivePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
 
-  // Slow effect A: citations + sentiment for activeComp
+  // Slow effect A: citations for activeComp
   useEffect(() => {
     if (!activeComp) return
     setLoadingExtra(true)
-    setLoadingSentiment(true)
     setCitPromptCache({})
-    Promise.all([
-      getCompetitorCitationsFlat(supabase, f, activeComp).catch(() => []),
-      getCompetitorSentimentVsClay(supabase, f, activeComp).catch(() => null),
-    ]).then(([cit, sentiment]) => {
-      setCitations(cit as CitationFlatItem[])
-      setSentimentData(sentiment as SentimentVsClayData | null)
-      setLoadingExtra(false)
-      setLoadingSentiment(false)
-    }).catch(() => {
-      setLoadingExtra(false)
-      setLoadingSentiment(false)
-    })
+    getCompetitorCitationsFlat(supabase, f, activeComp)
+      .then(cit => {
+        setCitations(cit as CitationFlatItem[])
+        setLoadingExtra(false)
+      })
+      .catch(() => setLoadingExtra(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, activeComp])
 
@@ -683,16 +672,14 @@ export default function CompetitivePage() {
           selectedComps={selectedComps}
           selected={activeComp}
           onDrilldown={handlePMMDrilldown}
-          headerSlot={drillTabs}
         />
       )}
 
-      {/* Sentiment vs Clay */}
-      <CompSentimentVsClay
-        data={sentimentData}
-        selected={activeComp}
-        loading={loadingSentiment}
-        headerSlot={drillTabs}
+      {/* Topic Visibility Gap */}
+      <CompTopicGap
+        allRows={pmmRowsMap}
+        selectedComps={selectedComps}
+        loading={Object.keys(pmmRowsMap).length === 0}
       />
 
       {/* Citation Profile */}

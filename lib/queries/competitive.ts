@@ -217,8 +217,8 @@ export async function getWinnersAndLosers(
     sb.from('response_competitors')
       .select('competitor_name, response_id')
       .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
-    sb.from('responses').select('id').gte('run_date', f.startDate).lte('run_date', f.endDate).then(r => r.data ?? []),
-    sb.from('responses').select('id').gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate).then(r => r.data ?? []),
+    applyFilters(sb.from('responses').select('id'), f).limit(20000).then(r => r.data ?? []),
+    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).limit(20000).then(r => r.data ?? []),
   ])
 
   const totalNow = totalCur.length
