@@ -491,6 +491,272 @@ export async function getCompetitorVsClayTimeseries(
   })
 }
 
+// ── Citation profile grouped by type (with response_id linkage) ─────────────
+
+export interface CitationItem {
+  url: string
+  title: string | null
+  domain: string
+  count: number
+  response_ids: string[]
+}
+
+export interface CitationTypeGroup {
+  citation_type: string
+  total: number
+  citations: CitationItem[]
+}
+
+export async function getCompetitorCitationsByType(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string
+): Promise<CitationTypeGroup[]> {
+  const slug = domainSlug(competitor)
+
+  let query = sb.from('citation_domains')
+    .select('url, title, domain, citation_type, response_id')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .ilike('domain', `%${slug}%`)
+
+  if (f.platforms?.length) query = query.in('platform', f.platforms)
+
+  const { data } = await query
+  if (!data?.length) return []
+
+  // Group by citation_type → url
+  const typeMap = new Map<string, Map<string, CitationItem>>()
+
+  for (const row of data) {
+    const type = row.citation_type ?? 'Other'
+    const url = row.url ?? ''
+    if (!url) continue
+
+    if (!typeMap.has(type)) typeMap.set(type, new Map())
+    const urlMap = typeMap.get(type)!
+
+    const cur = urlMap.get(url) ?? {
+      url, title: row.title ?? null, domain: (row.domain ?? '').toLowerCase(), count: 0, response_ids: [],
+    }
+    cur.count++
+    if (row.response_id) cur.response_ids.push(row.response_id)
+    urlMap.set(url, cur)
+  }
+
+  return Array.from(typeMap.entries())
+    .map(([citation_type, urlMap]) => ({
+      citation_type,
+      total: Array.from(urlMap.values()).reduce((s, v) => s + v.count, 0),
+      citations: Array.from(urlMap.values()).sort((a, b) => b.count - a.count).slice(0, 20),
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
+// ── Prompts/responses that drove a given citation ────────────────────────────
+
+export interface CitationResponseRow {
+  id: string
+  platform: string
+  run_date: string
+  clay_mentioned: string | null
+  clay_mention_snippet: string | null
+}
+
+export interface CitationPromptRow {
+  prompt_id: string
+  prompt_text: string
+  responses: CitationResponseRow[]
+}
+
+export async function getPromptsForCitation(
+  sb: SupabaseClient,
+  responseIds: string[]
+): Promise<CitationPromptRow[]> {
+  if (!responseIds.length) return []
+
+  const { data: responses } = await sb
+    .from('responses')
+    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet')
+    .in('id', responseIds.slice(0, 300))
+
+  if (!responses?.length) return []
+
+  const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
+  if (!promptIds.length) return []
+
+  const { data: prompts } = await sb
+    .from('prompts')
+    .select('prompt_id, prompt_text')
+    .in('prompt_id', promptIds)
+
+  const textMap = new Map((prompts ?? []).map(p => [p.prompt_id, p.prompt_text]))
+
+  const promptMap = new Map<string, CitationPromptRow>()
+  for (const r of responses) {
+    const pid = r.prompt_id
+    if (!pid) continue
+    const cur = promptMap.get(pid) ?? { prompt_id: pid, prompt_text: textMap.get(pid) ?? '(unknown prompt)', responses: [] }
+    cur.responses.push({
+      id: r.id,
+      platform: r.platform ?? '',
+      run_date: (r.run_date ?? '').substring(0, 10),
+      clay_mentioned: r.clay_mentioned ?? null,
+      clay_mention_snippet: r.clay_mention_snippet ?? null,
+    })
+    promptMap.set(pid, cur)
+  }
+
+  return Array.from(promptMap.values()).sort((a, b) => b.responses.length - a.responses.length)
+}
+
+// ── PMM topic comparison: competitor vs Clay ──────────────────────────────────
+
+export interface PMMCompRow {
+  pmm_use_case: string
+  total_responses: number
+  competitor_visibility: number
+  clay_visibility: number
+  delta: number
+}
+
+export async function getCompetitorPMMComparison(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string
+): Promise<PMMCompRow[]> {
+  const isClay = competitor === 'Clay'
+
+  const { data: responses } = await sb
+    .from('responses')
+    .select('id, pmm_use_case, clay_mentioned')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .not('pmm_use_case', 'is', null)
+
+  if (!responses?.length) return []
+
+  let compIds = new Set<string>()
+
+  if (!isClay) {
+    const { data: rcData } = await sb
+      .from('response_competitors')
+      .select('response_id')
+      .eq('competitor_name', competitor)
+      .gte('run_date', f.startDate)
+      .lte('run_date', f.endDate)
+    compIds = new Set((rcData ?? []).map(r => r.response_id))
+  }
+
+  const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
+  for (const r of responses) {
+    if (!r.pmm_use_case) continue
+    const cur = topicMap.get(r.pmm_use_case) ?? { total: 0, clay: 0, comp: 0 }
+    cur.total++
+    if (r.clay_mentioned === 'Yes') cur.clay++
+    if (isClay ? r.clay_mentioned === 'Yes' : compIds.has(r.id)) cur.comp++
+    topicMap.set(r.pmm_use_case, cur)
+  }
+
+  return Array.from(topicMap.entries()).map(([pmm_use_case, { total, clay, comp }]) => ({
+    pmm_use_case,
+    total_responses: total,
+    competitor_visibility: total > 0 ? (comp / total) * 100 : 0,
+    clay_visibility: total > 0 ? (clay / total) * 100 : 0,
+    delta: total > 0 ? ((comp - clay) / total) * 100 : 0,
+  })).sort((a, b) => b.competitor_visibility - a.competitor_visibility)
+}
+
+// ── PMM prompt drill-down: competitor vs Clay per prompt ─────────────────────
+
+export interface PMMCompResponseRow {
+  id: string
+  platform: string
+  run_date: string
+  clay_mentioned: string | null
+  competitor_mentioned: boolean
+  clay_mention_snippet: string | null
+}
+
+export interface PMMCompPromptRow {
+  prompt_id: string
+  prompt_text: string
+  total_responses: number
+  competitor_visibility: number
+  clay_visibility: number
+  delta: number
+  responses: PMMCompResponseRow[]
+}
+
+export async function getCompetitorPMMPromptDrilldown(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitor: string,
+  pmmUseCase: string
+): Promise<PMMCompPromptRow[]> {
+  const isClay = competitor === 'Clay'
+
+  const { data: responses } = await sb
+    .from('responses')
+    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .eq('pmm_use_case', pmmUseCase)
+
+  if (!responses?.length) return []
+
+  let compIds = new Set<string>()
+  if (!isClay) {
+    const { data: rcData } = await sb
+      .from('response_competitors')
+      .select('response_id')
+      .eq('competitor_name', competitor)
+      .gte('run_date', f.startDate)
+      .lte('run_date', f.endDate)
+    compIds = new Set((rcData ?? []).map(r => r.response_id))
+  }
+
+  const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
+  const { data: prompts } = await sb
+    .from('prompts')
+    .select('prompt_id, prompt_text')
+    .in('prompt_id', promptIds)
+  const textMap = new Map((prompts ?? []).map(p => [p.prompt_id, p.prompt_text]))
+
+  const promptMap = new Map<string, { prompt_text: string; total: number; clay: number; comp: number; responses: PMMCompResponseRow[] }>()
+  for (const r of responses) {
+    const pid = r.prompt_id
+    if (!pid) continue
+    const cur = promptMap.get(pid) ?? {
+      prompt_text: textMap.get(pid) ?? '(unknown prompt)',
+      total: 0, clay: 0, comp: 0, responses: [],
+    }
+    cur.total++
+    if (r.clay_mentioned === 'Yes') cur.clay++
+    const compMentioned = isClay ? r.clay_mentioned === 'Yes' : compIds.has(r.id)
+    if (compMentioned) cur.comp++
+    cur.responses.push({
+      id: r.id,
+      platform: r.platform ?? '',
+      run_date: (r.run_date ?? '').substring(0, 10),
+      clay_mentioned: r.clay_mentioned ?? null,
+      competitor_mentioned: compMentioned,
+      clay_mention_snippet: r.clay_mention_snippet ?? null,
+    })
+    promptMap.set(pid, cur)
+  }
+
+  return Array.from(promptMap.entries()).map(([prompt_id, { prompt_text, total, clay, comp, responses }]) => ({
+    prompt_id,
+    prompt_text,
+    total_responses: total,
+    competitor_visibility: total > 0 ? (comp / total) * 100 : 0,
+    clay_visibility: total > 0 ? (clay / total) * 100 : 0,
+    delta: total > 0 ? ((comp - clay) / total) * 100 : 0,
+    responses: responses.sort((a, b) => b.run_date.localeCompare(a.run_date)),
+  })).sort((a, b) => b.competitor_visibility - a.competitor_visibility)
+}
+
 // ── Claygent tracker ─────────────────────────────────────────────────────────
 
 export async function getClaygentMcpStats(

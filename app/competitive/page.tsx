@@ -3,7 +3,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import {
@@ -13,23 +13,29 @@ import {
   getPlatformHeatmap,
   getCompetitorVsClayTimeseries,
   getClayVisibilityTimeseries,
-  getClaygentMcpStats,
   getWinnersAndLosers,
-  getCompetitorByPMMTopic,
-  getCompetitorCoCitedDomains,
   getCompetitorCitationRate,
-  getCompetitorCitationProfile,
+  getCompetitorCitationsByType,
+  getPromptsForCitation,
+  getCompetitorPMMComparison,
+  getCompetitorPMMPromptDrilldown,
+} from '@/lib/queries/competitive'
+import type {
+  CitationTypeGroup,
+  CitationPromptRow,
+  PMMCompRow,
+  PMMCompPromptRow,
 } from '@/lib/queries/competitive'
 import KpiCard from '@/components/cards/KpiCard'
 import HeatmapMatrix from '@/components/charts/HeatmapMatrix'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
-import { getPlatformColor, CHART_COLORS, getCitationTypeColor } from '@/lib/utils/colors'
-import MetricTooltip from '@/components/shared/MetricTooltip'
+import { getPlatformColor, CHART_COLORS } from '@/lib/utils/colors'
 import { formatShortDate } from '@/lib/utils/formatters'
-import { ExternalLink } from 'lucide-react'
+import CompCitationProfile from '@/components/competitive/CompCitationProfile'
+import CompPMMComparison from '@/components/competitive/CompPMMComparison'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, BarChart, Bar,
+  ResponsiveContainer, Legend,
 } from 'recharts'
 
 const LABEL = {
@@ -53,9 +59,6 @@ interface AnyKPIs {
   avgPosition?: number | null
 }
 interface WinnerLoser { competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }
-interface PMMTopic { pmm_use_case: string; visibility_score: number; mention_count: number }
-interface CoCitedDomain { domain: string; count: number; share_pct: number; is_own_domain: boolean }
-interface CitationProfileItem { url: string; title: string | null; domain: string; count: number; citation_type: string | null }
 
 function DeltaBadge({ delta }: { delta: number | null }) {
   if (delta === null) return <span style={{ color: 'rgba(26,25,21,0.35)', fontSize: '11px' }}>—</span>
@@ -84,22 +87,21 @@ export default function CompetitivePage() {
   const [kpis, setKpis] = useState<AnyKPIs | null>(null)
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([])
   const [tsData, setTsData] = useState<{ date: string; [k: string]: string | number }[]>([])
-  const [claygent, setClaygent] = useState<any>(null)
   const [movers, setMovers] = useState<WinnerLoser[]>([])
 
-  const [pmmTopics, setPmmTopics] = useState<PMMTopic[]>([])
-  const [coCited, setCoCited] = useState<CoCitedDomain[]>([])
-  const [citProfile, setCitProfile] = useState<CitationProfileItem[]>([])
+  const [citGroups, setCitGroups] = useState<CitationTypeGroup[]>([])
+  const [pmmRows, setPmmRows] = useState<PMMCompRow[]>([])
+
+  // Citation drill-down state
+  const [citPromptCache, setCitPromptCache] = useState<Record<string, CitationPromptRow[]>>({})
+  const [loadingCitPrompts, setLoadingCitPrompts] = useState<string | null>(null)
 
   const [showAllHeatmap, setShowAllHeatmap] = useState(false)
-  const [showAllDomains, setShowAllDomains] = useState(false)
-  const [showAllProfile, setShowAllProfile] = useState(false)
 
-  // Load competitor list once — Clay first
+  // Load competitor list once
   useEffect(() => {
     getCompetitorList(supabase).then(list => {
       setCompetitors(list)
-      // default stays 'Clay'; only override if Clay not in list
       if (!list.includes('Clay') && list.length > 0) setSelected(list[0])
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,7 +109,12 @@ export default function CompetitivePage() {
 
   const isClay = selected === 'Clay'
 
-  // Effect 1: KPIs, timeseries, movers, heatmap, claygent
+  // Reset per-competitor caches on selection change
+  useEffect(() => {
+    setCitPromptCache({})
+  }, [selected, f.startDate, f.endDate])
+
+  // Effect 1: fast — KPIs, timeseries, movers, heatmap
   useEffect(() => {
     if (!selected) return
     setLoading(true)
@@ -132,7 +139,7 @@ export default function CompetitivePage() {
           citationRate: cit.rate,
           deltaCitationRate: cit.deltaRate,
           mentionCount: k.mentionCount,
-          avgPosition: k.avgPosition,
+          avgPosition: k.avgPosition ?? null,
           topTopic: k.topTopic,
           topPlatform: k.topPlatform,
         }))
@@ -149,37 +156,49 @@ export default function CompetitivePage() {
       kpiPromise,
       tsPromise,
       getPlatformHeatmap(supabase, f),
-      getClaygentMcpStats(supabase, f),
       getWinnersAndLosers(supabase, f),
-    ]).then(([k, ts, heat, cg, wl]) => {
+    ]).then(([k, ts, heat, wl]) => {
       setKpis(k)
       setTsData(ts)
       setHeatmap(heat)
-      setClaygent(cg)
       setMovers(wl as WinnerLoser[])
       setLoading(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selected])
 
-  // Effect 2: PMM topics, co-cited domains, citation profile
+  // Effect 2: slow — citation profile, PMM comparison
   useEffect(() => {
     if (!selected) return
     setLoadingExtra(true)
     Promise.all([
-      getCompetitorByPMMTopic(supabase, f, selected),
-      isClay ? Promise.resolve([]) : getCompetitorCoCitedDomains(supabase, f, selected),
-      getCompetitorCitationProfile(supabase, f, selected),
-    ]).then(([pmm, coCitedData, profile]) => {
-      setPmmTopics(pmm as PMMTopic[])
-      setCoCited(coCitedData as CoCitedDomain[])
-      setCitProfile(profile as CitationProfileItem[])
+      getCompetitorCitationsByType(supabase, f, selected),
+      getCompetitorPMMComparison(supabase, f, selected),
+    ]).then(([cit, pmm]) => {
+      setCitGroups(cit as CitationTypeGroup[])
+      setPmmRows(pmm as PMMCompRow[])
       setLoadingExtra(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selected])
 
-  // Static top-5 competitors (by current score, descending)
+  // Citation drill-down: load prompts for a given URL's response_ids
+  const handleLoadCitationPrompts = useCallback(async (url: string, responseIds: string[]) => {
+    if (citPromptCache[url]) return
+    setLoadingCitPrompts(url)
+    const data = await getPromptsForCitation(supabase, responseIds)
+    setCitPromptCache(prev => ({ ...prev, [url]: data as CitationPromptRow[] }))
+    setLoadingCitPrompts(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citPromptCache, f.startDate, f.endDate])
+
+  // PMM drill-down
+  const handlePMMDrilldown = useCallback(async (pmmUseCase: string): Promise<PMMCompPromptRow[]> => {
+    return getCompetitorPMMPromptDrilldown(supabase, f, selected, pmmUseCase) as Promise<PMMCompPromptRow[]>
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join()])
+
+  // Static top-5 and losers (always global)
   const topCompetitors = [...movers].sort((a, b) => b.current - a.current).slice(0, 5)
   const biggestLosers = [...movers].filter(r => (r.delta ?? 0) < 0).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5)
   const emerging = movers.filter(r => r.isNew)
@@ -192,10 +211,6 @@ export default function CompetitivePage() {
   })
   const limitedComps = showAllHeatmap ? heatmapComps : heatmapComps.slice(0, 50)
   const filteredHeatmap = heatmap.filter(d => limitedComps.includes(d.competitor))
-
-  const pmmChartHeight = Math.max(200, pmmTopics.length * 44)
-  const profileVisible = showAllProfile ? citProfile : citProfile.slice(0, 10)
-  const domainsVisible = showAllDomains ? coCited : coCited.slice(0, 10)
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
@@ -230,48 +245,35 @@ export default function CompetitivePage() {
         </div>
       </div>
 
-      {/* KPI cards — 5 tiles */}
+      {/* 5 KPI tiles */}
       {loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : kpis ? (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <KpiCard
-            label="Visibility Score"
+          <KpiCard label="Visibility Score"
             value={kpis.visibilityScore != null ? `${kpis.visibilityScore.toFixed(1)}%` : '—'}
-            delta={kpis.deltaVisibility}
-            deltaLabel="vs prev period"
-          />
-          <KpiCard
-            label="Citation Rate"
+            delta={kpis.deltaVisibility} deltaLabel="vs prev period" />
+          <KpiCard label="Citation Rate"
             value={kpis.citationRate != null ? `${kpis.citationRate.toFixed(1)}%` : '—'}
-            delta={kpis.deltaCitationRate}
-            deltaLabel="vs prev period"
-          />
-          <KpiCard
-            label="Mention Count"
+            delta={kpis.deltaCitationRate} deltaLabel="vs prev period" />
+          <KpiCard label="Mention Count"
             value={kpis.mentionCount.toLocaleString()}
-            delta={null}
-            deltaLabel="times mentioned"
-          />
+            delta={null} deltaLabel="times mentioned" />
           {kpis.avgPosition != null ? (
-            <KpiCard
-              label="Avg Position"
-              value={`#${kpis.avgPosition.toFixed(1)}`}
-              delta={null}
-              deltaLabel={selected}
-            />
+            <KpiCard label="Avg Position" value={`#${kpis.avgPosition.toFixed(1)}`}
+              delta={null} deltaLabel={selected} />
           ) : (
             <div style={CARD} className="p-5 flex flex-col gap-2">
               <div style={LABEL}>Avg Position</div>
               <div className="text-2xl font-bold" style={{ color: 'rgba(26,25,21,0.25)' }}>—</div>
-              <div style={{ ...LABEL, color: 'rgba(26,25,21,0.3)' }}>tracked for Clay only</div>
+              <div style={{ ...LABEL, color: 'rgba(26,25,21,0.3)' }}>Clay only</div>
             </div>
           )}
           <div style={CARD} className="p-5 flex flex-col gap-2">
             <div style={LABEL}>Top Topic</div>
-            <div className="text-lg font-bold leading-tight" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
+            <div className="text-lg font-bold leading-snug" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
               {kpis.topTopic ?? '—'}
             </div>
             <div style={{ ...LABEL, color: 'rgba(26,25,21,0.3)' }}>{kpis.topPlatform ?? ''}</div>
@@ -279,7 +281,7 @@ export default function CompetitivePage() {
         </div>
       ) : null}
 
-      {/* Trend chart + static top-competitors / movers */}
+      {/* Trend chart + static Top Competitors / Movers */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Trend chart (2/3) */}
@@ -314,9 +316,8 @@ export default function CompetitivePage() {
           )}
         </div>
 
-        {/* Static right panel: Top Competitors + Movers */}
+        {/* Static panel: Top Competitors + Biggest Losers + Emerging */}
         <div style={CARD} className="p-4 flex flex-col gap-0">
-          {/* Top Competitors */}
           <div style={LABEL} className="mb-2">Top Competitors</div>
           {loading ? <SkeletonCard /> : (
             <div className="mb-4">
@@ -340,7 +341,6 @@ export default function CompetitivePage() {
             </div>
           )}
 
-          {/* Biggest Losers */}
           <div style={{ borderTop: '1px solid var(--clay-border)', paddingTop: '12px' }}>
             <div style={{ ...LABEL, color: 'var(--clay-pomegranate)' }} className="mb-2">Biggest Losers</div>
             {loading ? <SkeletonCard /> : biggestLosers.length === 0 ? (
@@ -357,7 +357,6 @@ export default function CompetitivePage() {
             ))}
           </div>
 
-          {/* Emerging Threats */}
           {!loading && emerging.length > 0 && (
             <div style={{ borderTop: '1px solid var(--clay-border)', paddingTop: '12px', marginTop: '12px' }}>
               <div style={LABEL} className="mb-2">Emerging Threats</div>
@@ -378,179 +377,43 @@ export default function CompetitivePage() {
         </div>
       </div>
 
-      {/* Visibility by PMM Topic */}
-      <div style={CARD} className="p-4">
-        <div style={LABEL} className="mb-1">Visibility by PMM Topic — {selected}</div>
-        <p className="text-xs mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          How often {selected} appears in AI responses per use case category
-        </p>
-        {loadingExtra ? <SkeletonChart /> : pmmTopics.length === 0 ? (
-          <div className="flex items-center justify-center py-12" style={{ color: 'rgba(26,25,21,0.35)', fontSize: '13px' }}>
-            No PMM topic data available
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={pmmChartHeight}>
-            <BarChart data={pmmTopics} layout="vertical" margin={{ top: 4, right: 60, left: 10, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(26,25,21,0.06)" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: 'rgba(26,25,21,0.45)' }}
-                tickFormatter={(v: any) => `${v}%`} tickLine={false} axisLine={false} />
-              <YAxis type="category" dataKey="pmm_use_case" width={170}
-                tick={{ fontSize: 11, fill: 'rgba(26,25,21,0.6)', fontFamily: 'Plus Jakarta Sans' }} />
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <Tooltip formatter={(val: any) => [`${Number(val).toFixed(1)}%`, 'Visibility Score']}
-                contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border)', borderRadius: '8px' }} />
-              <Bar dataKey="visibility_score" fill={isClay ? 'var(--clay-black)' : '#4A5AFF'} radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      {/* Citation Profile */}
-      <div style={CARD} className="p-4">
-        <div style={LABEL} className="mb-1">Citation Profile — {selected}</div>
-        <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          Top pieces of content from {selected}'s domain being cited by AI models — ranked by citation frequency.
-        </p>
-        {loadingExtra ? <SkeletonChart /> : citProfile.length === 0 ? (
-          <div className="flex items-center justify-center py-10" style={{ color: 'rgba(26,25,21,0.35)', fontSize: '13px' }}>
-            No citation data found for {selected}'s domain
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
-                    <th className="pb-2 text-left pr-3" style={{ ...LABEL, width: '24px' }}>#</th>
-                    <th className="pb-2 text-left pr-3" style={LABEL}>Title / URL</th>
-                    <th className="pb-2 text-left pr-3" style={LABEL}>Domain</th>
-                    <th className="pb-2 text-left pr-3" style={LABEL}>Type</th>
-                    <th className="pb-2 text-right" style={LABEL}>Cited</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {profileVisible.map((item, idx) => (
-                    <tr key={item.url} style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                      <td className="py-2.5 pr-3 text-[11px] font-bold" style={{ color: 'rgba(26,25,21,0.3)' }}>{idx + 1}</td>
-                      <td className="py-2.5 pr-3" style={{ maxWidth: '360px' }}>
-                        {item.title && (
-                          <p className="text-[13px] font-semibold mb-0.5" style={{ color: 'var(--clay-black)' }}>
-                            {item.title}
-                          </p>
-                        )}
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 group"
-                          onClick={e => e.stopPropagation()}
-                        >
-                          <ExternalLink size={10} className="shrink-0 opacity-40 group-hover:opacity-70" />
-                          <span className="text-[11px] truncate group-hover:underline" style={{ color: 'rgba(26,25,21,0.45)', maxWidth: '320px' }}>
-                            {item.url}
-                          </span>
-                        </a>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className="text-[11px] font-medium" style={{ color: 'rgba(26,25,21,0.6)' }}>
-                          {item.domain}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        {item.citation_type ? (
-                          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                            style={{
-                              background: getCitationTypeColor(item.citation_type) + '20',
-                              color: getCitationTypeColor(item.citation_type),
-                              border: `1px solid ${getCitationTypeColor(item.citation_type)}40`,
-                            }}>
-                            {item.citation_type}
-                          </span>
-                        ) : <span style={{ color: 'rgba(26,25,21,0.25)', fontSize: '11px' }}>—</span>}
-                      </td>
-                      <td className="py-2.5 text-right">
-                        <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                          {item.count.toLocaleString()}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {citProfile.length > 10 && (
-              <button
-                onClick={() => setShowAllProfile(v => !v)}
-                className="mt-3 text-[11px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
-                style={{ color: 'rgba(26,25,21,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              >
-                {showAllProfile ? 'Show top 10 ↑' : `Show all ${citProfile.length} URLs ↓`}
-              </button>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Domains Co-cited (competitors only) */}
-      {!isClay && (
+      {/* Citation Profile — ABOVE PMM topics */}
+      {loadingExtra ? (
         <div style={CARD} className="p-4">
-          <div style={LABEL} className="mb-1">Domains Cited Alongside {selected}</div>
-          <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-            Domains that appear in the same AI responses that mention {selected} — these are the authoritative sources in their competitive space.
+          <div style={LABEL} className="mb-3">Citation Profile — {selected}</div>
+          <SkeletonChart />
+        </div>
+      ) : (
+        <CompCitationProfile
+          groups={citGroups}
+          selected={selected}
+          onLoadPrompts={handleLoadCitationPrompts}
+          promptCache={citPromptCache}
+          loadingPrompts={loadingCitPrompts}
+        />
+      )}
+
+      {/* PMM Topic Comparison — competitor vs Clay */}
+      {loadingExtra ? (
+        <div style={CARD} className="p-4">
+          <div style={LABEL} className="mb-3">Visibility by PMM Topic</div>
+          <SkeletonChart />
+        </div>
+      ) : (
+        <CompPMMComparison
+          rows={pmmRows}
+          selected={selected}
+          onDrilldown={handlePMMDrilldown}
+        />
+      )}
+
+      {/* Co-cited domains (competitors only) */}
+      {!isClay && !loadingExtra && (
+        <div style={CARD} className="p-4">
+          <div style={LABEL} className="mb-1">Domains Co-cited Alongside {selected}</div>
+          <p className="text-xs" style={{ color: 'rgba(26,25,21,0.45)' }}>
+            These domains appear in the same AI responses that mention {selected} — indicating shared authority in the space.
           </p>
-          {loadingExtra ? <SkeletonChart /> : coCited.length === 0 ? (
-            <div className="flex items-center justify-center py-10" style={{ color: 'rgba(26,25,21,0.35)', fontSize: '13px' }}>
-              No co-citation data available
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--clay-border)' }}>
-                      <th className="pb-2 text-left pr-3" style={{ ...LABEL, width: '24px' }}>#</th>
-                      <th className="pb-2 text-left pr-3" style={LABEL}>Domain</th>
-                      <th className="pb-2 text-right pr-3" style={LABEL}>Count</th>
-                      <th className="pb-2 text-right" style={LABEL}>Share %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {domainsVisible.map((d, i) => (
-                      <tr key={d.domain} style={{
-                        borderBottom: '1px solid rgba(26,25,21,0.05)',
-                        background: d.is_own_domain ? 'rgba(200,240,64,0.07)' : 'transparent',
-                      }}>
-                        <td className="py-2.5 pr-3 text-[11px] font-bold" style={{ color: 'rgba(26,25,21,0.3)' }}>{i + 1}</td>
-                        <td className="py-2.5 pr-3">
-                          <span className="text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{d.domain}</span>
-                          {d.is_own_domain && (
-                            <span className="ml-1.5" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '3px', padding: '1px 5px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>
-                              own
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 pr-3 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                          {d.count.toLocaleString()}
-                        </td>
-                        <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
-                          {d.share_pct.toFixed(1)}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {coCited.length > 10 && (
-                <button
-                  onClick={() => setShowAllDomains(v => !v)}
-                  className="mt-3 text-[11px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
-                  style={{ color: 'rgba(26,25,21,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                >
-                  {showAllDomains ? 'Show top 10 ↑' : `Show all ${coCited.length} domains ↓`}
-                </button>
-              )}
-            </>
-          )}
         </div>
       )}
 
@@ -558,7 +421,7 @@ export default function CompetitivePage() {
       <div style={CARD} className="p-4">
         <div style={LABEL} className="mb-1">Platform Visibility Heatmap</div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          Visibility Score % per competitor per platform. Showing top {Math.min(50, heatmapComps.length)} by visibility score.
+          Visibility Score % per competitor per platform. Showing top {Math.min(50, heatmapComps.length)} by visibility.
         </p>
         {loading ? <SkeletonChart /> : (
           <>
@@ -576,80 +439,6 @@ export default function CompetitivePage() {
         )}
       </div>
 
-      {/* Claygent & Clay MCP */}
-      <div style={CARD} className="p-4">
-        <div className="mb-1 flex items-center gap-1" style={LABEL}>
-          Claygent &amp; Clay MCP Tracker
-          <MetricTooltip text="% of responses that mention Claygent or Clay MCP as a tool or integration" />
-        </div>
-        <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          Tracking mentions of Claygent and Clay MCP across platforms and topics
-        </p>
-        {loading ? <SkeletonCard /> : claygent && (
-          <div className="space-y-4">
-            <div style={{ ...CARD, padding: '10px 16px', display: 'inline-block' }}>
-              <p style={LABEL}>Overall Rate</p>
-              <p className="text-3xl font-bold" style={{ color: '#4A5AFF', letterSpacing: '-0.02em' }}>
-                {claygent.rate != null ? `${claygent.rate.toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <p style={{ ...LABEL, marginBottom: '8px' }}>By Platform</p>
-                <div className="space-y-2">
-                  {claygent.byPlatform.map((p: any) => (
-                    <div key={p.platform} className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white w-20 text-center"
-                        style={{ backgroundColor: getPlatformColor(p.platform) }}>{p.platform}</span>
-                      <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: 'rgba(26,25,21,0.08)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(p.rate, 100)}%`, background: '#4A5AFF' }} />
-                      </div>
-                      <span className="text-xs tabular-nums w-10 text-right" style={{ color: 'rgba(26,25,21,0.7)' }}>
-                        {p.rate.toFixed(1)}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p style={{ ...LABEL, marginBottom: '8px' }}>By Topic</p>
-                <div className="space-y-2">
-                  {claygent.byTopic.slice(0, 8).map((t: any) => (
-                    <div key={t.topic} className="flex items-center gap-2">
-                      <span className="text-xs w-28 truncate" style={{ color: 'rgba(26,25,21,0.55)' }}>{t.topic}</span>
-                      <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: 'rgba(26,25,21,0.08)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(t.rate, 100)}%`, background: '#4A5AFF' }} />
-                      </div>
-                      <span className="text-xs tabular-nums w-10 text-right" style={{ color: 'rgba(26,25,21,0.7)' }}>
-                        {t.rate.toFixed(1)}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            {claygent.snippets.length > 0 && (
-              <div>
-                <p style={{ ...LABEL, marginBottom: '8px' }}>Sample Mentions</p>
-                <div className="space-y-2">
-                  {claygent.snippets.slice(0, 5).map((s: any, i: number) => (
-                    <div key={i} className="text-xs p-2.5" style={{ border: '1px solid var(--clay-border)', borderRadius: '6px' }}>
-                      <div className="flex gap-1 mb-1">
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white"
-                          style={{ backgroundColor: getPlatformColor(s.platform) }}>{s.platform}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded"
-                          style={{ background: 'rgba(26,25,21,0.07)', color: 'rgba(26,25,21,0.6)' }}>{s.topic}</span>
-                        <span className="text-[10px] ml-auto" style={{ color: 'rgba(26,25,21,0.35)' }}>{s.run_date}</span>
-                      </div>
-                      <p className="italic" style={{ color: 'rgba(26,25,21,0.7)' }}>&ldquo;{s.snippet}&rdquo;</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   )
 }
