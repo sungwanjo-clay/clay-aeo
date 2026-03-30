@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   MessageSquare,
@@ -10,6 +10,7 @@ import {
   List,
   Sliders,
   Bot,
+  LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
@@ -25,6 +26,12 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }
 
   return (
     <aside className="w-56 shrink-0 flex flex-col" style={{ background: '#FFFFFF', borderRight: '1px solid var(--clay-border)' }}>
@@ -77,17 +84,27 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: '1px solid var(--clay-border)' }}>
-        <img
-          src="https://www.google.com/s2/favicons?domain=clay.com&sz=32"
-          alt=""
-          width={14}
-          height={14}
-          style={{ borderRadius: '3px', opacity: 0.5 }}
-        />
-        <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.35)' }}>
-          PMM · AEO Dashboard
-        </p>
+      <div className="px-4 py-3 flex items-center justify-between" style={{ borderTop: '1px solid var(--clay-border)' }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <img
+            src="https://www.google.com/s2/favicons?domain=clay.com&sz=32"
+            alt=""
+            width={14}
+            height={14}
+            style={{ borderRadius: '3px', opacity: 0.5, flexShrink: 0 }}
+          />
+          <p className="text-[10px] font-semibold uppercase tracking-widest truncate" style={{ color: 'rgba(26,25,21,0.35)' }}>
+            PMM · AEO
+          </p>
+        </div>
+        <button
+          onClick={signOut}
+          title="Sign out"
+          className="flex items-center justify-center w-6 h-6 rounded hover:bg-[rgba(26,25,21,0.06)] transition-colors shrink-0"
+          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          <LogOut size={12} style={{ color: 'rgba(26,25,21,0.35)' }} />
+        </button>
       </div>
     </aside>
   )
