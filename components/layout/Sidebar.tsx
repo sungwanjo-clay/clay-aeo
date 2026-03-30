@@ -28,17 +28,24 @@ export default function Sidebar() {
 
   return (
     <aside className="w-56 shrink-0 flex flex-col" style={{ background: '#FFFFFF', borderRight: '1px solid var(--clay-border)' }}>
+
       {/* Logo */}
-      <div className="h-14 flex items-center px-5" style={{ borderBottom: '1px solid var(--clay-border)' }}>
-        <span className="text-sm font-extrabold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
-          AI Visibility
-        </span>
-        <span
-          className="ml-2 text-[9px] font-bold px-1.5 py-0.5 uppercase tracking-widest"
-          style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '4px' }}
-        >
-          Clay
-        </span>
+      <div className="h-14 flex items-center gap-3 px-4" style={{ borderBottom: '1px solid var(--clay-border)' }}>
+        <img
+          src="https://www.google.com/s2/favicons?domain=clay.com&sz=64"
+          alt="Clay"
+          width={28}
+          height={28}
+          style={{ borderRadius: '7px', flexShrink: 0 }}
+        />
+        <div className="min-w-0">
+          <p className="text-[13px] font-extrabold leading-tight truncate" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
+            AI Visibility
+          </p>
+          <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.35)' }}>
+            clay.com
+          </p>
+        </div>
       </div>
 
       {/* Nav */}
@@ -50,16 +57,19 @@ export default function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                'flex items-center gap-3 px-4 py-2 text-[13px] font-semibold mx-2 transition-all',
-                active ? '' : 'hover:opacity-60'
+                'flex items-center gap-2.5 px-3 py-2 text-[13px] font-semibold mx-2 transition-all',
+                active ? '' : 'hover:bg-[rgba(26,25,21,0.04)]'
               )}
               style={{
-                borderRadius: '6px',
-                color: active ? '#FFFFFF' : 'var(--clay-black)',
-                background: active ? 'var(--clay-black)' : 'transparent',
+                borderRadius: '7px',
+                color: active ? 'var(--clay-black)' : 'rgba(26,25,21,0.6)',
+                background: active ? 'var(--clay-lime)' : 'transparent',
               }}
             >
-              <Icon size={14} style={{ color: active ? 'var(--clay-lime)' : 'var(--clay-black)', opacity: active ? 1 : 0.5 }} />
+              <Icon
+                size={14}
+                style={{ color: active ? 'var(--clay-black)' : 'rgba(26,25,21,0.4)', flexShrink: 0 }}
+              />
               {label}
             </Link>
           )
@@ -67,9 +77,16 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3" style={{ borderTop: '1px solid var(--clay-border)' }}>
-        <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.4)' }}>
-          Clay PMM · AI Visibility
+      <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: '1px solid var(--clay-border)' }}>
+        <img
+          src="https://www.google.com/s2/favicons?domain=clay.com&sz=32"
+          alt=""
+          width={14}
+          height={14}
+          style={{ borderRadius: '3px', opacity: 0.5 }}
+        />
+        <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.35)' }}>
+          PMM · AEO Dashboard
         </p>
       </div>
     </aside>

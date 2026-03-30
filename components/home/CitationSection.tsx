@@ -83,7 +83,7 @@ function buildChartData(
   }
 }
 
-const COMPETITOR_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
+const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 export default function CitationSection({ timeseries, domains, competitorTimeseries = [] }: Props) {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)

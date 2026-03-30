@@ -16,6 +16,28 @@ const NAV_ITEMS = [
   { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
 ]
 
+function LogoMark() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <img
+        src="https://www.google.com/s2/favicons?domain=clay.com&sz=64"
+        alt="Clay"
+        width={24}
+        height={24}
+        style={{ borderRadius: '6px', flexShrink: 0 }}
+      />
+      <div>
+        <p className="text-[13px] font-extrabold leading-tight" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
+          AI Visibility
+        </p>
+        <p className="text-[9px] font-bold uppercase tracking-widest leading-none" style={{ color: 'rgba(26,25,21,0.35)' }}>
+          clay.com
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function MobileNav() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
@@ -27,17 +49,7 @@ export default function MobileNav() {
         className="lg:hidden flex items-center justify-between px-4 h-12 shrink-0"
         style={{ background: '#FFFFFF', borderBottom: '1px solid var(--clay-border)' }}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-extrabold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
-            AI Visibility
-          </span>
-          <span
-            className="text-[9px] font-bold px-1.5 py-0.5 uppercase tracking-widest"
-            style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '4px' }}
-          >
-            Clay
-          </span>
-        </div>
+        <LogoMark />
         <button
           onClick={() => setOpen(true)}
           className="p-2 rounded-lg"
@@ -64,18 +76,8 @@ export default function MobileNav() {
             style={{ background: '#FFFFFF', borderRight: '1px solid var(--clay-border)' }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 h-14" style={{ borderBottom: '1px solid var(--clay-border)' }}>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-extrabold" style={{ color: 'var(--clay-black)', letterSpacing: '-0.02em' }}>
-                  AI Visibility
-                </span>
-                <span
-                  className="text-[9px] font-bold px-1.5 py-0.5 uppercase tracking-widest"
-                  style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)', borderRadius: '4px' }}
-                >
-                  Clay
-                </span>
-              </div>
+            <div className="flex items-center justify-between px-4 h-14" style={{ borderBottom: '1px solid var(--clay-border)' }}>
+              <LogoMark />
               <button onClick={() => setOpen(false)} className="p-1" aria-label="Close navigation">
                 <X size={18} style={{ color: 'var(--clay-black)' }} />
               </button>
@@ -90,23 +92,27 @@ export default function MobileNav() {
                     key={href}
                     href={href}
                     onClick={() => setOpen(false)}
-                    className={cn('flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold mx-2 transition-all', active ? '' : 'hover:opacity-60')}
+                    className={cn(
+                      'flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-semibold mx-2 transition-all',
+                      active ? '' : 'hover:bg-[rgba(26,25,21,0.04)]'
+                    )}
                     style={{
-                      borderRadius: '6px',
-                      color: active ? '#FFFFFF' : 'var(--clay-black)',
-                      background: active ? 'var(--clay-black)' : 'transparent',
+                      borderRadius: '7px',
+                      color: active ? 'var(--clay-black)' : 'rgba(26,25,21,0.6)',
+                      background: active ? 'var(--clay-lime)' : 'transparent',
                     }}
                   >
-                    <Icon size={15} style={{ color: active ? 'var(--clay-lime)' : 'var(--clay-black)', opacity: active ? 1 : 0.5 }} />
+                    <Icon size={15} style={{ color: active ? 'var(--clay-black)' : 'rgba(26,25,21,0.4)', flexShrink: 0 }} />
                     {label}
                   </Link>
                 )
               })}
             </nav>
 
-            <div className="px-4 py-3" style={{ borderTop: '1px solid var(--clay-border)' }}>
-              <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.4)' }}>
-                Clay PMM · AI Visibility
+            <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: '1px solid var(--clay-border)' }}>
+              <img src="https://www.google.com/s2/favicons?domain=clay.com&sz=32" alt="" width={14} height={14} style={{ borderRadius: '3px', opacity: 0.5 }} />
+              <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(26,25,21,0.35)' }}>
+                PMM · AEO Dashboard
               </p>
             </div>
           </div>

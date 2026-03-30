@@ -48,7 +48,7 @@ const LABEL = {
   letterSpacing: '0.06em',
 }
 const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
-const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
+const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 const MAX_SELECT = 5
 const CHIPS_LIMIT = 15
 
@@ -495,7 +495,7 @@ export default function CompetitivePage() {
                         <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
                       )}
                       {mover?.delta != null && (
-                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? '#3a6200' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
+                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
                           {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
                         </span>
                       )}
@@ -526,7 +526,7 @@ export default function CompetitivePage() {
                         <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
                       )}
                       {mover?.delta != null && (
-                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? '#3a6200' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
+                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
                           {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
                         </span>
                       )}
@@ -647,7 +647,7 @@ export default function CompetitivePage() {
               </span>
               {w.delta !== null ? (
                 <span className="text-[11px] font-bold shrink-0 flex items-center gap-0.5"
-                  style={{ color: w.delta >= 0 ? '#3a6200' : 'var(--clay-pomegranate)', minWidth: '44px', justifyContent: 'flex-end' }}>
+                  style={{ color: w.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '44px', justifyContent: 'flex-end' }}>
                   {w.delta >= 0 ? '↑' : '↓'}{Math.abs(w.delta).toFixed(1)}%
                 </span>
               ) : (

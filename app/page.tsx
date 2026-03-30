@@ -326,7 +326,7 @@ export default function HomePage() {
                       <td className="py-1.5 pl-2 text-right" style={{ width: '60px' }}>
                         {delta != null && (
                           <span className="text-[10px] font-bold tabular-nums"
-                            style={{ color: delta > 0 ? '#3a6200' : delta < 0 ? 'var(--clay-pomegranate)' : 'rgba(26,25,21,0.4)' }}>
+                            style={{ color: delta > 0 ? 'var(--clay-positive-text)' : delta < 0 ? 'var(--clay-pomegranate)' : 'rgba(26,25,21,0.4)' }}>
                             {delta > 0 ? '↑' : delta < 0 ? '↓' : '—'}{Math.abs(delta).toFixed(1)}%
                           </span>
                         )}

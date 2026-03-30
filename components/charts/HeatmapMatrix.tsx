@@ -11,9 +11,24 @@ interface HeatmapMatrixProps {
 }
 
 function getColor(score: number): string {
-  // 0 = white, 100 = indigo-700
-  const opacity = Math.min(score / 80, 1)
-  return `rgba(92, 111, 255, ${opacity})`
+  // 0 = oat/white, mid = teal (#3DB8CC), high = lime (#C8F040)
+  if (score <= 0) return 'rgba(237, 232, 220, 0.4)' // near-oat for zero
+  const t = Math.min(score / 80, 1)
+  if (t < 0.5) {
+    // teal to white blend for low-mid
+    const a = t * 2
+    const r = Math.round(61 + (255 - 61) * (1 - a))
+    const g = Math.round(184 + (255 - 184) * (1 - a))
+    const b = Math.round(204 + (255 - 204) * (1 - a))
+    return `rgb(${r},${g},${b})`
+  } else {
+    // teal to lime blend for mid-high
+    const a = (t - 0.5) * 2
+    const r = Math.round(61 + (200 - 61) * a)
+    const g = Math.round(184 + (240 - 184) * a)
+    const b = Math.round(204 + (64 - 204) * a)
+    return `rgb(${r},${g},${b})`
+  }
 }
 
 export default function HeatmapMatrix({ data }: HeatmapMatrixProps) {
@@ -44,10 +59,10 @@ export default function HeatmapMatrix({ data }: HeatmapMatrixProps) {
           {sorted.map(comp => {
             const isClay = comp.toLowerCase() === 'clay'
             return (
-              <tr key={comp} className={isClay ? 'ring-2 ring-inset ring-indigo-300' : ''}>
-                <td className={`p-2 font-medium ${isClay ? 'text-indigo-700' : 'text-gray-700'}`}>
+              <tr key={comp} className={isClay ? 'ring-2 ring-inset ring-[#C8F040]' : ''}>
+                <td className={`p-2 font-medium`} style={{ color: isClay ? 'var(--clay-black)' : '#4B5563' }}>
                   {comp}
-                  {isClay && <span className="ml-1 text-[9px] bg-indigo-100 text-indigo-600 px-1 rounded">Clay</span>}
+                  {isClay && <span className="ml-1 text-[9px] px-1 rounded" style={{ background: '#C8F040', color: 'var(--clay-black)' }}>Clay</span>}
                 </td>
                 {platforms.map(p => {
                   const cell = data.find(d => d.competitor === comp && d.platform === p)

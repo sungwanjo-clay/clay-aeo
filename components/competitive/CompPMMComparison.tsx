@@ -13,7 +13,7 @@ const LABEL = {
   letterSpacing: '0.06em',
 }
 
-const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
+const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 function stripMarkdown(text: string): string {
   return text
@@ -80,7 +80,7 @@ function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0];
           <div className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded`}
             style={{
               background: clayYes ? 'rgba(200,240,64,0.2)' : 'rgba(229,54,42,0.07)',
-              color: clayYes ? '#3a6200' : 'var(--clay-pomegranate)',
+              color: clayYes ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)',
               border: `1px solid ${clayYes ? 'rgba(200,240,64,0.5)' : 'rgba(229,54,42,0.2)'}`,
             }}>
             <span>{clayYes ? '✓' : '✗'}</span>

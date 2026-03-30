@@ -15,6 +15,10 @@
   --clay-slushie: #3DB8CC;
   --clay-border: rgba(29, 32, 38, 0.12);
   --clay-border-dashed: #E7E7E7;
+  --clay-positive-bg: rgba(200, 240, 64, 0.2);
+  --clay-positive-text: #3a6200;
+  --clay-negative-bg: rgba(229, 54, 42, 0.1);
+  --clay-negative-text: var(--clay-pomegranate);
 }
 
 @theme inline {

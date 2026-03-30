@@ -16,7 +16,7 @@ const LABEL = {
   letterSpacing: '0.06em',
 }
 const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
-const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
+const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 interface Props {
   allRows: Record<string, PMMCompRow[]>

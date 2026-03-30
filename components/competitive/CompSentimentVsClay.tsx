@@ -22,7 +22,7 @@ function stripMarkdown(text: string): string {
 
 // Sentiment → colours
 function sentimentStyle(s: string) {
-  if (s === 'Positive') return { bg: 'rgba(200,240,64,0.18)', text: '#3a6200', border: 'rgba(200,240,64,0.5)' }
+  if (s === 'Positive') return { bg: 'rgba(200,240,64,0.18)', text: 'var(--clay-positive-text)', border: 'rgba(200,240,64,0.5)' }
   if (s === 'Negative') return { bg: 'rgba(229,54,42,0.08)', text: 'var(--clay-pomegranate)', border: 'rgba(229,54,42,0.25)' }
   return { bg: 'rgba(26,25,21,0.05)', text: 'rgba(26,25,21,0.55)', border: 'rgba(26,25,21,0.12)' }
 }
@@ -189,7 +189,7 @@ function ThemeRow({ group }: { group: SentimentThemeGroup }) {
         <div className="flex items-center gap-3 shrink-0 text-right">
           <div className="hidden sm:flex items-center gap-2 text-[10px]" style={{ color: 'rgba(26,25,21,0.45)' }}>
             {group.positive > 0 && (
-              <span style={{ color: '#3a6200', fontWeight: 700 }}>+{group.positive}</span>
+              <span style={{ color: 'var(--clay-positive-text)', fontWeight: 700 }}>+{group.positive}</span>
             )}
             {group.neutral > 0 && (
               <span style={{ color: 'rgba(26,25,21,0.4)', fontWeight: 600 }}>{group.neutral}</span>
@@ -289,7 +289,7 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
           {/* Win/loss summary */}
           <div className="flex items-center gap-3 mt-2">
             <div className="flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded"
-              style={{ background: 'rgba(200,240,64,0.2)', color: '#3a6200' }}>
+              style={{ background: 'rgba(200,240,64,0.2)', color: 'var(--clay-positive-text)' }}>
               <span>↑</span>
               <span>{posThemes} positive themes</span>
             </div>
@@ -313,7 +313,7 @@ export default function CompSentimentVsClay({ data, selected, loading, headerSlo
           <SentimentBar pos={data.clayPositivePct} neu={data.clayNeutralPct} neg={data.clayNegativePct} height={10} />
         </div>
         <div className="flex items-center gap-3 shrink-0 text-[11px]">
-          <span style={{ color: '#3a6200', fontWeight: 700 }}>{data.clayPositivePct.toFixed(0)}%</span>
+          <span style={{ color: 'var(--clay-positive-text)', fontWeight: 700 }}>{data.clayPositivePct.toFixed(0)}%</span>
           <span style={{ color: 'rgba(26,25,21,0.4)', fontWeight: 600 }}>{data.clayNeutralPct.toFixed(0)}%</span>
           <span style={{ color: 'var(--clay-pomegranate)', fontWeight: 700 }}>{data.clayNegativePct.toFixed(0)}%</span>
           {data.clayAvgScore != null && (

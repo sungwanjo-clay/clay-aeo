@@ -447,7 +447,7 @@ function ContentTypeRow({ urlType, total, grandTotal, urls }: {
 function CitationActivityChart({ competitorTs }: {
   competitorTs: { date: string; domain: string; value: number }[]
 }) {
-  const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
+  const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
   // Separate clay.com from competitor domains
   const allDates = [...new Set(competitorTs.map(r => r.date))].sort()
