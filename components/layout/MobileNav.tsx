@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, LayoutDashboard, TrendingUp, MessageSquare, Link as LinkIcon, BarChart2, List, Sliders } from 'lucide-react'
+import { Menu, X, LayoutDashboard, TrendingUp, MessageSquare, Link as LinkIcon, BarChart2, List, Sliders, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 const NAV_ITEMS = [
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/competitive', label: 'Competitive',     icon: BarChart2 },
   { href: '/prompts',     label: 'Prompts',         icon: List },
   { href: '/explorer',    label: 'Metric Explorer', icon: Sliders },
+  { href: '/mcp',         label: 'MCP & Claygent',  icon: Bot },
 ]
 
 export default function MobileNav() {

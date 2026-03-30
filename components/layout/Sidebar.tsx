@@ -10,6 +10,7 @@ import {
   BarChart2,
   List,
   Sliders,
+  Bot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: '/competitive', label: 'Competitive',      icon: BarChart2 },
   { href: '/prompts',     label: 'Prompts',          icon: List },
   { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
+  { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
 ]
 
 export default function Sidebar() {

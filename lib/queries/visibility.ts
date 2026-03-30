@@ -439,6 +439,41 @@ export async function getClaygentCount(
   return { current, previous }
 }
 
+export async function getClaygentTimeseriesByPlatform(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ date: string; platform: string; count: number }[]> {
+  const { data } = await applyFilters(
+    sb.from('responses').select('run_date, platform, claygent_or_mcp_mentioned'),
+    f
+  ).limit(10000)
+  if (!data) return []
+
+  const map = new Map<string, number>()
+  const allDates = new Set<string>()
+  const allPlatforms = new Set<string>()
+
+  for (const row of data) {
+    const date = (row.run_date ?? '').substring(0, 10)
+    const platform = row.platform ?? 'Unknown'
+    if (!date) continue
+    allDates.add(date)
+    allPlatforms.add(platform)
+    if (row.claygent_or_mcp_mentioned === 'Yes') {
+      const key = `${date}|||${platform}`
+      map.set(key, (map.get(key) ?? 0) + 1)
+    }
+  }
+
+  const results: { date: string; platform: string; count: number }[] = []
+  for (const date of allDates) {
+    for (const platform of allPlatforms) {
+      results.push({ date, platform, count: map.get(`${date}|||${platform}`) ?? 0 })
+    }
+  }
+  return results.sort((a, b) => a.date.localeCompare(b.date))
+}
+
 export async function getClaygentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
