@@ -54,17 +54,9 @@ export async function getClayKPIs(
   topTopic: string | null
   topPlatform: string | null
 }> {
-  const citPlatformFilter = (q: any) => f.platforms?.length ? q.in('platform', f.platforms) : q
-
-  const [curData, prevData, citCur, citPrev] = await Promise.all([
+  const [curData, prevData] = await Promise.all([
     applyFilters(sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains'), f),
     applyFilters(sb.from('responses').select('clay_mentioned, cited_domains'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-    citPlatformFilter(sb.from('citation_domains').select('domain')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate)
-      .ilike('domain', '%clay%')),
-    citPlatformFilter(sb.from('citation_domains').select('domain')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
-      .ilike('domain', '%clay%')),
   ])
 
   const cur = curData.data ?? []
@@ -91,12 +83,24 @@ export async function getClayKPIs(
   const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-  // Citation rate (from citation_domains table for clay domains)
-  // Total responses in period as denominator
-  const citCount = citCur.data?.length ?? 0
-  const citPrevCount = citPrev.data?.length ?? 0
-  const citRate = cur.length > 0 ? (citCount / cur.length) * 100 : null
-  const citRatePrev = prev.length > 0 ? (citPrevCount / prev.length) * 100 : null
+  // Citation rate — same formula as getCitationShare: clay-cited / responses-with-any-citations
+  // Uses responses.cited_domains so it matches the KPI on every other page
+  const calcCitRate = (rows: any[]) => {
+    let withClayCited = 0
+    let withAnyCitations = 0
+    for (const r of rows) {
+      try {
+        const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
+        if (domains.length > 0) {
+          withAnyCitations++
+          if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) withClayCited++
+        }
+      } catch { /* ignore */ }
+    }
+    return withAnyCitations > 0 ? (withClayCited / withAnyCitations) * 100 : null
+  }
+  const citRate = calcCitRate(cur)
+  const citRatePrev = calcCitRate(prev)
   const deltaCitRate = citRate !== null && citRatePrev !== null ? citRate - citRatePrev : null
 
   return {
