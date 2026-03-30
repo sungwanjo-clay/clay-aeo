@@ -12,8 +12,11 @@ interface AnomalyAlertProps {
 }
 
 const SEVERITY_CONFIG = {
+  critical: { icon: AlertCircle, color: 'bg-red-50 border-red-200 text-red-800', badge: 'bg-red-100 text-red-700' },
   high: { icon: AlertCircle, color: 'bg-red-50 border-red-200 text-red-800', badge: 'bg-red-100 text-red-700' },
+  warning: { icon: AlertTriangle, color: 'bg-orange-50 border-orange-200 text-orange-800', badge: 'bg-orange-100 text-orange-700' },
   medium: { icon: AlertTriangle, color: 'bg-orange-50 border-orange-200 text-orange-800', badge: 'bg-orange-100 text-orange-700' },
+  info: { icon: Info, color: 'bg-yellow-50 border-yellow-200 text-yellow-800', badge: 'bg-yellow-100 text-yellow-700' },
   low: { icon: Info, color: 'bg-yellow-50 border-yellow-200 text-yellow-800', badge: 'bg-yellow-100 text-yellow-700' },
 }
 

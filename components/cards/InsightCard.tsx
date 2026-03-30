@@ -1,4 +1,7 @@
-import { Lightbulb } from 'lucide-react'
+'use client'
+
+import { useState } from 'react'
+import { Lightbulb, ChevronDown, ChevronUp } from 'lucide-react'
 import type { InsightRow } from '@/lib/queries/types'
 import { formatDate } from '@/lib/utils/formatters'
 
@@ -7,6 +10,15 @@ interface InsightCardProps {
 }
 
 export default function InsightCard({ insight }: InsightCardProps) {
+  const [expanded, setExpanded] = useState(false)
+
+  const supportingData = insight?.supporting_data as {
+    explanation?: string
+    implication?: string
+  } | null
+
+  const hasDetail = !!(supportingData?.explanation || supportingData?.implication)
+
   return (
     <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 flex gap-3">
       <div className="shrink-0 mt-0.5">
@@ -22,6 +34,29 @@ export default function InsightCard({ insight }: InsightCardProps) {
         <p className="text-sm text-yellow-900 leading-relaxed">
           {insight?.insight_text ?? 'No insight generated yet for today.'}
         </p>
+
+        {expanded && hasDetail && (
+          <div className="mt-3 space-y-2">
+            {supportingData?.explanation && (
+              <p className="text-xs text-yellow-800 leading-relaxed">{supportingData.explanation}</p>
+            )}
+            {supportingData?.implication && (
+              <p className="text-xs text-yellow-700 italic leading-relaxed">
+                {supportingData.implication}
+              </p>
+            )}
+          </div>
+        )}
+
+        {hasDetail && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="mt-2 flex items-center gap-1 text-xs text-yellow-600 hover:text-yellow-800 transition-colors"
+          >
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {expanded ? 'Show less' : 'Show more'}
+          </button>
+        )}
       </div>
     </div>
   )
