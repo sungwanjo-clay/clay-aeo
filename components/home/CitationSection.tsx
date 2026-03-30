@@ -84,9 +84,9 @@ const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A'
 function TopCitedSidebar({ domains }: { domains: DomainRow[] }) {
   const clay = domains.find(d => d.is_clay)
 
-  // Top 5 non-Clay by share_pct, then always add Clay, re-sort desc
+  // Top 5 non-Clay competitor domains only (citation_type === 'Competition'), then always add Clay
   const nonClay = [...domains]
-    .filter(d => !d.is_clay)
+    .filter(d => !d.is_clay && d.citation_type === 'Competition')
     .sort((a, b) => b.share_pct - a.share_pct)
     .slice(0, 5)
 
