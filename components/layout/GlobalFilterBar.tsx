@@ -93,15 +93,8 @@ export default function GlobalFilterBar() {
           onChange={v => setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all' })}
         />
 
-        {/* Tags */}
-        {tags.length > 0 && (
-          <FilterSelect
-            label="Tags"
-            value={filters.tags}
-            options={tagOptions}
-            onChange={v => setFilters({ tags: v })}
-          />
-        )}
+        {/* Divider */}
+        <div className="w-px h-5 mx-1" style={{ background: 'var(--clay-border-dashed)' }} />
 
         {/* Date Range */}
         <div className="flex items-center gap-1">
@@ -129,14 +122,6 @@ export default function GlobalFilterBar() {
           />
         </div>
 
-        {/* Platform */}
-        <FilterSelect
-          label="Platform"
-          value={filters.platform}
-          options={platformOptions}
-          onChange={v => setFilters({ platform: v })}
-        />
-
         {/* Divider */}
         <div className="w-px h-5 mx-1" style={{ background: 'var(--clay-border-dashed)' }} />
 
@@ -158,6 +143,27 @@ export default function GlobalFilterBar() {
             }} />
           </div>
         </label>
+
+        {/* Divider */}
+        <div className="w-px h-5 mx-1" style={{ background: 'var(--clay-border-dashed)' }} />
+
+        {/* Platform */}
+        <FilterSelect
+          label="Platform"
+          value={filters.platform}
+          options={platformOptions}
+          onChange={v => setFilters({ platform: v })}
+        />
+
+        {/* Tags */}
+        {tags.length > 0 && (
+          <FilterSelect
+            label="Tags"
+            value={filters.tags}
+            options={tagOptions}
+            onChange={v => setFilters({ tags: v })}
+          />
+        )}
 
         {/* Right side */}
         <div className="ml-auto flex items-center gap-3">
