@@ -207,7 +207,7 @@ export async function getCompetitorCitationTimeseries(
   f: FilterParams,
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
-  // Responses for denominator
+  // Responses for denominator (response-level rate: citations / total responses)
   const { data: responses } = await applyResponseFilters(
     sb.from('responses').select('run_date'),
     f
@@ -225,24 +225,29 @@ export async function getCompetitorCitationTimeseries(
   const { data } = await (q as any).limit(50000)
   if (!data?.length) return []
 
-  // Top N non-clay domains overall
+  // Top N non-clay domains + always include clay.com
   const totals = new Map<string, number>()
   for (const r of data) {
     const d = (r.domain ?? '').toLowerCase()
-    if (!d || d.includes('clay.com')) continue
+    if (!d) continue
     totals.set(d, (totals.get(d) ?? 0) + 1)
   }
-  const topDomains = new Set(
-    [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN).map(([d]) => d)
-  )
+  const topNonClay = [...totals.entries()]
+    .filter(([d]) => !d.includes('clay'))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([d]) => d)
+  const topDomains = new Set([...topNonClay, 'clay.com'])
 
   const map = new Map<string, number>()
   for (const r of data) {
     const d = (r.domain ?? '').toLowerCase()
-    if (!topDomains.has(d)) continue
+    // Match clay.com variants to the canonical key
+    const key = d.includes('clay') ? 'clay.com' : d
+    if (!topDomains.has(key)) continue
     const date = (r.run_date ?? '').substring(0, 10)
     if (!date) continue
-    map.set(`${date}|||${d}`, (map.get(`${date}|||${d}`) ?? 0) + 1)
+    map.set(`${date}|||${key}`, (map.get(`${date}|||${key}`) ?? 0) + 1)
   }
 
   return Array.from(map.entries()).map(([key, count]) => {

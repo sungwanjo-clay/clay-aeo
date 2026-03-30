@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase/client'
 import {
   getCitationShare,
   getCitationCount,
-  getCitationActivityTimeseries,
   getCitationCoverage,
   getCompetitorCitationTimeseries,
   getClayURLsByType,
@@ -443,28 +442,26 @@ function ContentTypeRow({ urlType, total, grandTotal, urls }: {
 }
 
 // ── Citation activity chart ────────────────────────────────────────────────────
-function CitationActivityChart({ activityTs, competitorTs }: {
-  activityTs: { date: string; clayShare: number; total: number }[]
+// competitorTs includes clay.com as a pinned domain alongside top 5 competitors.
+// All lines use the same metric: citation_domains records / total responses per day.
+function CitationActivityChart({ competitorTs }: {
   competitorTs: { date: string; domain: string; value: number }[]
 }) {
   const COMP_COLORS = ['#4A5AFF', '#E5362A', '#FF6B35', '#CC3D8A', '#3DAA6A']
 
-  const totals = new Map<string, number>()
-  for (const r of competitorTs) totals.set(r.domain, (totals.get(r.domain) ?? 0) + r.value)
-  const top5 = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d)
-
-  const allDates = [...new Set([
-    ...activityTs.map(r => r.date),
-    ...competitorTs.map(r => r.date),
-  ])].sort()
-  const activityMap = new Map(activityTs.map(r => [r.date, r]))
+  // Separate clay.com from competitor domains
+  const allDates = [...new Set(competitorTs.map(r => r.date))].sort()
   const compMap = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
+  const totals = new Map<string, number>()
+  for (const r of competitorTs) {
+    if (!r.domain.includes('clay')) totals.set(r.domain, (totals.get(r.domain) ?? 0) + r.value)
+  }
+  const top5 = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d)
+
   const chartData = allDates.map(date => {
-    const row: Record<string, string | number> = {
-      date,
-      Clay: activityMap.get(date)?.clayShare ?? 0,
-    }
+    const row: Record<string, string | number> = { date }
+    row['clay.com'] = compMap.get(`${date}|||clay.com`) ?? 0
     for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
     return row
   })
@@ -477,21 +474,22 @@ function CitationActivityChart({ activityTs, competitorTs }: {
     )
   }
 
-  // Single data point — show as metric
+  // Single data point — show metrics instead of a line
   if (chartData.length === 1) {
     const d = chartData[0]
+    const clayVal = Number(d['clay.com'])
     return (
-      <div className="flex items-center gap-6 py-6">
+      <div className="flex flex-wrap items-end gap-6 py-6">
         <div>
           <p className="text-3xl font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-            {Number(d.Clay).toFixed(1)}%
+            {clayVal.toFixed(1)}%
           </p>
           <p className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.4)' }}>
-            Clay citation share · {d.date as string}
+            clay.com citation rate · {d.date as string}
           </p>
         </div>
         <p className="text-xs" style={{ color: 'rgba(26,25,21,0.4)' }}>
-          Only 1 data point — run again tomorrow to see a trend
+          Only 1 data point — run again tomorrow to see a trend.
         </p>
       </div>
     )
@@ -501,9 +499,9 @@ function CitationActivityChart({ activityTs, competitorTs }: {
     <>
       <div className="flex items-center mb-4">
         <span style={LABEL}>Citation Share Over Time</span>
-        <InfoTip text="% of responses that cited each domain per day. Clay always shown; top 5 competitor domains shown alongside for comparison." />
+        <InfoTip text="% of AI responses per day that cited each domain. Clay.com is always shown; top 5 other domains shown for comparison. All lines use the same metric so they're directly comparable." />
       </div>
-      <ResponsiveContainer width="100%" height={top5.length > 0 ? 210 : 180}>
+      <ResponsiveContainer width="100%" height={210}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
           <XAxis dataKey="date" tickFormatter={(v: any) => formatShortDate(v)}
@@ -521,8 +519,8 @@ function CitationActivityChart({ activityTs, competitorTs }: {
               stroke={COMP_COLORS[i % COMP_COLORS.length]}
               strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d} />
           ))}
-          <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+          <Line type="monotone" dataKey="clay.com" stroke="var(--clay-black)" strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="clay.com" />
         </LineChart>
       </ResponsiveContainer>
     </>
@@ -540,7 +538,6 @@ export default function CitationsPage() {
   const [citShare, setCitShare] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [citCount, setCitCount] = useState<{ current: number; previous: number } | null>(null)
   const [coverage, setCoverage] = useState<{ coveragePct: number; avgPerCited: number } | null>(null)
-  const [activityTs, setActivityTs] = useState<{ date: string; clayShare: number; total: number }[]>([])
   const [competitorTs, setCompetitorTs] = useState<{ date: string; domain: string; value: number }[]>([])
   const [clayUrlTypes, setClayUrlTypes] = useState<ClayURLTypeGroup[]>([])
   const [topDomains, setTopDomains] = useState<TopDomainRow[]>([])
@@ -555,12 +552,10 @@ export default function CitationsPage() {
       getCitationShare(supabase, f).catch(() => null),
       getCitationCount(supabase, f).catch(() => null),
       getCitationCoverage(supabase, f).catch(() => null),
-      getCitationActivityTimeseries(supabase, f).catch(() => []),
-    ]).then(([share, count, cov, ts]) => {
+    ]).then(([share, count, cov]) => {
       if (share) setCitShare(share)
       if (count) setCitCount(count)
       if (cov) setCoverage(cov)
-      setActivityTs(ts ?? [])
       setLoading(false)
     }).catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -655,7 +650,7 @@ export default function CitationsPage() {
       {/* Citation Activity Chart */}
       <div style={CARD} className="p-4">
         {loading ? <SkeletonChart /> : (
-          <CitationActivityChart activityTs={activityTs} competitorTs={competitorTs} />
+          <CitationActivityChart competitorTs={competitorTs} />
         )}
       </div>
 

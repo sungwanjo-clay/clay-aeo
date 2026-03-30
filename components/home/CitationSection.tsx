@@ -5,6 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { formatShortDate } from '@/lib/utils/formatters'
 import { ChevronDown, ChevronRight, ExternalLink, Info } from 'lucide-react'
 import { getCitationTypeColor } from '@/lib/utils/colors'
+import DomainIcon from '@/components/shared/DomainIcon'
 
 interface CitationTimepoint { date: string; value: number }
 interface DomainRow {
@@ -208,6 +209,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                       <td className="py-2.5 text-[12px] font-bold" style={{ color: 'rgba(26,25,21,0.3)' }}>{idx + 1}</td>
                       <td className="py-2.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
+                          <DomainIcon domain={row.domain} size={16} />
                           <span className="text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{row.domain}</span>
                           {row.citation_type && (
                             <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
