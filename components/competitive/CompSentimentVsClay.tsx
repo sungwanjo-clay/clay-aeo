@@ -224,13 +224,17 @@ function ThemeRow({ group }: { group: SentimentThemeGroup }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+const THEME_LIMIT = 10
+
 interface Props {
   data: SentimentVsClayData | null
   selected: string
   loading: boolean
+  headerSlot?: React.ReactNode
 }
 
-export default function CompSentimentVsClay({ data, selected, loading }: Props) {
+export default function CompSentimentVsClay({ data, selected, loading, headerSlot }: Props) {
+  const [showAllThemes, setShowAllThemes] = useState(false)
   const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
   const isClay = selected === 'Clay'
 
@@ -242,6 +246,7 @@ export default function CompSentimentVsClay({ data, selected, loading }: Props) 
   if (loading) {
     return (
       <div style={CARD} className="p-4">
+        {headerSlot}
         <div style={LABEL} className="mb-1">{heading}</div>
         <div className="animate-pulse space-y-3 mt-4">
           {[1, 2, 3].map(i => (
@@ -255,6 +260,7 @@ export default function CompSentimentVsClay({ data, selected, loading }: Props) 
   if (!data || data.themeGroups.length === 0) {
     return (
       <div style={CARD} className="p-4">
+        {headerSlot}
         <div style={LABEL} className="mb-1">{heading}</div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
         <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
@@ -264,8 +270,12 @@ export default function CompSentimentVsClay({ data, selected, loading }: Props) 
     )
   }
 
+  const visibleThemes = showAllThemes ? data.themeGroups : data.themeGroups.slice(0, THEME_LIMIT)
+  const hasMore = data.themeGroups.length > THEME_LIMIT
+
   return (
     <div style={CARD} className="p-4">
+      {headerSlot}
       <div style={LABEL} className="mb-1">{heading}</div>
       <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
 
@@ -289,7 +299,9 @@ export default function CompSentimentVsClay({ data, selected, loading }: Props) 
 
       {/* Legend */}
       <div className="flex items-center gap-4 mb-3">
-        <span style={LABEL}>Themes — {data.themeGroups.length} found</span>
+        <span style={LABEL}>
+          Themes — showing {visibleThemes.length} of {data.themeGroups.length}
+        </span>
         <div className="flex items-center gap-3 text-[10px] ml-auto" style={{ color: 'rgba(26,25,21,0.4)' }}>
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#C8F040' }} /> Positive
@@ -305,10 +317,23 @@ export default function CompSentimentVsClay({ data, selected, loading }: Props) 
 
       {/* Theme rows */}
       <div className="space-y-2">
-        {data.themeGroups.map(group => (
+        {visibleThemes.map(group => (
           <ThemeRow key={group.theme} group={group} />
         ))}
       </div>
+
+      {/* Expand / collapse */}
+      {hasMore && (
+        <button
+          onClick={() => setShowAllThemes(v => !v)}
+          className="mt-3 w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+          style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          {showAllThemes
+            ? 'Show top 20 themes ↑'
+            : `Show all ${data.themeGroups.length} themes ↓`}
+        </button>
+      )}
     </div>
   )
 }

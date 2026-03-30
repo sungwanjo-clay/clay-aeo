@@ -107,57 +107,56 @@ function CompResponseRow({ r, selected }: { r: PMMCompPromptRow['responses'][0];
   )
 }
 
-// ── Prompt row inside a topic ─────────────────────────────────────────────────
+// ── Prompt row inside a topic (div-based to avoid nested table layout issues) ─
 function CompPromptRow({ p, selected }: { p: PMMCompPromptRow; selected: string }) {
   const [open, setOpen] = useState(false)
+  const COLS = '1fr 80px 80px 80px 72px'
 
   return (
-    <React.Fragment>
-      <tr
+    <div style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
+      {/* Main row */}
+      <div
+        className="grid items-center gap-2 px-3 cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+        style={{ gridTemplateColumns: COLS, paddingLeft: '20px', paddingTop: '8px', paddingBottom: '8px' }}
         onClick={() => setOpen(v => !v)}
-        className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
-        style={{ borderBottom: open ? 'none' : '1px solid rgba(26,25,21,0.04)' }}
       >
-        <td className="px-3 py-2.5" style={{ paddingLeft: '20px' }}>
-          <div className="flex items-center gap-2">
-            {open
-              ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />
-              : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />}
-            <span className="text-[12px] font-medium leading-tight" style={{ color: 'var(--clay-black)' }}>
-              {p.prompt_text}
-            </span>
-          </div>
-        </td>
-        <td className="px-3 py-2.5 text-right text-[12px] font-bold tabular-nums" style={{ color: '#4A5AFF' }}>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {open
+            ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />
+            : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />}
+          <span className="text-[12px] font-medium leading-tight" style={{ color: 'var(--clay-black)' }}>
+            {p.prompt_text}
+          </span>
+        </div>
+        <span className="text-right text-[12px] font-bold tabular-nums" style={{ color: '#4A5AFF' }}>
           {p.competitor_visibility.toFixed(1)}%
-        </td>
-        <td className="px-3 py-2.5 text-right text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+        </span>
+        <span className="text-right text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
           {p.clay_visibility.toFixed(1)}%
-        </td>
-        <td className="px-3 py-2.5 text-right">
+        </span>
+        <div className="flex justify-end">
           <DeltaChip delta={p.delta} />
-        </td>
-        <td className="px-3 py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
+        </div>
+        <span className="text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
           {p.total_responses}
-        </td>
-      </tr>
+        </span>
+      </div>
 
+      {/* Expanded response list */}
       {open && (
-        <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
-          <td colSpan={5} style={{ padding: '0 12px 10px 20px' }}>
-            <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
-              <div className="grid gap-2 px-3 py-1.5"
-                style={{ gridTemplateColumns: '80px 76px 72px 72px 1fr 16px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
-                {['Platform', 'Date', selected, 'Clay', 'Snippet', ''].map(h => (
-                  <span key={h} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
-                ))}
-              </div>
-              {p.responses.map(r => <CompResponseRow key={r.id} r={r} selected={selected} />)}
+        <div style={{ padding: '0 12px 10px 20px' }}>
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
+            <div className="grid gap-2 px-3 py-1.5"
+              style={{ gridTemplateColumns: '80px 76px 72px 72px 1fr 16px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
+              {['Platform', 'Date', selected, 'Clay', 'Snippet', ''].map(h => (
+                <span key={h} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
+              ))}
             </div>
-          </td>
-        </tr>
+            {p.responses.map(r => <CompResponseRow key={r.id} r={r} selected={selected} />)}
+          </div>
+        </div>
       )}
-    </React.Fragment>
+    </div>
   )
 }
 
@@ -225,16 +224,14 @@ function CompTopicRow({
             ) : (
               <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
                 <div className="grid px-3 py-1.5"
-                  style={{ gridTemplateColumns: '1fr 80px 80px 80px 72px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
+                  style={{ gridTemplateColumns: '1fr 80px 80px 80px 72px', background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)', paddingLeft: '20px' }}>
                   {['Prompt', selected, 'Clay', 'Δ', 'Responses'].map((h, i) => (
                     <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
                   ))}
                 </div>
-                <table className="w-full">
-                  <tbody>
-                    {prompts.map(p => <CompPromptRow key={p.prompt_id} p={p} selected={selected} />)}
-                  </tbody>
-                </table>
+                <div>
+                  {prompts.map(p => <CompPromptRow key={p.prompt_id} p={p} selected={selected} />)}
+                </div>
               </div>
             )}
           </td>
@@ -249,9 +246,10 @@ interface Props {
   rows: PMMCompRow[]
   selected: string
   onDrilldown: (pmmUseCase: string) => Promise<PMMCompPromptRow[]>
+  headerSlot?: React.ReactNode
 }
 
-export default function CompPMMComparison({ rows, selected, onDrilldown }: Props) {
+export default function CompPMMComparison({ rows, selected, onDrilldown, headerSlot }: Props) {
   const [drillCache, setDrillCache] = useState<Record<string, PMMCompPromptRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
 
@@ -267,6 +265,7 @@ export default function CompPMMComparison({ rows, selected, onDrilldown }: Props
 
   return (
     <div style={CARD} className="p-4">
+      {headerSlot}
       <div style={LABEL} className="mb-1">Visibility by PMM Topic — {selected} vs Clay</div>
       <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
         Side-by-side visibility scores per topic. Δ = {selected} minus Clay. Expand a row to see which prompts are driving the gap.

@@ -21,10 +21,11 @@ export async function getCitationShare(
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
   const calc = async (start: string, end: string) => {
-    const { data } = await applyResponseFilters(
+    const { data, error } = await applyResponseFilters(
       sb.from('responses').select('cited_domains, clay_mentioned'),
       { ...f, startDate: start, endDate: end }
-    )
+    ).limit(10000)
+    if (error) { console.error('getCitationShare', error); return null }
     if (!data?.length) return null
     const withClayCited = data.filter(r => {
       try {
@@ -122,7 +123,7 @@ export async function getCitationGaps(
   const topicQuery = await applyResponseFilters(
     sb.from('responses').select('topic, clay_mentioned'),
     f
-  )
+  ).limit(10000)
 
   const topicTotals = new Map<string, number>()
   for (const r of topicQuery.data ?? []) {
@@ -180,10 +181,11 @@ export async function getCitationCount(
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
   const count = async (start: string, end: string) => {
-    const { data } = await applyResponseFilters(
+    const { data, error } = await applyResponseFilters(
       sb.from('responses').select('cited_domains'),
       { ...f, startDate: start, endDate: end }
-    )
+    ).limit(10000)
+    if (error) { console.error('getCitationCount', error); return 0 }
     if (!data?.length) return 0
     return data.filter(r => {
       try {
@@ -253,10 +255,11 @@ export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data } = await applyResponseFilters(
+  const { data, error } = await applyResponseFilters(
     sb.from('responses').select('run_date, cited_domains'),
     f
-  )
+  ).limit(10000)
+  if (error) { console.error('getCitationOverallTimeseries', error); return [] }
   if (!data) return []
 
   const map = new Map<string, { clayCited: number; total: number }>()
@@ -355,16 +358,17 @@ export async function getClayURLsByType(
   let query = sb
     .from('citation_domains')
     .select('url, title, url_type, citation_type, platform, topic, domain')
+    .ilike('domain', '%clay%')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data, error } = await query
+  const { data, error } = await query.limit(5000)
   if (error) { console.error('getClayURLsByType', error); return [] }
   if (!data?.length) return []
 
-  // Filter to clay.com domains client-side (avoids ilike index issues)
+  // Also filter client-side for safety
   const clayRows = data.filter(r => (r.domain ?? '').toLowerCase().includes('clay'))
 
   if (!clayRows.length) return []
@@ -438,7 +442,7 @@ export async function getTopCitedDomainsEnhanced(
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data, error } = await query
+  const { data, error } = await query.limit(5000)
   if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
   if (!data?.length) return []
 

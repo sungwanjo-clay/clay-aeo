@@ -252,9 +252,10 @@ interface Props {
   onLoadPrompts: (url: string, responseIds: string[]) => Promise<void>
   promptCache: Record<string, CitationPromptRow[]>
   loadingPrompts: string | null
+  headerSlot?: React.ReactNode
 }
 
-export default function CompCitationProfile({ citations, selected, onLoadPrompts, promptCache, loadingPrompts }: Props) {
+export default function CompCitationProfile({ citations, selected, onLoadPrompts, promptCache, loadingPrompts, headerSlot }: Props) {
   const [showAll, setShowAll] = useState(false)
   const visible = showAll ? citations : citations.slice(0, 15)
   const CARD = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -262,6 +263,7 @@ export default function CompCitationProfile({ citations, selected, onLoadPrompts
   if (citations.length === 0) {
     return (
       <div style={CARD} className="p-4">
+        {headerSlot}
         <div style={LABEL} className="mb-1">Citation Profile — {selected}</div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
           Top content from {selected}&apos;s domain cited by AI.
@@ -275,6 +277,7 @@ export default function CompCitationProfile({ citations, selected, onLoadPrompts
 
   return (
     <div style={CARD} className="p-4">
+      {headerSlot}
       <div style={LABEL} className="mb-1">Citation Profile — {selected}</div>
       <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
         Content from {selected}&apos;s domain cited by AI models. Expand a URL to see the prompts and responses that drove the citation.
