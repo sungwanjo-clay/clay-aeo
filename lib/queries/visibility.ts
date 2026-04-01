@@ -134,38 +134,39 @@ export async function getCompetitorVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; competitor: string; value: number }[]> {
-  // Get total responses per day for denominator
+  // Get total responses per day for denominator (also used to enforce platform/topic filters)
   const { data: responses } = await applyFilters(
     sb.from('responses').select('id, run_date'),
     f
-  )
+  ).limit(20000)
   if (!responses?.length) return []
 
   const totalByDate = new Map<string, number>()
+  const responseIdToDate = new Map<string, string>()
   for (const r of responses) {
     const date = (r.run_date ?? '').substring(0, 10)
     if (!date) continue
     totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
+    responseIdToDate.set(r.id, date)
   }
-  const responseIds = responses.map(r => r.id)
 
-  // Get competitor mentions for these responses
+  // Fetch competitor rows by date range directly — avoids huge in() with thousands of IDs
   const { data: rc } = await sb
     .from('response_competitors')
-    .select('response_id, competitor_name, run_date')
-    .in('response_id', responseIds.slice(0, 1000)) // Supabase limit safety
+    .select('response_id, competitor_name')
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .limit(20000)
 
   if (!rc?.length) return []
 
-  // Build a map of response_id -> date
-  const responseIdToDate = new Map<string, string>()
-  for (const r of responses) {
-    responseIdToDate.set(r.id, (r.run_date ?? '').substring(0, 10))
-  }
+  // Filter to only responses that passed the platform/topic/etc filters
+  const validIds = new Set(responses.map((r: any) => r.id))
 
   const map = new Map<string, number>()
   for (const row of rc) {
-    const date = responseIdToDate.get(row.response_id) ?? row.run_date?.split('T')[0] ?? ''
+    if (!validIds.has(row.response_id)) continue
+    const date = responseIdToDate.get(row.response_id) ?? ''
     if (!date) continue
     const key = `${date}|||${row.competitor_name}`
     map.set(key, (map.get(key) ?? 0) + 1)
@@ -185,8 +186,8 @@ export async function getCompetitorLeaderboard(
   // Step 1: get filtered response IDs for both periods — this is the source of truth
   // for the denominator AND ensures RC is scoped to the same responses
   const [curResponses, prevResponses] = await Promise.all([
-    applyFilters(sb.from('responses').select('id'), f).then((r: any) => r.data ?? []),
-    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('id'), f).limit(20000).then((r: any) => r.data ?? []),
+    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).limit(20000).then((r: any) => r.data ?? []),
   ])
 
   const curIds: string[] = curResponses.map((r: any) => r.id)
@@ -196,32 +197,35 @@ export async function getCompetitorLeaderboard(
 
   if (totalNow === 0) return []
 
-  // Step 2: fetch RC rows only for the filtered response IDs
+  // Step 2: fetch RC rows by date range directly — avoids huge in() URLs that Supabase rejects
+  const curIdSet = new Set(curIds)
+  const prevIdSet = new Set(prevIds)
+
   const [rcCur, rcPrev] = await Promise.all([
-    curIds.length
-      ? sb.from('response_competitors').select('competitor_name, response_id').in('response_id', curIds.slice(0, 5000))
-      : { data: [] },
-    prevIds.length
-      ? sb.from('response_competitors').select('competitor_name, response_id').in('response_id', prevIds.slice(0, 5000))
-      : { data: [] },
+    sb.from('response_competitors').select('competitor_name, response_id')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate).limit(20000),
+    sb.from('response_competitors').select('competitor_name, response_id')
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate).limit(20000),
   ])
 
   const curCounts = new Map<string, Set<string>>()
   for (const r of rcCur.data ?? []) {
+    if (!curIdSet.has(r.response_id)) continue // enforce platform/topic filters
     if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
     curCounts.get(r.competitor_name)!.add(r.response_id)
   }
 
   const prevCounts = new Map<string, Set<string>>()
   for (const r of rcPrev.data ?? []) {
+    if (!prevIdSet.has(r.response_id)) continue // enforce platform/topic filters
     if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
     prevCounts.get(r.competitor_name)!.add(r.response_id)
   }
 
   return Array.from(curCounts.entries()).map(([competitor_name, ids]) => {
     const curScore = totalNow > 0 ? (ids.size / totalNow) * 100 : 0
-    const prevIds = prevCounts.get(competitor_name)?.size ?? 0
-    const prevScore = totalPrevCount > 0 ? (prevIds / totalPrevCount) * 100 : 0
+    const prevMatchIds = prevCounts.get(competitor_name)?.size ?? 0
+    const prevScore = totalPrevCount > 0 ? (prevMatchIds / totalPrevCount) * 100 : 0
     return {
       competitor_name,
       mention_count: ids.size,
@@ -347,21 +351,23 @@ export async function getShareOfVoice(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  // Filter by response IDs so topic/branded/promptType filters are respected
-  const { data: responses } = await applyFilters(sb.from('responses').select('id'), f)
+  const { data: responses } = await applyFilters(sb.from('responses').select('id'), f).limit(20000)
   if (!responses?.length) return []
-  const ids = responses.map((r: any) => r.id)
+  const idSet = new Set(responses.map((r: any) => r.id))
 
   const { data } = await sb
     .from('response_competitors')
     .select('competitor_name, response_id')
-    .in('response_id', ids.slice(0, 5000))
+    .gte('run_date', f.startDate)
+    .lte('run_date', f.endDate)
+    .limit(20000)
 
   if (!data?.length) return []
 
   const counts = new Map<string, number>()
   let total = 0
   for (const row of data) {
+    if (!idSet.has(row.response_id)) continue
     const name = row.competitor_name ?? ''
     counts.set(name, (counts.get(name) ?? 0) + 1)
     total++
