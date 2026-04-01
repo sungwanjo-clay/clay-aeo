@@ -1,5 +1,5 @@
 // generate-daily-insight
-// Aggregates 30 days of responses, calls Claude to find one non-obvious insight,
+// Aggregates 14 days of responses, calls Claude to find one non-obvious insight,
 // and stores it in the `insights` table. Idempotent: skips if today's row exists.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -44,9 +44,9 @@ serve(async (req) => {
 
     if (existing) return json({ ok: true, insight: existing, cached: true })
 
-    // ── Fetch last 30 days of responses ──────────────────────────────────────
+    // ── Fetch last 14 days of responses ──────────────────────────────────────
     const since = new Date()
-    since.setDate(since.getDate() - 30)
+    since.setDate(since.getDate() - 14)
     const startDate = since.toISOString().split('T')[0]
 
     const { data: responses, error: fetchErr } = await supabase
