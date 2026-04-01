@@ -147,15 +147,25 @@ export default function HomePage() {
   const visAllVals = visChartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
   const visYMax = Math.min(100, Math.ceil(Math.max(...visAllVals, 1) * 1.2 / 5) * 5)
 
-  // Re-sort competitors with Clay's patched score so ranks reflect displayed numbers
-  const sortedCompetitors = [...competitors]
-    .map(row => ({
-      ...row,
-      _displayScore: row.competitor_name === 'Clay' && visibility?.current != null
-        ? visibility.current
-        : (row.visibility_score ?? row.sov_pct ?? 0),
-    }))
-    .sort((a, b) => b._displayScore - a._displayScore)
+  // Always include Clay in the top-6 table. If not naturally in top 6, pin it at #6.
+  const allWithClay = (() => {
+    const hasClay = competitors.some(c => c.competitor_name === 'Clay')
+    const list = hasClay
+      ? competitors
+      : [...competitors, { competitor_name: 'Clay', mention_count: 0, sov_pct: visibility?.current ?? 0, visibility_score: visibility?.current ?? 0, delta: visDelta(), isOwned: true }]
+    return list
+      .map(row => ({
+        ...row,
+        _displayScore: row.competitor_name === 'Clay' && visibility?.current != null
+          ? visibility.current
+          : (row.visibility_score ?? row.sov_pct ?? 0),
+      }))
+      .sort((a, b) => b._displayScore - a._displayScore)
+  })()
+  const clayNaturalRank = allWithClay.findIndex(c => c.competitor_name === 'Clay')
+  const sortedCompetitors = clayNaturalRank < 6
+    ? allWithClay.slice(0, 6)
+    : [...allWithClay.filter(c => c.competitor_name !== 'Clay').slice(0, 5), allWithClay[clayNaturalRank]]
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
