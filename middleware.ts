@@ -19,6 +19,9 @@ async function expectedToken(): Promise<string> {
 }
 
 export async function middleware(req: NextRequest) {
+  // If SITE_PASSWORD is not set, auth is disabled — allow all traffic
+  if (!process.env.SITE_PASSWORD) return NextResponse.next()
+
   const { pathname } = req.nextUrl
 
   // Always allow: login page, auth API, Next.js internals, static files
