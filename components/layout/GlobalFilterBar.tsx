@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getDistinctTags, getDistinctPromptTypes, getLastRunDate } from '@/lib/queries/visibility'
+import { getDistinctTags, getDistinctPromptTypes, getLastRunDate, getDistinctBrandedValues } from '@/lib/queries/visibility'
 import { formatDate } from '@/lib/utils/formatters'
 
 const PLATFORMS = ['all', 'ChatGPT', 'Claude']
@@ -50,6 +50,7 @@ export default function GlobalFilterBar() {
   const [tags, setTags] = useState<string[]>([])
   const [promptTypes, setPromptTypes] = useState<string[]>([])
   const [lastRunDate, setLastRunDate] = useState<string | null>(null)
+  const [brandedValues, setBrandedValues] = useState<string[]>([])
 
   const startISO = filters.dateRange.start.toISOString()
   const endISO = filters.dateRange.end.toISOString()
@@ -59,10 +60,12 @@ export default function GlobalFilterBar() {
       getDistinctTags(supabase, startISO, endISO),
       getDistinctPromptTypes(supabase),
       getLastRunDate(supabase),
-    ]).then(([tg, pt, lr]) => {
+      getDistinctBrandedValues(supabase),
+    ]).then(([tg, pt, lr, bv]) => {
       setTags(tg)
       setPromptTypes(pt)
       setLastRunDate(lr)
+      setBrandedValues(bv)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startISO, endISO])
@@ -89,10 +92,12 @@ export default function GlobalFilterBar() {
   // Exclude any DB-returned prompt types that clash with our synthetic branded options
   const filteredPromptTypes = promptTypes.filter(t => t !== 'branded' && t !== 'non-branded')
 
+  const hasBranded = brandedValues.some(v => v === 'Branded')
+  const hasNonBranded = brandedValues.some(v => v === 'Non-Branded')
   const keywordOptions = [
     { value: 'all', label: 'All' },
-    { value: '__branded__', label: 'Branded' },
-    { value: '__non-branded__', label: 'Non-Branded' },
+    ...(hasBranded ? [{ value: '__branded__', label: 'Branded' }] : []),
+    ...(hasNonBranded ? [{ value: '__non-branded__', label: 'Non-Branded' }] : []),
     ...filteredPromptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
   ]
 

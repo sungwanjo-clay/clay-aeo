@@ -4,9 +4,13 @@ import type { FilterParams, CitationDomainRow } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyResponseFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
+  if (f.brandedFilter && f.brandedFilter !== 'all') {
+    const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
+    query = query.eq('branded_or_non_branded', val)
+  }
   if (f.promptType === 'benchmark') {
     query = query.eq('prompt_type', 'benchmark')
   } else if (f.promptType === 'campaign') {
@@ -14,6 +18,14 @@ function applyResponseFilters(query: any, f: FilterParams): any {
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
+}
+
+// For citation_domains table (TIMESTAMPTZ, no run_day column): use exclusive upper bound
+function cdDateStr(iso: string): string { return iso.split('T')[0] }
+function cdNextDay(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().split('T')[0]
 }
 
 export async function getCitationShare(
@@ -56,8 +68,8 @@ export async function getCitationDomains(
   let query = sb
     .from('citation_domains')
     .select('domain, citation_type, url_type')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
 
   if (f.platforms.length > 0) query = query.in('platform', f.platforms)
 
@@ -119,8 +131,8 @@ export async function getCitationGaps(
     .from('citation_domains')
     .select('domain, citation_type, responses(topic)')
     .eq('citation_type', 'Competition')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
 
   if (f.platforms.length > 0) query = query.in('platform', f.platforms)
   const { data } = await (query as any).limit(10000)
@@ -165,11 +177,11 @@ export async function getCitationTypeBreakdown(
   let query = sb
     .from('citation_domains')
     .select('citation_type')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
   if (f.platforms.length > 0) query = query.in('platform', f.platforms)
 
-  const { data } = await query
+  const { data } = await (query as any).limit(50000)
   if (!data?.length) return []
 
   const map = new Map<string, number>()
@@ -231,8 +243,8 @@ export async function getCompetitorCitationTimeseries(
   // competitor lines to citation_type = 'Competition' only; Clay is always pinned.
   let q = sb.from('citation_domains')
     .select('domain, response_id, citation_type')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
   if (f.platforms?.length) q = q.in('platform', f.platforms)
   const { data: citations } = await (q as any).limit(100000)
   if (!citations?.length) return []
@@ -326,11 +338,11 @@ export async function getTopCitedDomainsWithURLs(
   let query = sb
     .from('citation_domains')
     .select('domain, url, title, citation_type')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
 
-  const { data } = await query
+  const { data } = await (query as any).limit(50000)
   if (!data?.length) return []
 
   const total = data.length
@@ -398,8 +410,8 @@ export async function getClayURLsByType(
     .from('citation_domains')
     .select('url, title, url_type, citation_type, platform, domain, responses(topic)')
     .ilike('domain', '%clay%')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
@@ -478,12 +490,12 @@ export async function getTopCitedDomainsEnhanced(
   let query = sb
     .from('citation_domains')
     .select('domain, url, title, citation_type, url_type, response_id, responses(topic)')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data, error } = await query.limit(5000)
+  const { data, error } = await query.limit(50000)
 
   if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
   if (!data?.length) return []
@@ -615,8 +627,8 @@ export async function getCitationActivityTimeseries(
   let q = sb
     .from('citation_domains')
     .select('run_date, domain')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .gte('run_date', cdDateStr(f.startDate))
+    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
 
   if (f.platforms?.length) q = q.in('platform', f.platforms)
 

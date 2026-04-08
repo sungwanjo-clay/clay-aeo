@@ -35,6 +35,10 @@ export async function getVisibilityScore(
       let q = sb.from('prompts').select('prompt_id', { count: 'exact', head: true }).eq('is_active', true)
       if (f.promptType === 'benchmark') q = q.filter('prompt_type', 'ilike', 'benchmark')
       else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
+      if (f.brandedFilter && f.brandedFilter !== 'all') {
+        const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
+        q = q.eq('branded_or_non_branded', val)
+      }
       if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
       return q.then((r: any) => r.count ?? 0)
     })(),
@@ -436,6 +440,12 @@ export async function getDistinctTopics(sb: SupabaseClient): Promise<string[]> {
   const { data } = await sb.from('responses').select('topic').not('topic', 'is', null)
   if (!data) return []
   return [...new Set(data.map(r => r.topic).filter(Boolean))].sort() as string[]
+}
+
+export async function getDistinctBrandedValues(sb: SupabaseClient): Promise<string[]> {
+  const { data } = await sb.from('responses').select('branded_or_non_branded').not('branded_or_non_branded', 'is', null).limit(5000)
+  if (!data) return []
+  return [...new Set(data.map(r => (r.branded_or_non_branded ?? '').trim()).filter(Boolean))].sort() as string[]
 }
 
 export async function getDistinctTags(sb: SupabaseClient, startDate?: string, endDate?: string): Promise<string[]> {
