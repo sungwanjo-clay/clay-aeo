@@ -7,14 +7,15 @@ function applyResponseFilters(query: any, f: FilterParams): any {
   query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
-  if (f.brandedFilter && f.brandedFilter !== 'all') {
-    const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-    query = query.eq('branded_or_non_branded', val)
+  if (f.brandedFilter === 'branded') {
+    query = query.ilike('branded_or_non_branded', 'branded')
+  } else if (f.brandedFilter === 'non-branded') {
+    query = query.not('branded_or_non_branded', 'ilike', 'branded')
   }
   if (f.promptType === 'benchmark') {
-    query = query.eq('prompt_type', 'benchmark')
+    query = query.filter('prompt_type', 'ilike', 'benchmark')
   } else if (f.promptType === 'campaign') {
-    query = query.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+    query = query.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
@@ -32,31 +33,32 @@ export async function getCitationShare(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  // Citation rate: clay-cited responses / responses-with-any-citations
-  const calc = async (start: string, end: string) => {
-    const { data, error } = await applyResponseFilters(
-      sb.from('responses').select('cited_domains'),
-      { ...f, startDate: start, endDate: end }
-    ).limit(10000)
-    if (error) { console.error('getCitationShare', error); return null }
-    if (!data?.length) return null
-    let withClayCited = 0
-    let withAnyCitations = 0
-    for (const r of data) {
-      try {
-        const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
-        if (domains.length > 0) {
-          withAnyCitations++
-          if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) withClayCited++
-        }
-      } catch { /* ignore */ }
-    }
-    return withAnyCitations > 0 ? (withClayCited / withAnyCitations) * 100 : null
+  // Citation rate: responses with a clay.com row in citation_domains / responses with any citation_domain row
+  // Both counts are server-side (count: exact, head: true) — no row limit exposure.
+  const calc = async (fParams: FilterParams) => {
+    // Step 1: get filtered response IDs via server-side count
+    const { data: rIds } = await applyResponseFilters(
+      sb.from('responses').select('id'),
+      fParams
+    ).limit(50000)
+    if (!rIds?.length) return null
+    const ids = rIds.map((r: any) => r.id)
+
+    // Step 2: count citation_domain rows for this response set
+    const [{ count: withAnyCitations }, { count: withClayCited }] = await Promise.all([
+      sb.from('citation_domains').select('*', { count: 'exact', head: true })
+        .in('response_id', ids),
+      sb.from('citation_domains').select('*', { count: 'exact', head: true })
+        .in('response_id', ids).ilike('domain', '%clay%'),
+    ])
+    return (withAnyCitations ?? 0) > 0
+      ? ((withClayCited ?? 0) / (withAnyCitations ?? 1)) * 100
+      : null
   }
 
   const [current, previous] = await Promise.all([
-    calc(f.startDate, f.endDate),
-    calc(f.prevStartDate, f.prevEndDate),
+    calc(f),
+    calc({ ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
   return { current, previous }
 }
@@ -335,53 +337,47 @@ export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
-  let query = sb
+  // Step 1: get aggregate counts via RPC (GROUP BY server-side — no row limit issue)
+  const { data: agg } = await (sb as any).rpc('get_top_cited_domains', {
+    p_start_day: cdDateStr(f.startDate),
+    p_end_day: cdNextDay(cdDateStr(f.endDate)),
+    p_platforms: f.platforms?.length ? f.platforms : null,
+  })
+  if (!agg?.length) return []
+
+  // Step 2: fetch top URLs for those domains (detail only, row count manageable)
+  const topDomains = agg.map((r: any) => r.domain).slice(0, 20)
+  let urlQuery = sb
     .from('citation_domains')
-    .select('domain, url, title, citation_type')
+    .select('domain, url, title')
     .gte('run_date', cdDateStr(f.startDate))
     .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
-  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+    .in('domain', topDomains)
+  if (f.platforms && f.platforms.length > 0) urlQuery = urlQuery.in('platform', f.platforms)
+  const { data: urlRows } = await (urlQuery as any).limit(10000)
 
-  const { data } = await (query as any).limit(50000)
-  if (!data?.length) return []
-
-  const total = data.length
-  const domainMap = new Map<string, { count: number; is_clay: boolean; typeCounts: Map<string, number>; urls: Map<string, { title: string | null; count: number }> }>()
-
-  for (const row of data) {
-    const d = (row.domain ?? '').toLowerCase()
-    if (!d) continue
-    const cur = domainMap.get(d) ?? { count: 0, is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
-    cur.count++
-    if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
-    if (row.url) {
-      const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0 }
-      u.count++
-      cur.urls.set(row.url, u)
-    }
-    domainMap.set(d, cur)
+  // Build URL map per domain
+  const urlMap = new Map<string, Map<string, { title: string | null; count: number }>>()
+  for (const row of urlRows ?? []) {
+    if (!row.url || !row.domain) continue
+    if (!urlMap.has(row.domain)) urlMap.set(row.domain, new Map())
+    const um = urlMap.get(row.domain)!
+    const u = um.get(row.url) ?? { title: row.title ?? null, count: 0 }
+    u.count++
+    um.set(row.url, u)
   }
 
-  return Array.from(domainMap.entries())
-    .map(([domain, { count, is_clay, typeCounts, urls }]) => {
-      // Pick most frequent citation_type for this domain
-      const citation_type = typeCounts.size > 0
-        ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-        : (is_clay ? 'Clay' : null)
-      return {
-        domain,
-        citation_count: count,
-        share_pct: total > 0 ? (count / total) * 100 : 0,
-        is_clay,
-        citation_type,
-        top_urls: Array.from(urls.entries())
-          .map(([url, { title, count }]) => ({ url, title, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 8),
-      }
-    })
-    .sort((a, b) => b.citation_count - a.citation_count)
-    .slice(0, 20)
+  return agg.slice(0, 20).map((r: any) => ({
+    domain: r.domain,
+    citation_count: Number(r.citation_count),
+    share_pct: Number(r.share_pct),
+    is_clay: (r.domain ?? '').includes('clay.com'),
+    citation_type: r.citation_type ?? null,
+    top_urls: Array.from(urlMap.get(r.domain)?.entries() ?? [])
+      .map(([url, { title, count }]) => ({ url, title, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8),
+  }))
 }
 
 // ── Clay citations grouped by URL type ───────────────────────────────────────

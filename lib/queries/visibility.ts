@@ -6,9 +6,12 @@ function applyFilters(query: any, f: FilterParams): any {
   query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
-  if (f.brandedFilter !== 'all') {
-    const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-    query = query.eq('branded_or_non_branded', val)
+  if (f.brandedFilter === 'branded') {
+    // ilike for case-insensitive exact match — works regardless of 'Branded'/'branded' casing in DB
+    query = query.ilike('branded_or_non_branded', 'branded')
+  } else if (f.brandedFilter === 'non-branded') {
+    // everything that is NOT an exact 'branded' match (covers 'Non Branded', 'Non-Branded', etc.)
+    query = query.not('branded_or_non_branded', 'ilike', 'branded')
   }
   if (f.promptType === 'benchmark') {
     query = query.filter('prompt_type', 'ilike', 'benchmark')
@@ -21,34 +24,40 @@ function applyFilters(query: any, f: FilterParams): any {
   return query
 }
 
+// Server-side count query — returns 0 rows, just the count header.
+// Completely bypasses Supabase's max_rows limit.
+async function countResponses(sb: SupabaseClient, f: FilterParams, extraFilter?: (q: any) => any): Promise<number> {
+  let q = applyFilters(sb.from('responses').select('*', { count: 'exact', head: true }), f)
+  if (extraFilter) q = extraFilter(q)
+  const { count } = await q
+  return count ?? 0
+}
+
 export async function getVisibilityScore(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null; total: number }> {
-  const [cur, prev, promptCount] = await Promise.all([
-    applyFilters(sb.from('responses').select('clay_mentioned'), f).limit(10000).then((r: any) => r.data ?? []),
-    applyFilters(
-      sb.from('responses').select('clay_mentioned'),
-      { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }
-    ).limit(10000).then((r: any) => r.data ?? []),
+  const prevF = { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }
+
+  const [mentionedCur, totalCur, mentionedPrev, totalPrev, promptCount] = await Promise.all([
+    countResponses(sb, f, q => q.eq('clay_mentioned', 'Yes')),
+    countResponses(sb, f),
+    countResponses(sb, prevF, q => q.eq('clay_mentioned', 'Yes')),
+    countResponses(sb, prevF),
     (() => {
-      let q = sb.from('prompts').select('prompt_id', { count: 'exact', head: true }).eq('is_active', true)
+      let q = sb.from('prompts').select('*', { count: 'exact', head: true }).eq('is_active', true)
       if (f.promptType === 'benchmark') q = q.filter('prompt_type', 'ilike', 'benchmark')
       else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
-      if (f.brandedFilter && f.brandedFilter !== 'all') {
-        const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-        q = q.eq('branded_or_non_branded', val)
-      }
+      if (f.brandedFilter === 'branded') q = q.ilike('branded_or_non_branded', 'branded')
+      else if (f.brandedFilter === 'non-branded') q = q.not('branded_or_non_branded', 'ilike', 'branded')
       if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
       return q.then((r: any) => r.count ?? 0)
     })(),
   ])
-  const pct = (rows: any[]) => {
-    if (!rows.length) return null
-    const yes = rows.filter((r: any) => r.clay_mentioned === 'Yes').length
-    return (yes / rows.length) * 100
-  }
-  return { current: pct(cur), previous: pct(prev), total: promptCount }
+
+  const current = totalCur > 0 ? (mentionedCur / totalCur) * 100 : null
+  const previous = totalPrev > 0 ? (mentionedPrev / totalPrev) * 100 : null
+  return { current, previous, total: promptCount }
 }
 
 export async function getClayOverallTimeseries(
@@ -192,57 +201,25 @@ export async function getCompetitorLeaderboard(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  // Step 1: get filtered response IDs for both periods — this is the source of truth
-  // for the denominator AND ensures RC is scoped to the same responses
-  const [curResponses, prevResponses] = await Promise.all([
-    applyFilters(sb.from('responses').select('id'), f).limit(20000).then((r: any) => r.data ?? []),
-    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).limit(20000).then((r: any) => r.data ?? []),
-  ])
-
-  const curIds: string[] = curResponses.map((r: any) => r.id)
-  const prevIds: string[] = prevResponses.map((r: any) => r.id)
-  const totalNow = curIds.length
-  const totalPrevCount = prevIds.length
-
-  if (totalNow === 0) return []
-
-  // Step 2: fetch RC rows by date range directly — avoids huge in() URLs that Supabase rejects
-  const curIdSet = new Set(curIds)
-  const prevIdSet = new Set(prevIds)
-
-  const [rcCur, rcPrev] = await Promise.all([
-    sb.from('response_competitors').select('competitor_name, response_id')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate).limit(20000),
-    sb.from('response_competitors').select('competitor_name, response_id')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate).limit(20000),
-  ])
-
-  const curCounts = new Map<string, Set<string>>()
-  for (const r of rcCur.data ?? []) {
-    if (!curIdSet.has(r.response_id)) continue // enforce platform/topic filters
-    if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
-    curCounts.get(r.competitor_name)!.add(r.response_id)
-  }
-
-  const prevCounts = new Map<string, Set<string>>()
-  for (const r of rcPrev.data ?? []) {
-    if (!prevIdSet.has(r.response_id)) continue // enforce platform/topic filters
-    if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
-    prevCounts.get(r.competitor_name)!.add(r.response_id)
-  }
-
-  return Array.from(curCounts.entries()).map(([competitor_name, ids]) => {
-    const curScore = totalNow > 0 ? (ids.size / totalNow) * 100 : 0
-    const prevMatchIds = prevCounts.get(competitor_name)?.size ?? 0
-    const prevScore = totalPrevCount > 0 ? (prevMatchIds / totalPrevCount) * 100 : 0
-    return {
-      competitor_name,
-      mention_count: ids.size,
-      sov_pct: curScore,
-      visibility_score: curScore,
-      delta: prevScore > 0 ? curScore - prevScore : null,
-    }
-  }).sort((a, b) => b.visibility_score - a.visibility_score)
+  const { data, error } = await (sb as any).rpc('get_competitor_leaderboard', {
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType === 'benchmark' ? 'benchmark'
+                 : f.promptType === 'campaign'  ? null : null,
+    p_branded:     f.brandedFilter !== 'all' ? f.brandedFilter : null,
+    p_platforms:   f.platforms?.length ? f.platforms : null,
+    p_tags:        f.tags !== 'all' ? f.tags : null,
+    p_prev_start:  f.prevStartDate?.split('T')[0] ?? null,
+    p_prev_end:    f.prevEndDate?.split('T')[0] ?? null,
+  })
+  if (error) { console.error('getCompetitorLeaderboard RPC', error); return [] }
+  return (data ?? []).map((r: any) => ({
+    competitor_name: r.competitor_name,
+    mention_count:   Number(r.mention_count),
+    sov_pct:         Number(r.visibility_score),
+    visibility_score: Number(r.visibility_score),
+    delta: r.prev_score != null ? Number(r.visibility_score) - Number(r.prev_score) : null,
+  }))
 }
 
 export async function getVisibilityByPMM(
@@ -461,16 +438,9 @@ export async function getClaygentCount(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
-  const count = async (start: string, end: string) => {
-    const { data } = await applyFilters(
-      sb.from('responses').select('claygent_or_mcp_mentioned'),
-      { ...f, startDate: start, endDate: end }
-    )
-    return (data ?? []).filter((r: any) => r.claygent_or_mcp_mentioned === 'Yes').length
-  }
   const [current, previous] = await Promise.all([
-    count(f.startDate, f.endDate),
-    count(f.prevStartDate, f.prevEndDate),
+    countResponses(sb, f, q => q.eq('claygent_or_mcp_mentioned', 'Yes')),
+    countResponses(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }, q => q.eq('claygent_or_mcp_mentioned', 'Yes')),
   ])
   return { current, previous }
 }

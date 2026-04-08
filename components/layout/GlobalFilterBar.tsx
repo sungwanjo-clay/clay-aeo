@@ -92,8 +92,10 @@ export default function GlobalFilterBar() {
   // Exclude any DB-returned prompt types that clash with our synthetic branded options
   const filteredPromptTypes = promptTypes.filter(t => t !== 'branded' && t !== 'non-branded')
 
-  const hasBranded = brandedValues.some(v => v === 'Branded')
-  const hasNonBranded = brandedValues.some(v => v === 'Non-Branded')
+  // Normalize for comparison — DB has 'Branded' and 'Non Branded' (space, not hyphen)
+  const norm = (s: string) => s.toLowerCase().replace(/[-\s]/g, '')
+  const hasBranded = brandedValues.some(v => norm(v) === 'branded')
+  const hasNonBranded = brandedValues.some(v => norm(v) === 'nonbranded')
   const keywordOptions = [
     { value: 'all', label: 'All' },
     ...(hasBranded ? [{ value: '__branded__', label: 'Branded' }] : []),
