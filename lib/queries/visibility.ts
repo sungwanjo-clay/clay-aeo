@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, TimeseriesRow, CompetitorRow } from './types'
 
 function applyFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
@@ -25,21 +25,26 @@ export async function getVisibilityScore(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null; total: number }> {
-  const [cur, prev] = await Promise.all([
-    applyFilters(sb.from('responses').select('clay_mentioned, prompt_id'), f).then((r: any) => r.data ?? []),
+  const [cur, prev, promptCount] = await Promise.all([
+    applyFilters(sb.from('responses').select('clay_mentioned'), f).limit(10000).then((r: any) => r.data ?? []),
     applyFilters(
-      sb.from('responses').select('clay_mentioned, prompt_id'),
+      sb.from('responses').select('clay_mentioned'),
       { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }
-    ).then((r: any) => r.data ?? []),
+    ).limit(10000).then((r: any) => r.data ?? []),
+    (() => {
+      let q = sb.from('prompts').select('prompt_id', { count: 'exact', head: true }).eq('is_active', true)
+      if (f.promptType === 'benchmark') q = q.filter('prompt_type', 'ilike', 'benchmark')
+      else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
+      if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
+      return q.then((r: any) => r.count ?? 0)
+    })(),
   ])
   const pct = (rows: any[]) => {
     if (!rows.length) return null
     const yes = rows.filter((r: any) => r.clay_mentioned === 'Yes').length
     return (yes / rows.length) * 100
   }
-  // total = distinct prompts (not total response rows)
-  const distinctPrompts = new Set(cur.map((r: any) => r.prompt_id)).size
-  return { current: pct(cur), previous: pct(prev), total: distinctPrompts }
+  return { current: pct(cur), previous: pct(prev), total: promptCount }
 }
 
 export async function getClayOverallTimeseries(
@@ -764,7 +769,7 @@ export async function getDataFreshnessStats(
 ): Promise<{ lastRunDate: string | null; promptCount: number; platformCount: number }> {
   const [dateRes, statsRes] = await Promise.all([
     sb.from('responses').select('run_date').order('run_date', { ascending: false }).limit(1),
-    sb.from('responses').select('prompt_id, platform'),
+    sb.from('responses').select('prompt_id, platform').limit(20000),
   ])
   const lastRunDate = dateRes.data?.[0]?.run_date ?? null
   const promptCount = new Set(statsRes.data?.map(r => r.prompt_id)).size
