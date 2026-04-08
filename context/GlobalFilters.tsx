@@ -33,7 +33,7 @@ function defaultFilters(): GlobalFilters {
   const start = new Date()
   start.setDate(start.getDate() - 7)
   return {
-    promptType: 'all',
+    promptType: 'benchmark',
     tags: 'all',
     dateRange: { start, end },
     comparisonRange: computeComparisonRange(start, end),

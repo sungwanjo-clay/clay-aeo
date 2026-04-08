@@ -69,9 +69,31 @@ export default function GlobalFilterBar() {
 
   const isStale = lastRunDate ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000 : false
 
+  // Synthetic keyword type value that also encodes the brandedFilter state
+  const keywordTypeValue = filters.brandedFilter === 'branded'
+    ? '__branded__'
+    : filters.brandedFilter === 'non-branded'
+      ? '__non-branded__'
+      : filters.promptType
+
+  const handleKeywordTypeChange = (v: string) => {
+    if (v === '__branded__') {
+      setFilters({ promptType: 'all', brandedFilter: 'branded' })
+    } else if (v === '__non-branded__') {
+      setFilters({ promptType: 'all', brandedFilter: 'non-branded' })
+    } else {
+      setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all', brandedFilter: 'all' })
+    }
+  }
+
+  // Exclude any DB-returned prompt types that clash with our synthetic branded options
+  const filteredPromptTypes = promptTypes.filter(t => t !== 'branded' && t !== 'non-branded')
+
   const keywordOptions = [
     { value: 'all', label: 'All' },
-    ...promptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+    { value: '__branded__', label: 'Branded' },
+    { value: '__non-branded__', label: 'Non-Branded' },
+    ...filteredPromptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
   ]
 
   const tagOptions = [
@@ -88,9 +110,9 @@ export default function GlobalFilterBar() {
         {/* Keyword Type */}
         <FilterSelect
           label="Keyword Type"
-          value={filters.promptType}
+          value={keywordTypeValue}
           options={keywordOptions}
-          onChange={v => setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all' })}
+          onChange={handleKeywordTypeChange}
         />
 
         {/* Divider */}
