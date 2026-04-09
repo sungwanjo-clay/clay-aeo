@@ -41,17 +41,31 @@ export interface ExplorerRow {
   responseCount: number
 }
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
 export async function getExplorerData(
   sb: SupabaseClient,
   params: ExplorerParams
 ): Promise<ExplorerRow[]> {
-  const { data } = await sb
+  const data = await fetchAllPages(sb
     .from('responses')
     .select('*')
     .gte('run_date', params.startDate)
-    .lte('run_date', params.endDate)
+    .lte('run_date', params.endDate))
 
-  if (!data?.length) return []
+  if (!data.length) return []
 
   const filtered =
     params.dimensionValues.length > 0

@@ -2,6 +2,29 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, TimeseriesRow, CompetitorRow } from './types'
 
+/**
+ * Supabase projects have a hard 1000-row cap per request regardless of .limit().
+ * This helper paginates through all pages using .range() and returns every row.
+ */
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
+/** Fetch all rows matching filters, paginated. */
+async function fetchFiltered(query: any, f: FilterParams): Promise<any[]> {
+  return fetchAllPages(applyFilters(query, f))
+}
+
 function applyFilters(query: any, f: FilterParams): any {
   query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
@@ -64,11 +87,8 @@ export async function getClayOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('run_date, clay_mentioned'), f)
+  if (!data.length) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
@@ -114,9 +134,7 @@ export async function getFullLeaderboard(
 }
 
 export async function getDistinctPromptTypes(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb.from('responses').select('prompt_type').not('prompt_type', 'is', null).limit(5000)
-  if (!data) return []
-  // Normalize whitespace and case before deduplicating
+  const data = await fetchAllPages(sb.from('responses').select('prompt_type').not('prompt_type', 'is', null))
   const normalized = data.map(r => (r.prompt_type ?? '').trim().toLowerCase()).filter(Boolean)
   return [...new Set(normalized)].sort() as string[]
 }
@@ -125,11 +143,8 @@ export async function getVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, platform, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('run_date, platform, clay_mentioned'), f)
+  if (!data.length) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
@@ -153,11 +168,8 @@ export async function getCompetitorVisibilityTimeseries(
   f: FilterParams
 ): Promise<{ date: string; competitor: string; value: number }[]> {
   // Get total responses per day for denominator (also used to enforce platform/topic filters)
-  const { data: responses } = await applyFilters(
-    sb.from('responses').select('id, run_date'),
-    f
-  ).limit(20000)
-  if (!responses?.length) return []
+  const responses = await fetchFiltered(sb.from('responses').select('id, run_date'), f)
+  if (!responses.length) return []
 
   const totalByDate = new Map<string, number>()
   const responseIdToDate = new Map<string, string>()
@@ -226,11 +238,8 @@ export async function getVisibilityByPMM(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'), f)
+  if (!data.length) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
   for (const row of data) {
@@ -255,8 +264,8 @@ export async function getPMMTable(
   f: FilterParams
 ): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
   const [cur, prev] = await Promise.all([
-    applyFilters(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned, cited_domains, clay_mention_position'), f).then((r: any) => r.data ?? []),
-    applyFilters(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).then((r: any) => r.data ?? []),
+    fetchFiltered(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned, cited_domains, clay_mention_position'), f),
+    fetchFiltered(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
   ])
 
   const curMap = new Map<string, { mentioned: number; total: number; cited: number; positions: number[]; byDate: Map<string, { m: number; t: number }> }>()
@@ -310,10 +319,7 @@ export async function getVisibilityByTopic(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, topic, clay_mentioned'),
-    f
-  )
+  const data = await fetchFiltered(sb.from('responses').select('run_date, topic, clay_mentioned'), f)
   if (!data) return []
 
   const map = new Map<string, { total: number; mentioned: number }>()
@@ -337,7 +343,7 @@ export async function getShareOfVoice(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  const { data: responses } = await applyFilters(sb.from('responses').select('id'), f).limit(20000)
+  const responses = await fetchFiltered(sb.from('responses').select('id'), f)
   if (!responses?.length) return []
   const idSet = new Set(responses.map((r: any) => r.id))
 
@@ -414,23 +420,20 @@ export async function getAvgPosition(
 }
 
 export async function getDistinctTopics(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb.from('responses').select('topic').not('topic', 'is', null)
-  if (!data) return []
+  const data = await fetchAllPages(sb.from('responses').select('topic').not('topic', 'is', null))
   return [...new Set(data.map(r => r.topic).filter(Boolean))].sort() as string[]
 }
 
 export async function getDistinctBrandedValues(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb.from('responses').select('branded_or_non_branded').not('branded_or_non_branded', 'is', null).limit(5000)
-  if (!data) return []
+  const data = await fetchAllPages(sb.from('responses').select('branded_or_non_branded').not('branded_or_non_branded', 'is', null))
   return [...new Set(data.map(r => (r.branded_or_non_branded ?? '').trim()).filter(Boolean))].sort() as string[]
 }
 
 export async function getDistinctTags(sb: SupabaseClient, startDate?: string, endDate?: string): Promise<string[]> {
-  let query = sb.from('responses').select('tags').not('tags', 'is', null).limit(5000)
+  let query = sb.from('responses').select('tags').not('tags', 'is', null)
   if (startDate) query = query.gte('run_date', startDate)
   if (endDate) query = query.lte('run_date', endDate)
-  const { data } = await query
-  if (!data) return []
+  const data = await fetchAllPages(query)
   return [...new Set(data.map(r => (r.tags ?? '').trim()).filter(Boolean))].sort() as string[]
 }
 
@@ -449,10 +452,7 @@ export async function getClaygentTimeseriesByPlatform(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; platform: string; count: number }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, platform, claygent_or_mcp_mentioned'),
-    f
-  ).limit(10000)
+  const data = await fetchFiltered(sb.from('responses').select('run_date, platform, claygent_or_mcp_mentioned'), f)
   if (!data) return []
 
   const map = new Map<string, number>()
@@ -484,10 +484,7 @@ export async function getClaygentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; count: number }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, claygent_or_mcp_mentioned'),
-    f
-  )
+  const data = await fetchFiltered(sb.from('responses').select('run_date, claygent_or_mcp_mentioned'), f)
   if (!data) return []
 
   const map = new Map<string, number>()
@@ -543,14 +540,14 @@ export async function getMentionBreakdown(
     ? 'clay_followup_snippet'
     : 'clay_mention_snippet'
 
-  const { data } = await applyFilters(
+  const data = await fetchAllPages(applyFilters(
     sb.from('responses').select(
       `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
     ),
     f
-  ).eq(column, 'Yes')
+  ).eq(column, 'Yes'))
 
-  if (!data?.length) return []
+  if (!data.length) return []
 
   // Collect unique prompt IDs to fetch prompt_text
   const promptIds = [...new Set(data.map((r: any) => r.prompt_id).filter(Boolean))]
@@ -626,10 +623,7 @@ export async function getFollowupTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; count: number }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, clay_recommended_followup'),
-    f
-  )
+  const data = await fetchFiltered(sb.from('responses').select('run_date, clay_recommended_followup'), f)
   if (!data) return []
 
   const map = new Map<string, number>()
@@ -673,13 +667,13 @@ export async function getPMMPromptDrilldown(
   f: FilterParams,
   pmmUseCase: string
 ): Promise<PMMPromptDrillRow[]> {
-  const { data } = await applyFilters(
+  const data = await fetchAllPages(applyFilters(
     sb.from('responses').select(
       'id, prompt_id, platform, run_date, clay_mentioned, clay_mention_position, clay_mention_snippet, response_text, cited_domains, pmm_use_case'
     ),
     { ...f }
-  ).eq('pmm_use_case', pmmUseCase)
-  if (!data?.length) return []
+  ).eq('pmm_use_case', pmmUseCase))
+  if (!data.length) return []
 
   // Group by prompt
   const map = new Map<string, {

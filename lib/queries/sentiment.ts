@@ -2,6 +2,24 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, ThemeRow, TimeseriesRow } from './types'
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
+async function fetchFiltered(query: any, f: FilterParams): Promise<any[]> {
+  return fetchAllPages(applyFilters(query, f))
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFilters(query: any, f: FilterParams): any {
   query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
@@ -30,10 +48,7 @@ export async function getSentimentBreakdown(
   notMentioned: number | null
   avgScore: number | null
 }> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('brand_sentiment, brand_sentiment_score, clay_mentioned'),
-    f
-  )
+  const data = await fetchFiltered(sb.from('responses').select('brand_sentiment, brand_sentiment_score, clay_mentioned'), f)
   if (!data?.length) return { positive: null, neutral: null, negative: null, notMentioned: null, avgScore: null }
 
   const mentioned = data.filter(r => r.clay_mentioned === 'Yes')
@@ -58,11 +73,8 @@ export async function getSentimentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; positive: number; neutral: number; negative: number }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('run_date, brand_sentiment, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('run_date, brand_sentiment, clay_mentioned'), f)
+  if (!data.length) return []
 
   const map = new Map<string, { pos: number; neu: number; neg: number; total: number }>()
   for (const row of data) {
@@ -90,11 +102,8 @@ export async function getThemes(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<ThemeRow[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('themes, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('themes, clay_mentioned'), f)
+  if (!data.length) return []
 
   const map = new Map<string, { sentiment: string; occurrences: number; snippets: string[] }>()
   for (const row of data) {
@@ -119,11 +128,8 @@ export async function getUseCaseAttribution(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ use_case: string; count: number; pct: number; top_platform: string; top_topic: string }[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('primary_use_case_attributed, platform, topic, clay_mentioned'),
-    f
-  )
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('primary_use_case_attributed, platform, topic, clay_mentioned'), f)
+  if (!data.length) return []
 
   const mentioned = data.filter(r => r.clay_mentioned === 'Yes' && r.primary_use_case_attributed)
   const map = new Map<string, { count: number; platforms: Map<string, number>; topics: Map<string, number> }>()
@@ -153,11 +159,11 @@ export async function getPositioningSnippets(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ topic: string; platform: string; snippet: string; prompt_text: string }[]> {
-  const { data } = await applyFilters(
+  const data = await fetchFiltered(
     sb.from('responses').select('positioning_vs_competitors, topic, platform, clay_mentioned'),
     { ...f }
   )
-  if (!data) return []
+  if (!data.length) return []
   return data
     .filter(r => r.clay_mentioned === 'Yes' && r.positioning_vs_competitors)
     .map(r => ({
@@ -191,11 +197,8 @@ export async function getSentimentNarratives(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<NarrativeGroup[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'),
-    f
-  ).limit(5000)
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'), f)
+  if (!data.length) return []
 
   const map = new Map<string, { sentiment: string; occurrences: number; snippets: Array<{ text: string; platform: string; topic: string; date: string }> }>()
 
@@ -235,11 +238,8 @@ export async function getCompetitivePositioningEntries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<PositioningEntry[]> {
-  const { data } = await applyFilters(
-    sb.from('responses').select('positioning_vs_competitors, topic, platform, run_date, clay_mentioned'),
-    f
-  ).limit(2000)
-  if (!data) return []
+  const data = await fetchFiltered(sb.from('responses').select('positioning_vs_competitors, topic, platform, run_date, clay_mentioned'), f)
+  if (!data.length) return []
   return data
     .filter((r: any) => r.clay_mentioned === 'Yes' && r.positioning_vs_competitors)
     .map((r: any) => ({

@@ -29,6 +29,20 @@ function cdNextDay(dateStr: string): string {
   return d.toISOString().split('T')[0]
 }
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
 export async function getCitationShare(
   sb: SupabaseClient,
   f: FilterParams
@@ -62,8 +76,8 @@ export async function getCitationDomains(
 
   if (f.platforms.length > 0) query = query.in('platform', f.platforms)
 
-  const { data } = await query
-  if (!data) return []
+  const data = await fetchAllPages(query)
+  if (!data.length) return []
 
   const map = new Map<string, { citation_type: string | null; url_type: string | null; count: number }>()
   for (const row of data) {
@@ -86,11 +100,11 @@ export async function getCitationShareTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; platform: string; value: number }[]> {
-  const { data } = await applyResponseFilters(
+  const data = await fetchAllPages(applyResponseFilters(
     sb.from('responses').select('run_date, platform, cited_domains'),
     f
-  ).limit(50000)
-  if (!data) return []
+  ))
+  if (!data.length) return []
 
   const map = new Map<string, { clayCited: number; total: number }>()
   for (const row of data) {
@@ -170,8 +184,8 @@ export async function getCitationTypeBreakdown(
     .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
   if (f.platforms.length > 0) query = query.in('platform', f.platforms)
 
-  const { data } = await (query as any).limit(50000)
-  if (!data?.length) return []
+  const data = await fetchAllPages(query)
+  if (!data.length) return []
 
   const map = new Map<string, number>()
   for (const row of data) {
@@ -189,12 +203,11 @@ export async function getCitationCount(
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
   const count = async (start: string, end: string) => {
-    const { data, error } = await applyResponseFilters(
+    const data = await fetchAllPages(applyResponseFilters(
       sb.from('responses').select('cited_domains'),
       { ...f, startDate: start, endDate: end }
-    ).limit(10000)
-    if (error) { console.error('getCitationCount', error); return 0 }
-    if (!data?.length) return 0
+    ))
+    if (!data.length) return 0
     return data.filter(r => {
       try {
         const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
@@ -215,11 +228,11 @@ export async function getCompetitorCitationTimeseries(
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
   // Step 1: Get filtered response IDs (applies all filters: topic, branded, promptType, platform)
-  const { data: responses } = await applyResponseFilters(
+  const responses = await fetchAllPages(applyResponseFilters(
     sb.from('responses').select('id, run_date'),
     f
-  ).limit(50000)
-  if (!responses?.length) return []
+  ))
+  if (!responses.length) return []
 
   // Build a map of response_id -> date for fast lookup
   const responseIdToDate = new Map<string, string>()
@@ -292,12 +305,11 @@ export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data, error } = await applyResponseFilters(
+  const data = await fetchAllPages(applyResponseFilters(
     sb.from('responses').select('run_date, cited_domains'),
     f
-  ).limit(10000)
-  if (error) { console.error('getCitationOverallTimeseries', error); return [] }
-  if (!data) return []
+  ))
+  if (!data.length) return []
 
   // Citation rate per day: clay-cited / responses-with-any-citations
   const map = new Map<string, { clayCited: number; withCitations: number }>()
@@ -479,10 +491,9 @@ export async function getTopCitedDomainsEnhanced(
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const { data, error } = await query.limit(50000)
+  const data = await fetchAllPages(query)
 
-  if (error) { console.error('getTopCitedDomainsEnhanced', error); return [] }
-  if (!data?.length) return []
+  if (!data.length) return []
 
   // Denominator = unique response_ids that appear in citation_domains (responses with any citation)
   // This matches the Citation Rate KPI denominator
@@ -552,13 +563,12 @@ export async function getCitationRateByTopic(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TopicCitationRow[]> {
-  const { data, error } = await applyResponseFilters(
+  const data = await fetchAllPages(applyResponseFilters(
     sb.from('responses').select('run_date, topic, cited_domains'),
     f
-  ).not('topic', 'is', null).limit(20000)
+  ).not('topic', 'is', null))
 
-  if (error) { console.error('getCitationRateByTopic', error); return [] }
-  if (!data?.length) return []
+  if (!data.length) return []
 
   // Accumulate per date × topic
   const map = new Map<string, { total: number; withClayCit: number }>()
@@ -644,11 +654,11 @@ export async function getCitationCoverage(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ coveragePct: number; avgPerCited: number }> {
-  const { data, error } = await applyResponseFilters(
+  const data = await fetchAllPages(applyResponseFilters(
     sb.from('responses').select('cited_domains'),
     f
-  ).limit(10000)
-  if (error || !data?.length) return { coveragePct: 0, avgPerCited: 0 }
+  ))
+  if (!data.length) return { coveragePct: 0, avgPerCited: 0 }
 
   let withCitations = 0
   let totalDomains = 0

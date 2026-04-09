@@ -2,6 +2,20 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { AnomalyRow, InsightRow } from './types'
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
 export async function getLatestInsight(sb: SupabaseClient): Promise<InsightRow | null> {
   const today = new Date().toISOString().split('T')[0]
   // Prefer today's daily_insight, fall back to most recent
@@ -52,13 +66,13 @@ export async function getTopCompetitorThisWeek(
   startDate: string,
   endDate: string
 ): Promise<{ name: string; pct: number } | null> {
-  const { data } = await sb
+  const data = await fetchAllPages(sb
     .from('response_competitors')
     .select('competitor_name')
     .gte('run_date', startDate)
-    .lte('run_date', endDate)
+    .lte('run_date', endDate))
 
-  if (!data?.length) return null
+  if (!data.length) return null
 
   const map = new Map<string, number>()
   for (const r of data) {
@@ -70,12 +84,12 @@ export async function getTopCompetitorThisWeek(
   if (!top) return null
 
   // Get total unique responses to compute %
-  const { data: totalData } = await sb
+  const totalData = await fetchAllPages(sb
     .from('responses')
     .select('id')
     .gte('run_date', startDate)
-    .lte('run_date', endDate)
+    .lte('run_date', endDate))
 
-  const total = totalData?.length ?? 1
+  const total = totalData.length || 1
   return { name: top[0], pct: (top[1] / total) * 100 }
 }

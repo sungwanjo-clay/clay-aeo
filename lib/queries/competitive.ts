@@ -21,6 +21,20 @@ function applyFilters(query: any, f: FilterParams): any {
   return query
 }
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
 /** Derive a search slug from a competitor name for domain matching.
  *  "Apollo.io" → "apollo", "Clay" → "clay", "HubSpot" → "hubspot" */
 function domainSlug(competitor: string): string {
@@ -54,13 +68,10 @@ export async function getClayKPIs(
   topTopic: string | null
   topPlatform: string | null
 }> {
-  const [curData, prevData] = await Promise.all([
-    applyFilters(sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains'), f),
-    applyFilters(sb.from('responses').select('clay_mentioned, cited_domains'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+  const [cur, prev] = await Promise.all([
+    fetchAllPages(applyFilters(sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains'), f)),
+    fetchAllPages(applyFilters(sb.from('responses').select('clay_mentioned, cited_domains'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate })),
   ])
-
-  const cur = curData.data ?? []
-  const prev = prevData.data ?? []
 
   // Visibility
   const mentionedCur = cur.filter(r => r.clay_mentioned === 'Yes')
@@ -119,11 +130,11 @@ export async function getClayVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data } = await applyFilters(
+  const data = await fetchAllPages(applyFilters(
     sb.from('responses').select('run_date, clay_mentioned'),
     f
-  )
-  if (!data) return []
+  ))
+  if (!data.length) return []
 
   const map = new Map<string, { total: number; yes: number }>()
   for (const r of data) {
@@ -214,28 +225,28 @@ export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }[]> {
-  const [rcCur, rcPrev, totalCur, totalPrev] = await Promise.all([
-    sb.from('response_competitors')
+  const [rcCurData, rcPrevData, totalCur, totalPrev] = await Promise.all([
+    fetchAllPages(sb.from('response_competitors')
       .select('competitor_name, response_id')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('response_competitors')
+      .gte('run_date', f.startDate).lte('run_date', f.endDate)),
+    fetchAllPages(sb.from('response_competitors')
       .select('competitor_name, response_id')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
-    applyFilters(sb.from('responses').select('id'), f).limit(20000).then(r => r.data ?? []),
-    applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }).limit(20000).then(r => r.data ?? []),
+      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)),
+    fetchAllPages(applyFilters(sb.from('responses').select('id'), f)),
+    fetchAllPages(applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate })),
   ])
 
   const totalNow = totalCur.length
   const totalPrevCount = totalPrev.length
 
   const curCounts = new Map<string, Set<string>>()
-  for (const r of rcCur.data ?? []) {
+  for (const r of rcCurData) {
     if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
     curCounts.get(r.competitor_name)!.add(r.response_id)
   }
 
   const prevCounts = new Map<string, Set<string>>()
-  for (const r of rcPrev.data ?? []) {
+  for (const r of rcPrevData) {
     if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
     prevCounts.get(r.competitor_name)!.add(r.response_id)
   }
@@ -383,25 +394,20 @@ export async function getCompetitorKPIs(
   f: FilterParams,
   competitor: string
 ): Promise<{ visibilityScore: number | null; mentionCount: number; avgPosition: number | null; topTopic: string | null; topPlatform: string | null; deltaVisibility: number | null }> {
-  const [rcRes, totalRes, prevRcRes, prevTotalRes] = await Promise.all([
-    sb.from('response_competitors')
+  const [rcData, total, prevRcData, prevTotal] = await Promise.all([
+    fetchAllPages(sb.from('response_competitors')
       .select('response_id, platform, topic')
       .eq('competitor_name', competitor)
       .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
-    sb.from('responses').select('id').gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('response_competitors')
+      .lte('run_date', f.endDate)),
+    fetchAllPages(sb.from('responses').select('id').gte('run_date', f.startDate).lte('run_date', f.endDate)),
+    fetchAllPages(sb.from('response_competitors')
       .select('response_id')
       .eq('competitor_name', competitor)
       .gte('run_date', f.prevStartDate)
-      .lte('run_date', f.prevEndDate),
-    sb.from('responses').select('id').gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+      .lte('run_date', f.prevEndDate)),
+    fetchAllPages(sb.from('responses').select('id').gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)),
   ])
-
-  const rcData = rcRes.data ?? []
-  const total = totalRes.data ?? []
-  const prevRcData = prevRcRes.data ?? []
-  const prevTotal = prevTotalRes.data ?? []
 
   if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
 
@@ -435,20 +441,19 @@ export async function getPlatformHeatmap(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor: string; platform: string; visibility_score: number }[]> {
-  const [rcRes, totalRes] = await Promise.all([
-    sb.from('response_competitors')
+  const [rc, totalData] = await Promise.all([
+    fetchAllPages(sb.from('response_competitors')
       .select('competitor_name, platform')
       .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
-    sb.from('responses')
+      .lte('run_date', f.endDate)),
+    fetchAllPages(sb.from('responses')
       .select('platform')
       .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
+      .lte('run_date', f.endDate)),
   ])
 
-  const rc = rcRes.data ?? []
   const totals = new Map<string, number>()
-  for (const r of totalRes.data ?? []) {
+  for (const r of totalData) {
     totals.set(r.platform, (totals.get(r.platform) ?? 0) + 1)
   }
 
@@ -476,25 +481,25 @@ export async function getCompetitorVsClayTimeseries(
   competitor: string
 ): Promise<{ date: string; clay: number; competitor: number }[]> {
   const [rcData, clayData] = await Promise.all([
-    sb.from('response_competitors')
+    fetchAllPages(sb.from('response_competitors')
       .select('run_date, response_id')
       .eq('competitor_name', competitor)
       .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
-    sb.from('responses')
+      .lte('run_date', f.endDate)),
+    fetchAllPages(sb.from('responses')
       .select('run_date, clay_mentioned')
       .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate),
+      .lte('run_date', f.endDate)),
   ])
 
   const compByDate = new Map<string, number>()
-  for (const r of rcData.data ?? []) {
+  for (const r of rcData) {
     const d = r.run_date?.split('T')[0] ?? ''
     compByDate.set(d, (compByDate.get(d) ?? 0) + 1)
   }
 
   const clayByDate = new Map<string, { total: number; yes: number }>()
-  for (const r of clayData.data ?? []) {
+  for (const r of clayData) {
     const d = r.run_date?.split('T')[0] ?? ''
     const cur = clayByDate.get(d) ?? { total: 0, yes: 0 }
     cur.total++
@@ -696,25 +701,25 @@ export async function getCompetitorPMMComparison(
 ): Promise<PMMCompRow[]> {
   const isClay = competitor === 'Clay'
 
-  const { data: responses } = await sb
+  const responses = await fetchAllPages(sb
     .from('responses')
     .select('id, pmm_use_case, clay_mentioned')
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
-    .not('pmm_use_case', 'is', null)
+    .not('pmm_use_case', 'is', null))
 
-  if (!responses?.length) return []
+  if (!responses.length) return []
 
   let compIds = new Set<string>()
 
   if (!isClay) {
-    const { data: rcData } = await sb
+    const rcData = await fetchAllPages(sb
       .from('response_competitors')
       .select('response_id')
       .eq('competitor_name', competitor)
       .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)
-    compIds = new Set((rcData ?? []).map(r => r.response_id))
+      .lte('run_date', f.endDate))
+    compIds = new Set(rcData.map(r => r.response_id))
   }
 
   const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
