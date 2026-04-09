@@ -176,25 +176,31 @@ export async function getCompetitorVisibilityTimeseries(
     const date = (r.run_date ?? '').substring(0, 10)
     if (!date) continue
     totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
-    responseIdToDate.set(r.id, date)
+    responseIdToDate.set(String(r.id), date)
   }
 
-  // Fetch competitor rows by date range directly — avoids huge in() with thousands of IDs
-  const rc = await fetchAllPages(sb
-    .from('response_competitors')
-    .select('response_id, competitor_name')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate))
+  // Fetch competitor rows via response_id IN() batches — avoids run_date type mismatch
+  const validIdsList = responses.map((r: any) => String(r.id))
+  const BATCH = 500
+  const rc = (await Promise.all(
+    Array.from({ length: Math.ceil(validIdsList.length / BATCH) }, (_, i) =>
+      sb.from('response_competitors')
+        .select('response_id, competitor_name')
+        .in('response_id', validIdsList.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat() as any[]
 
   if (!rc.length) return []
 
-  // Filter to only responses that passed the platform/topic/etc filters
-  const validIds = new Set(responses.map((r: any) => r.id))
+  // All fetched rows are already scoped to valid response IDs
+  const validIds = new Set(validIdsList)
 
   const map = new Map<string, number>()
   for (const row of rc) {
-    if (!validIds.has(row.response_id)) continue
-    const date = responseIdToDate.get(row.response_id) ?? ''
+    const rid = String(row.response_id)
+    if (!validIds.has(rid)) continue
+    const date = responseIdToDate.get(rid) ?? ''
     if (!date) continue
     const key = `${date}|||${row.competitor_name}`
     map.set(key, (map.get(key) ?? 0) + 1)
@@ -211,25 +217,52 @@ export async function getCompetitorLeaderboard(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  const { data, error } = await (sb as any).rpc('get_competitor_leaderboard', {
-    p_start_day:   f.startDate.split('T')[0],
-    p_end_day:     f.endDate.split('T')[0],
-    p_prompt_type: f.promptType === 'benchmark' ? 'benchmark'
-                 : f.promptType === 'campaign'  ? null : null,
-    p_branded:     f.brandedFilter !== 'all' ? f.brandedFilter : null,
-    p_platforms:   f.platforms?.length ? f.platforms : null,
-    p_tags:        f.tags !== 'all' ? f.tags : null,
-    p_prev_start:  f.prevStartDate?.split('T')[0] ?? null,
-    p_prev_end:    f.prevEndDate?.split('T')[0] ?? null,
-  })
-  if (error) { console.error('getCompetitorLeaderboard RPC', error); return [] }
-  return (data ?? []).map((r: any) => ({
-    competitor_name: r.competitor_name,
-    mention_count:   Number(r.mention_count),
-    sov_pct:         Number(r.visibility_score),
-    visibility_score: Number(r.visibility_score),
-    delta: r.prev_score != null ? Number(r.visibility_score) - Number(r.prev_score) : null,
-  }))
+  const calcLeaderboard = async (startDate: string, endDate: string): Promise<Map<string, { count: number; total: number }>> => {
+    const ff = { ...f, startDate, endDate }
+    const responses = await fetchFiltered(sb.from('responses').select('id'), ff)
+    if (!responses.length) return new Map()
+    const ids = responses.map((r: any) => String(r.id))
+    const total = ids.length
+    const BATCH = 500
+    const rc = (await Promise.all(
+      Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) =>
+        sb.from('response_competitors')
+          .select('competitor_name')
+          .in('response_id', ids.slice(i * BATCH, (i + 1) * BATCH))
+          .then(({ data }) => data ?? [])
+      )
+    )).flat() as any[]
+
+    const map = new Map<string, { count: number; total: number }>()
+    for (const row of rc) {
+      const name = row.competitor_name
+      if (!name) continue
+      const cur = map.get(name) ?? { count: 0, total }
+      cur.count++
+      map.set(name, cur)
+    }
+    return map
+  }
+
+  const [curMap, prevMap] = await Promise.all([
+    calcLeaderboard(f.startDate, f.endDate),
+    f.prevStartDate && f.prevEndDate
+      ? calcLeaderboard(f.prevStartDate, f.prevEndDate)
+      : Promise.resolve(new Map<string, { count: number; total: number }>()),
+  ])
+
+  return Array.from(curMap.entries()).map(([name, { count, total }]) => {
+    const score = total > 0 ? (count / total) * 100 : 0
+    const prev = prevMap.get(name)
+    const prevScore = prev && prev.total > 0 ? (prev.count / prev.total) * 100 : null
+    return {
+      competitor_name:  name,
+      mention_count:    count,
+      sov_pct:          score,
+      visibility_score: score,
+      delta: prevScore != null ? score - prevScore : null,
+    }
+  }).sort((a, b) => b.visibility_score - a.visibility_score)
 }
 
 export async function getVisibilityByPMM(

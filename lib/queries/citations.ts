@@ -47,21 +47,35 @@ export async function getCitationShare(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  // Uses get_citation_share RPC which does a server-side JOIN + COUNT(DISTINCT)
-  // — no row fetching, no IN() with thousands of IDs, no max_rows exposure.
-  const { data, error } = await (sb as any).rpc('get_citation_share', {
-    p_start_day:   f.startDate.split('T')[0],
-    p_end_day:     f.endDate.split('T')[0],
-    p_prompt_type: f.promptType === 'benchmark' ? 'benchmark'
-                 : f.promptType === 'campaign'  ? null : null,
-    p_branded:     f.brandedFilter !== 'all' ? f.brandedFilter : null,
-    p_platforms:   f.platforms?.length ? f.platforms : null,
-    p_tags:        f.tags !== 'all' ? f.tags : null,
-    p_prev_start:  f.prevStartDate?.split('T')[0] ?? null,
-    p_prev_end:    f.prevEndDate?.split('T')[0] ?? null,
-  })
-  if (error) { console.error('getCitationShare RPC', error); return { current: null, previous: null } }
-  return { current: data?.current ?? null, previous: data?.previous ?? null }
+  const calc = async (startDate: string, endDate: string): Promise<number | null> => {
+    const ff = { ...f, startDate, endDate }
+    const validResponses = await fetchAllPages(applyResponseFilters(sb.from('responses').select('id'), ff))
+    if (!validResponses.length) return null
+    const validIds = validResponses.map((r: any) => String(r.id))
+    const BATCH = 500
+    const results = await Promise.all(
+      Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
+        sb.from('citation_domains').select('response_id, domain')
+          .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
+          .then(({ data }) => data ?? [])
+      )
+    )
+    const allCitations = results.flat() as any[]
+    if (!allCitations.length) return null
+    const distinctAny = new Set(allCitations.map((c: any) => String(c.response_id))).size
+    const distinctClay = new Set(
+      allCitations
+        .filter((c: any) => (c.domain ?? '').toLowerCase().includes('clay'))
+        .map((c: any) => String(c.response_id))
+    ).size
+    return distinctAny > 0 ? (distinctClay / distinctAny) * 100 : null
+  }
+
+  const [current, previous] = await Promise.all([
+    calc(f.startDate, f.endDate),
+    f.prevStartDate && f.prevEndDate ? calc(f.prevStartDate, f.prevEndDate) : Promise.resolve(null),
+  ])
+  return { current, previous }
 }
 
 export async function getCitationDomains(
@@ -344,16 +358,16 @@ export async function getTopCitedDomainsWithURLs(
   if (!validResponses.length) return []
   const validIds = validResponses.map((r: any) => String(r.id))
 
-  // Step 2: fetch citation_domains for those response IDs in batches of 500
+  // Step 2: fetch citation_domains for those response IDs in parallel batches of 500
   const BATCH = 500
-  const allCitations: any[] = []
-  for (let i = 0; i < validIds.length; i += BATCH) {
-    const batch = validIds.slice(i, i + BATCH)
-    const { data } = await sb.from('citation_domains')
-      .select('domain, url, title, citation_type, response_id')
-      .in('response_id', batch)
-    if (data?.length) allCitations.push(...data)
-  }
+  const allCitations = (await Promise.all(
+    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
+      sb.from('citation_domains')
+        .select('domain, url, title, citation_type, response_id')
+        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat() as any[]
   if (!allCitations.length) return []
 
   // Step 3: aggregate by domain
