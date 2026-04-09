@@ -47,13 +47,12 @@ function applyFilters(query: any, f: FilterParams): any {
   return query
 }
 
-// Server-side count query — returns 0 rows, just the count header.
-// Completely bypasses Supabase's max_rows limit.
+// Count matching responses by fetching all IDs via pagination (bypasses the 1000-row cap).
 async function countResponses(sb: SupabaseClient, f: FilterParams, extraFilter?: (q: any) => any): Promise<number> {
-  let q = applyFilters(sb.from('responses').select('*', { count: 'exact', head: true }), f)
+  let q = applyFilters(sb.from('responses').select('id'), f)
   if (extraFilter) q = extraFilter(q)
-  const { count } = await q
-  return count ?? 0
+  const data = await fetchAllPages(q)
+  return data.length
 }
 
 export async function getVisibilityScore(
@@ -181,14 +180,13 @@ export async function getCompetitorVisibilityTimeseries(
   }
 
   // Fetch competitor rows by date range directly — avoids huge in() with thousands of IDs
-  const { data: rc } = await sb
+  const rc = await fetchAllPages(sb
     .from('response_competitors')
     .select('response_id, competitor_name')
     .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .limit(20000)
+    .lte('run_date', f.endDate))
 
-  if (!rc?.length) return []
+  if (!rc.length) return []
 
   // Filter to only responses that passed the platform/topic/etc filters
   const validIds = new Set(responses.map((r: any) => r.id))

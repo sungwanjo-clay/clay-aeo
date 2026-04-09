@@ -13,9 +13,9 @@ function applyFilters(query: any, f: FilterParams): any {
     query = query.eq('branded_or_non_branded', val)
   }
   if (f.promptType === 'benchmark') {
-    query = query.eq('prompt_type', 'benchmark')
+    query = query.filter('prompt_type', 'ilike', 'benchmark')
   } else if (f.promptType === 'campaign') {
-    query = query.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+    query = query.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
