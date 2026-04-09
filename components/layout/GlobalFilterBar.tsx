@@ -89,15 +89,15 @@ export default function GlobalFilterBar() {
     }
   }
 
+  // Normalize for comparison — DB has 'Branded' and 'Non Branded' (space, not hyphen)
+  const norm = (s: string) => s.toLowerCase().replace(/[-\s]/g, '')
+
   // Exclude any DB-returned prompt types that clash with our synthetic branded options
   // promptTypes are already lowercased; use norm() to handle 'non branded' (space) vs 'non-branded' (hyphen)
   const filteredPromptTypes = promptTypes.filter(t => {
     const n = norm(t)
     return n !== 'branded' && n !== 'nonbranded'
   })
-
-  // Normalize for comparison — DB has 'Branded' and 'Non Branded' (space, not hyphen)
-  const norm = (s: string) => s.toLowerCase().replace(/[-\s]/g, '')
   const hasBranded = brandedValues.some(v => norm(v) === 'branded')
   const hasNonBranded = brandedValues.some(v => norm(v) === 'nonbranded')
   const keywordOptions = [
