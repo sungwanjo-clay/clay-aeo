@@ -255,15 +255,18 @@ export async function getCompetitorCitationTimeseries(
     if (r.id && date) responseIdToDate.set(String(r.id), date)
   }
 
-  // Step 2: Query citation_domains — include citation_type so we can restrict
-  // competitor lines to citation_type = 'Competition' only; Clay is always pinned.
-  let q = sb.from('citation_domains')
-    .select('domain, response_id, citation_type')
-    .gte('run_date', cdDateStr(f.startDate))
-    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
-  if (f.platforms?.length) q = q.in('platform', f.platforms)
-  const { data: citations } = await (q as any).limit(100000)
-  if (!citations?.length) return []
+  // Step 2: Fetch citation_domains via response_id IN() batches — avoids run_date type mismatch
+  const validIds = [...responseIdToDate.keys()]
+  const BATCH = 500
+  const citations = (await Promise.all(
+    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
+      sb.from('citation_domains')
+        .select('domain, response_id, citation_type')
+        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat() as any[]
+  if (!citations.length) return []
 
   // Step 3: Compute per-date unique response counts
   // Denominator: unique response_ids with any citation entry per date

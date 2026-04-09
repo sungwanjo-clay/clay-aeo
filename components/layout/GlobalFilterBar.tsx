@@ -90,7 +90,11 @@ export default function GlobalFilterBar() {
   }
 
   // Exclude any DB-returned prompt types that clash with our synthetic branded options
-  const filteredPromptTypes = promptTypes.filter(t => t !== 'branded' && t !== 'non-branded')
+  // promptTypes are already lowercased; use norm() to handle 'non branded' (space) vs 'non-branded' (hyphen)
+  const filteredPromptTypes = promptTypes.filter(t => {
+    const n = norm(t)
+    return n !== 'branded' && n !== 'nonbranded'
+  })
 
   // Normalize for comparison — DB has 'Branded' and 'Non Branded' (space, not hyphen)
   const norm = (s: string) => s.toLowerCase().replace(/[-\s]/g, '')
