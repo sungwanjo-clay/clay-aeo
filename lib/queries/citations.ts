@@ -325,11 +325,12 @@ export async function getTopCitedDomainsWithURLs(
   f: FilterParams
 ): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
   // Step 1: get aggregate counts via RPC (GROUP BY server-side — no row limit issue)
-  const { data: agg } = await (sb as any).rpc('get_top_cited_domains', {
+  const { data: agg, error: aggErr } = await (sb as any).rpc('get_top_cited_domains', {
     p_start_day: cdDateStr(f.startDate),
     p_end_day: cdNextDay(cdDateStr(f.endDate)),
     p_platforms: f.platforms?.length ? f.platforms : null,
   })
+  if (aggErr) { console.error('get_top_cited_domains RPC error:', aggErr); return [] }
   if (!agg?.length) return []
 
   // Step 2: fetch top URLs for those domains (detail only, row count manageable)

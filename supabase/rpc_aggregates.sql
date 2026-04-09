@@ -27,26 +27,31 @@ RETURNS TABLE(
       AND domain IS NOT NULL AND domain <> ''
   ),
   counts AS (
-    SELECT
-      domain,
-      COUNT(*)::BIGINT AS cnt,
-      -- pick most frequent citation_type for this domain
-      (
-        SELECT citation_type FROM filtered f2
-        WHERE f2.domain = f.domain AND citation_type IS NOT NULL
-        GROUP BY citation_type ORDER BY COUNT(*) DESC LIMIT 1
-      ) AS top_type
-    FROM filtered f
+    SELECT domain, COUNT(*)::BIGINT AS cnt
+    FROM filtered
     GROUP BY domain
+  ),
+  -- pick most frequent citation_type per domain using DISTINCT ON (no correlated subquery)
+  type_rank AS (
+    SELECT domain, citation_type, COUNT(*) AS type_cnt
+    FROM filtered
+    WHERE citation_type IS NOT NULL
+    GROUP BY domain, citation_type
+  ),
+  top_type AS (
+    SELECT DISTINCT ON (domain) domain, citation_type
+    FROM type_rank
+    ORDER BY domain, type_cnt DESC
   ),
   total AS (SELECT SUM(cnt) AS grand FROM counts)
   SELECT
-    domain,
-    cnt AS citation_count,
-    top_type AS citation_type,
-    ROUND(cnt * 100.0 / NULLIF((SELECT grand FROM total), 0), 2) AS share_pct
-  FROM counts
-  ORDER BY cnt DESC
+    c.domain,
+    c.cnt AS citation_count,
+    t.citation_type,
+    ROUND(c.cnt * 100.0 / NULLIF((SELECT grand FROM total), 0), 2) AS share_pct
+  FROM counts c
+  LEFT JOIN top_type t ON c.domain = t.domain
+  ORDER BY c.cnt DESC
   LIMIT 30;
 $$;
 
