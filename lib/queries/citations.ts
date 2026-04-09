@@ -33,34 +33,21 @@ export async function getCitationShare(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  // Citation rate: responses with a clay.com row in citation_domains / responses with any citation_domain row
-  // Both counts are server-side (count: exact, head: true) — no row limit exposure.
-  const calc = async (fParams: FilterParams) => {
-    // Step 1: get filtered response IDs via server-side count
-    const { data: rIds } = await applyResponseFilters(
-      sb.from('responses').select('id'),
-      fParams
-    ).limit(50000)
-    if (!rIds?.length) return null
-    const ids = rIds.map((r: any) => r.id)
-
-    // Step 2: count citation_domain rows for this response set
-    const [{ count: withAnyCitations }, { count: withClayCited }] = await Promise.all([
-      sb.from('citation_domains').select('*', { count: 'exact', head: true })
-        .in('response_id', ids),
-      sb.from('citation_domains').select('*', { count: 'exact', head: true })
-        .in('response_id', ids).ilike('domain', '%clay%'),
-    ])
-    return (withAnyCitations ?? 0) > 0
-      ? ((withClayCited ?? 0) / (withAnyCitations ?? 1)) * 100
-      : null
-  }
-
-  const [current, previous] = await Promise.all([
-    calc(f),
-    calc({ ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-  ])
-  return { current, previous }
+  // Uses get_citation_share RPC which does a server-side JOIN + COUNT(DISTINCT)
+  // — no row fetching, no IN() with thousands of IDs, no max_rows exposure.
+  const { data, error } = await (sb as any).rpc('get_citation_share', {
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType === 'benchmark' ? 'benchmark'
+                 : f.promptType === 'campaign'  ? null : null,
+    p_branded:     f.brandedFilter !== 'all' ? f.brandedFilter : null,
+    p_platforms:   f.platforms?.length ? f.platforms : null,
+    p_tags:        f.tags !== 'all' ? f.tags : null,
+    p_prev_start:  f.prevStartDate?.split('T')[0] ?? null,
+    p_prev_end:    f.prevEndDate?.split('T')[0] ?? null,
+  })
+  if (error) { console.error('getCitationShare RPC', error); return { current: null, previous: null } }
+  return { current: data?.current ?? null, previous: data?.previous ?? null }
 }
 
 export async function getCitationDomains(

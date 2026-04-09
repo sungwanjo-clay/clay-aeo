@@ -117,5 +117,60 @@ RETURNS TABLE(
   ORDER BY cc.cnt DESC;
 $$;
 
+-- ── Citation share (% of cited responses that cite clay.com) ─────────────────
+-- Returns {current, previous} as JSON. Uses COUNT(DISTINCT response_id) so
+-- each response is counted once regardless of how many clay URLs it cites.
+CREATE OR REPLACE FUNCTION get_citation_share(
+  p_start_day   TEXT,
+  p_end_day     TEXT,
+  p_prompt_type TEXT    DEFAULT NULL,
+  p_branded     TEXT    DEFAULT NULL,
+  p_platforms   TEXT[]  DEFAULT NULL,
+  p_tags        TEXT    DEFAULT NULL,
+  p_prev_start  TEXT    DEFAULT NULL,
+  p_prev_end    TEXT    DEFAULT NULL
+) RETURNS JSON LANGUAGE sql STABLE AS $$
+  WITH cur_filtered AS (
+    SELECT id FROM responses
+    WHERE run_day BETWEEN p_start_day::DATE AND p_end_day::DATE
+      AND (p_prompt_type IS NULL OR prompt_type ILIKE p_prompt_type)
+      AND (p_branded IS NULL
+           OR (p_branded = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_platforms IS NULL OR platform = ANY(p_platforms))
+      AND (p_tags IS NULL OR tags = p_tags)
+  ),
+  prev_filtered AS (
+    SELECT id FROM responses
+    WHERE p_prev_start IS NOT NULL
+      AND run_day BETWEEN p_prev_start::DATE AND p_prev_end::DATE
+      AND (p_prompt_type IS NULL OR prompt_type ILIKE p_prompt_type)
+      AND (p_branded IS NULL
+           OR (p_branded = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_platforms IS NULL OR platform = ANY(p_platforms))
+      AND (p_tags IS NULL OR tags = p_tags)
+  ),
+  cur_counts AS (
+    SELECT
+      COUNT(DISTINCT cd.response_id) FILTER (WHERE cd.domain ILIKE '%clay%') AS clay,
+      COUNT(DISTINCT cd.response_id) AS total
+    FROM citation_domains cd
+    INNER JOIN cur_filtered f ON cd.response_id = f.id
+  ),
+  prev_counts AS (
+    SELECT
+      COUNT(DISTINCT cd.response_id) FILTER (WHERE cd.domain ILIKE '%clay%') AS clay,
+      COUNT(DISTINCT cd.response_id) AS total
+    FROM citation_domains cd
+    INNER JOIN prev_filtered pf ON cd.response_id = pf.id
+  )
+  SELECT json_build_object(
+    'current',  CASE WHEN (SELECT total FROM cur_counts)  > 0 THEN ROUND((SELECT clay FROM cur_counts)  * 100.0 / (SELECT total FROM cur_counts),  2) ELSE NULL END,
+    'previous', CASE WHEN (SELECT total FROM prev_counts) > 0 THEN ROUND((SELECT clay FROM prev_counts) * 100.0 / (SELECT total FROM prev_counts), 2) ELSE NULL END
+  )
+$$;
+
 GRANT EXECUTE ON FUNCTION get_top_cited_domains(TEXT, TEXT, TEXT[]) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION get_competitor_leaderboard(TEXT, TEXT, TEXT, TEXT, TEXT[], TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_citation_share(TEXT, TEXT, TEXT, TEXT, TEXT[], TEXT, TEXT, TEXT) TO anon, authenticated;
