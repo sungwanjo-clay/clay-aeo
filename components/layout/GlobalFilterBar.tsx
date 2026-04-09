@@ -98,9 +98,8 @@ export default function GlobalFilterBar() {
   const hasNonBranded = brandedValues.some(v => norm(v) === 'nonbranded')
   const keywordOptions = [
     { value: 'all', label: 'All' },
-    ...(hasBranded ? [{ value: '__branded__', label: 'Branded' }] : []),
-    ...(hasNonBranded ? [{ value: '__non-branded__', label: 'Non-Branded' }] : []),
     ...filteredPromptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+    ...(hasNonBranded ? [{ value: '__non-branded__', label: 'Non-Branded' }] : []),
   ]
 
   const tagOptions = [

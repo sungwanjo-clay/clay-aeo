@@ -336,48 +336,59 @@ export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
-  // Step 1: get aggregate counts via RPC (GROUP BY server-side — no row limit issue)
-  const { data: agg, error: aggErr } = await (sb as any).rpc('get_top_cited_domains', {
-    p_start_day: cdDateStr(f.startDate),
-    p_end_day: cdNextDay(cdDateStr(f.endDate)),
-    p_platforms: f.platforms?.length ? f.platforms : null,
-  })
-  if (aggErr) { console.error('get_top_cited_domains RPC error:', aggErr); return [] }
-  if (!agg?.length) return []
+  // Filter via responses.run_day (not citation_domains.run_date) to avoid timestamp mismatch.
+  // citation_domains.run_date may not align with the filter window, but response_id always does.
 
-  // Step 2: fetch top URLs for those domains (detail only, row count manageable)
-  const topDomains = agg.map((r: any) => r.domain).slice(0, 20)
-  let urlQuery = sb
-    .from('citation_domains')
-    .select('domain, url, title')
-    .gte('run_date', cdDateStr(f.startDate))
-    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
-    .in('domain', topDomains)
-  if (f.platforms && f.platforms.length > 0) urlQuery = urlQuery.in('platform', f.platforms)
-  const { data: urlRows } = await (urlQuery as any).limit(10000)
+  // Step 1: get valid response IDs using run_day filter on responses
+  const validResponses = await fetchAllPages(applyResponseFilters(sb.from('responses').select('id'), f))
+  if (!validResponses.length) return []
+  const validIds = validResponses.map((r: any) => String(r.id))
 
-  // Build URL map per domain
-  const urlMap = new Map<string, Map<string, { title: string | null; count: number }>>()
-  for (const row of urlRows ?? []) {
-    if (!row.url || !row.domain) continue
-    if (!urlMap.has(row.domain)) urlMap.set(row.domain, new Map())
-    const um = urlMap.get(row.domain)!
-    const u = um.get(row.url) ?? { title: row.title ?? null, count: 0 }
-    u.count++
-    um.set(row.url, u)
+  // Step 2: fetch citation_domains for those response IDs in batches of 500
+  const BATCH = 500
+  const allCitations: any[] = []
+  for (let i = 0; i < validIds.length; i += BATCH) {
+    const batch = validIds.slice(i, i + BATCH)
+    const { data } = await sb.from('citation_domains')
+      .select('domain, url, title, citation_type, response_id')
+      .in('response_id', batch)
+    if (data?.length) allCitations.push(...data)
+  }
+  if (!allCitations.length) return []
+
+  // Step 3: aggregate by domain
+  const domainMap = new Map<string, {
+    count: number; is_clay: boolean; citation_type: string | null
+    urls: Map<string, { title: string | null; count: number }>
+  }>()
+  for (const row of allCitations) {
+    const d = (row.domain ?? '').toLowerCase()
+    if (!d) continue
+    if (!domainMap.has(d)) domainMap.set(d, { count: 0, is_clay: d.includes('clay.com'), citation_type: row.citation_type ?? null, urls: new Map() })
+    const entry = domainMap.get(d)!
+    entry.count++
+    if (row.url) {
+      const u = entry.urls.get(row.url) ?? { title: row.title ?? null, count: 0 }
+      u.count++
+      entry.urls.set(row.url, u)
+    }
   }
 
-  return agg.slice(0, 20).map((r: any) => ({
-    domain: r.domain,
-    citation_count: Number(r.citation_count),
-    share_pct: Number(r.share_pct),
-    is_clay: (r.domain ?? '').includes('clay.com'),
-    citation_type: r.citation_type ?? null,
-    top_urls: Array.from(urlMap.get(r.domain)?.entries() ?? [])
-      .map(([url, { title, count }]) => ({ url, title, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8),
-  }))
+  const total = allCitations.length
+  return Array.from(domainMap.entries())
+    .map(([domain, { count, is_clay, citation_type, urls }]) => ({
+      domain,
+      citation_count: count,
+      share_pct: total > 0 ? (count / total) * 100 : 0,
+      is_clay,
+      citation_type,
+      top_urls: Array.from(urls.entries())
+        .map(([url, { title, count }]) => ({ url, title, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8),
+    }))
+    .sort((a, b) => b.citation_count - a.citation_count)
+    .slice(0, 20)
 }
 
 // ── Clay citations grouped by URL type ───────────────────────────────────────
