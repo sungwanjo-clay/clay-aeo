@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { AUTH_COOKIE } from '@/middleware'
+import { AUTH_COOKIE } from '@/proxy'
 
 export async function POST() {
   const res = NextResponse.json({ ok: true })

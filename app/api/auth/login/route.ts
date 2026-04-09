@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { AUTH_COOKIE } from '@/middleware'
+import { AUTH_COOKIE } from '@/proxy'
 
 async function makeToken(): Promise<string> {
   const secret = process.env.AUTH_SECRET ?? 'dev-secret-change-me'

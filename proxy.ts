@@ -18,7 +18,7 @@ async function expectedToken(): Promise<string> {
     .join('')
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   // If SITE_PASSWORD is not set, auth is disabled — allow all traffic
   if (!process.env.SITE_PASSWORD) return NextResponse.next()
 
