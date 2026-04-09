@@ -65,8 +65,9 @@ export default function HomePage() {
       getAvgPosition(supabase, f),
       getCompetitorLeaderboard(supabase, f),
       getClayOverallTimeseries(supabase, f),
+      getCompetitorVisibilityTimeseries(supabase, f),
       getDataFreshnessStats(supabase),
-    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, fresh]) => {
+    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, compVisTs, fresh]) => {
       setInsight(ins)
       setAnomalies(ano)
       setVisibility(vis)
@@ -77,6 +78,7 @@ export default function HomePage() {
       setCompetitors((comp as CompetitorRow[]).slice(0, 6))
       setFreshness(fresh)
       setSparkData(spark)
+      setCompetitorVisTimeseries(compVisTs)
 
       setLoading(false)
     })
@@ -89,18 +91,16 @@ export default function HomePage() {
       getCitationOverallTimeseries(supabase, f),
       getTopCitedDomainsWithURLs(supabase, f),
       getCompetitorCitationTimeseries(supabase, f),
-      getCompetitorVisibilityTimeseries(supabase, f),
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
       getFollowupTimeseries(supabase, f),
       getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned'),
       getMentionBreakdown(supabase, f, 'clay_recommended_followup'),
-    ]).then(([citTs, citDom, compCitTs, compVisTs, pmmTs, pmmTbl, claygentTs, followupTs, claygentBd, followupBd]) => {
+    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs, claygentBd, followupBd]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
       setCompetitorCitTimeseries(compCitTs)
-      setCompetitorVisTimeseries(compVisTs)
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
       setClaygentTimeseries(claygentTs)

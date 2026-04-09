@@ -319,30 +319,46 @@ export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const data = await fetchAllPages(applyResponseFilters(
-    sb.from('responses').select('run_date, cited_domains'),
-    f
-  ))
-  if (!data.length) return []
+  // Step 1: get valid response IDs + run_date using run_day filter (reliable)
+  const responses = await fetchAllPages(applyResponseFilters(sb.from('responses').select('id, run_date'), f))
+  if (!responses.length) return []
 
-  // Citation rate per day: clay-cited / responses-with-any-citations
-  const map = new Map<string, { clayCited: number; withCitations: number }>()
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
+  const responseIdToDate = new Map<string, string>()
+  for (const r of responses) {
+    const date = (r.run_date ?? '').substring(0, 10)
+    if (date) responseIdToDate.set(String(r.id), date)
+  }
+  const validIds = [...responseIdToDate.keys()]
+
+  // Step 2: fetch citation_domains for those response_ids in parallel batches
+  const BATCH = 500
+  const allCitations = (await Promise.all(
+    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
+      sb.from('citation_domains').select('response_id, domain')
+        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat() as any[]
+
+  if (!allCitations.length) return []
+
+  // Step 3: group by date — clay share = clay-cited responses / responses-with-any-citation
+  const byDate = new Map<string, { clayCited: Set<string>; total: Set<string> }>()
+  for (const c of allCitations) {
+    const rid = String(c.response_id)
+    const date = responseIdToDate.get(rid)
     if (!date) continue
-    try {
-      const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.length > 0) {
-        const cur = map.get(date) ?? { clayCited: 0, withCitations: 0 }
-        cur.withCitations++
-        if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) cur.clayCited++
-        map.set(date, cur)
-      }
-    } catch { /* ignore */ }
+    if (!byDate.has(date)) byDate.set(date, { clayCited: new Set(), total: new Set() })
+    const entry = byDate.get(date)!
+    entry.total.add(rid)
+    if ((c.domain ?? '').toLowerCase().includes('clay')) entry.clayCited.add(rid)
   }
 
-  return Array.from(map.entries())
-    .map(([date, { clayCited, withCitations }]) => ({ date, value: withCitations > 0 ? (clayCited / withCitations) * 100 : 0 }))
+  return Array.from(byDate.entries())
+    .map(([date, { clayCited, total }]) => ({
+      date,
+      value: total.size > 0 ? (clayCited.size / total.size) * 100 : 0,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
