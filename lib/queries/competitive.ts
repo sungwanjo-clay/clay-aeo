@@ -95,61 +95,34 @@ export async function getClayKPIs(
   topTopic: string | null
   topPlatform: string | null
 }> {
-  const [cur, prev] = await Promise.all([
-    fetchAllPages(applyFilters(sb.from('responses').select('clay_mentioned, clay_mention_position, topic, platform, cited_domains'), f)),
-    fetchAllPages(applyFilters(sb.from('responses').select('clay_mentioned, cited_domains'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate })),
-  ])
+  // Single RPC call replaces two parallel paginated fetches (was 10–20 round trips).
+  const { data, error } = await sb.rpc('get_clay_kpis_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
+    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getClayKPIs] RPC error:', error)
+  const r = !error && data?.[0] ? data[0] : null
 
-  // Visibility
-  const mentionedCur = cur.filter(r => (r.clay_mentioned ?? '').toLowerCase() === 'yes')
-  const mentionedPrev = prev.filter(r => (r.clay_mentioned ?? '').toLowerCase() === 'yes')
-  const visScore = cur.length > 0 ? (mentionedCur.length / cur.length) * 100 : null
-  const visPrev = prev.length > 0 ? (mentionedPrev.length / prev.length) * 100 : null
-  const deltaVis = visScore !== null && visPrev !== null ? visScore - visPrev : null
-
-  // Avg position
-  const positions = cur.filter(r => r.clay_mention_position != null).map(r => r.clay_mention_position as number)
-  const avgPosition = positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null
-
-  // Top topic / platform
-  const topicMap = new Map<string, number>()
-  const platformMap = new Map<string, number>()
-  for (const r of mentionedCur) {
-    if (r.topic) topicMap.set(r.topic, (topicMap.get(r.topic) ?? 0) + 1)
-    if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
-  }
-  const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-  const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-
-  // Citation rate — same formula as getCitationShare: clay-cited / responses-with-any-citations
-  // Uses responses.cited_domains so it matches the KPI on every other page
-  const calcCitRate = (rows: any[]) => {
-    let withClayCited = 0
-    let withAnyCitations = 0
-    for (const r of rows) {
-      try {
-        const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
-        if (domains.length > 0) {
-          withAnyCitations++
-          if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) withClayCited++
-        }
-      } catch { /* ignore */ }
-    }
-    return withAnyCitations > 0 ? (withClayCited / withAnyCitations) * 100 : null
-  }
-  const citRate = calcCitRate(cur)
-  const citRatePrev = calcCitRate(prev)
-  const deltaCitRate = citRate !== null && citRatePrev !== null ? citRate - citRatePrev : null
+  const visCur  = r?.visibility_current  ?? null
+  const visPrev = r?.visibility_previous ?? null
+  const citCur  = r?.citation_rate_cur   ?? null
+  const citPrev = r?.citation_rate_prev  ?? null
 
   return {
-    visibilityScore: visScore,
-    deltaVisibility: deltaVis,
-    citationRate: citRate,
-    deltaCitationRate: deltaCitRate,
-    avgPosition,
-    mentionCount: mentionedCur.length,
-    topTopic,
-    topPlatform,
+    visibilityScore:   visCur,
+    deltaVisibility:   visCur !== null && visPrev !== null ? visCur - visPrev : null,
+    citationRate:      citCur,
+    deltaCitationRate: citCur !== null && citPrev !== null ? citCur - citPrev : null,
+    avgPosition:       r?.avg_position  ?? null,
+    mentionCount:      r?.mention_count ?? 0,
+    topTopic:          r?.top_topic     ?? null,
+    topPlatform:       r?.top_platform  ?? null,
   }
 }
 

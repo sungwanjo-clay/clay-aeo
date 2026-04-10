@@ -242,56 +242,21 @@ export async function getPMMTable(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
-  const [cur, prev] = await Promise.all([
-    fetchFiltered(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned, cited_domains, clay_mention_position'), f),
-    fetchFiltered(sb.from('responses').select('pmm_use_case, clay_mentioned'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-  ])
+  // Single RPC call replaces two parallel paginated fetches (was 10–20 round trips).
+  // timeseries is returned as JSONB [{date, value}] from the RPC.
+  const { data, error } = await sb.rpc('get_pmm_table_rpc', visRpcParams(f))
+  if (error) console.error('[getPMMTable] RPC error:', error)
+  if (!data?.length) return []
 
-  const curMap = new Map<string, { mentioned: number; total: number; cited: number; positions: number[]; byDate: Map<string, { m: number; t: number }> }>()
-  for (const row of cur) {
-    if (!row.pmm_use_case) continue
-    const date = (row.run_date ?? '').substring(0, 10)
-    if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, cited: 0, positions: [], byDate: new Map() })
-    const entry = curMap.get(row.pmm_use_case)!
-    entry.total++
-    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') entry.mentioned++
-    if (row.clay_mention_position != null) entry.positions.push(row.clay_mention_position)
-    try {
-      const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))) entry.cited++
-    } catch { /* ignore */ }
-    const d = entry.byDate.get(date) ?? { m: 0, t: 0 }
-    d.t++
-    if (row.clay_mentioned === 'Yes') d.m++
-    entry.byDate.set(date, d)
-  }
-
-  const prevMap = new Map<string, { mentioned: number; total: number }>()
-  for (const row of prev) {
-    if (!row.pmm_use_case) continue
-    const entry = prevMap.get(row.pmm_use_case) ?? { mentioned: 0, total: 0 }
-    entry.total++
-    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') entry.mentioned++
-    prevMap.set(row.pmm_use_case, entry)
-  }
-
-  return Array.from(curMap.entries()).map(([pmm_use_case, { mentioned, total, cited, positions, byDate }]) => {
-    const curScore = total > 0 ? (mentioned / total) * 100 : 0
-    const prev = prevMap.get(pmm_use_case)
-    const prevScore = prev && prev.total > 0 ? (prev.mentioned / prev.total) * 100 : null
-    const timeseries = Array.from(byDate.entries())
-      .map(([date, { m, t }]) => ({ date, value: t > 0 ? (m / t) * 100 : 0 }))
-      .sort((a, b) => a.date.localeCompare(b.date))
-    return {
-      pmm_use_case,
-      visibility_score: curScore,
-      delta: prevScore !== null ? curScore - prevScore : null,
-      citation_share: total > 0 ? (cited / total) * 100 : null,
-      avg_position: positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null,
-      total_responses: total,
-      timeseries,
-    }
-  }).sort((a, b) => b.visibility_score - a.visibility_score)
+  return data.map((r: any) => ({
+    pmm_use_case:     r.pmm_use_case,
+    visibility_score: r.visibility_score ?? 0,
+    delta:            r.delta            ?? null,
+    citation_share:   r.citation_share   ?? null,
+    avg_position:     r.avg_position     ?? null,
+    total_responses:  r.total_responses  ?? 0,
+    timeseries:       Array.isArray(r.timeseries) ? r.timeseries : [],
+  }))
 }
 
 export async function getVisibilityByTopic(

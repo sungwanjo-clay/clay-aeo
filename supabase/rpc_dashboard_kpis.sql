@@ -409,3 +409,263 @@ $$;
 
 GRANT EXECUTE ON FUNCTION get_citation_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
   TO anon, authenticated;
+
+
+-- ── RPC 7: Citation count KPI (raw clay-cited response count, both periods) ───
+-- Replaces getCitationCount() which did two parallel paginated fetches of responses.
+-- Single-pass scan: reads cited_domains JSONB column directly, no child table join.
+
+CREATE OR REPLACE FUNCTION get_citation_count_kpi(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prev_start_day DATE,
+  p_prev_end_day   DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(current_count BIGINT, previous_count BIGINT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH filtered AS MATERIALIZED (
+    SELECT
+      (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
+      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev,
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(cited_domains) d WHERE d ILIKE '%clay%'
+      ) AS has_clay
+    FROM responses
+    WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
+                      AND GREATEST(p_end_day, p_prev_end_day)
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+      AND (run_day BETWEEN p_start_day AND p_end_day
+           OR run_day BETWEEN p_prev_start_day AND p_prev_end_day)
+  )
+  SELECT
+    COUNT(*) FILTER (WHERE is_cur  AND has_clay) AS current_count,
+    COUNT(*) FILTER (WHERE is_prev AND has_clay) AS previous_count
+  FROM filtered
+$$;
+
+GRANT EXECUTE ON FUNCTION get_citation_count_kpi(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 8: Clay KPIs (visibility, citation rate, avg position, top topic/platform) ─
+-- Replaces getClayKPIs() which did two parallel paginated fetches (current + previous).
+-- Single-pass scan covers both periods; cited_domains JSONB read inline (no child join).
+
+CREATE OR REPLACE FUNCTION get_clay_kpis_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prev_start_day DATE,
+  p_prev_end_day   DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(
+  visibility_current  FLOAT,
+  visibility_previous FLOAT,
+  citation_rate_cur   FLOAT,
+  citation_rate_prev  FLOAT,
+  avg_position        FLOAT,
+  mention_count       BIGINT,
+  top_topic           TEXT,
+  top_platform        TEXT
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH filtered AS MATERIALIZED (
+    SELECT
+      (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
+      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev,
+      clay_mentioned,
+      clay_mention_position::float,
+      topic,
+      platform,
+      (cited_domains IS NOT NULL AND jsonb_array_length(cited_domains) > 0) AS has_citation,
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(cited_domains) d WHERE d ILIKE '%clay%'
+      ) AS has_clay
+    FROM responses
+    WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
+                      AND GREATEST(p_end_day, p_prev_end_day)
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+      AND (run_day BETWEEN p_start_day AND p_end_day
+           OR run_day BETWEEN p_prev_start_day AND p_prev_end_day)
+  ),
+  agg AS (
+    SELECT
+      COUNT(*) FILTER (WHERE is_cur)                                              AS cur_n,
+      COUNT(*) FILTER (WHERE is_cur  AND clay_mentioned ILIKE 'yes')              AS cur_mentioned,
+      COUNT(*) FILTER (WHERE is_prev)                                             AS prev_n,
+      COUNT(*) FILTER (WHERE is_prev AND clay_mentioned ILIKE 'yes')              AS prev_mentioned,
+      COUNT(*) FILTER (WHERE is_cur  AND has_citation)                            AS cur_cited_n,
+      COUNT(*) FILTER (WHERE is_cur  AND has_citation AND has_clay)               AS cur_clay_cited,
+      COUNT(*) FILTER (WHERE is_prev AND has_citation)                            AS prev_cited_n,
+      COUNT(*) FILTER (WHERE is_prev AND has_citation AND has_clay)               AS prev_clay_cited,
+      AVG(clay_mention_position)
+        FILTER (WHERE is_cur AND clay_mentioned ILIKE 'yes'
+                AND clay_mention_position IS NOT NULL)                            AS avg_pos
+    FROM filtered
+  ),
+  top_topic AS (
+    SELECT topic
+    FROM filtered
+    WHERE is_cur AND clay_mentioned ILIKE 'yes' AND topic IS NOT NULL
+    GROUP BY topic ORDER BY COUNT(*) DESC LIMIT 1
+  ),
+  top_platform AS (
+    SELECT platform
+    FROM filtered
+    WHERE is_cur AND clay_mentioned ILIKE 'yes' AND platform IS NOT NULL
+    GROUP BY platform ORDER BY COUNT(*) DESC LIMIT 1
+  )
+  SELECT
+    CASE WHEN a.cur_n        > 0 THEN a.cur_mentioned::float   / a.cur_n        * 100 ELSE NULL END,
+    CASE WHEN a.prev_n       > 0 THEN a.prev_mentioned::float  / a.prev_n       * 100 ELSE NULL END,
+    CASE WHEN a.cur_cited_n  > 0 THEN a.cur_clay_cited::float  / a.cur_cited_n  * 100 ELSE NULL END,
+    CASE WHEN a.prev_cited_n > 0 THEN a.prev_clay_cited::float / a.prev_cited_n * 100 ELSE NULL END,
+    a.avg_pos,
+    a.cur_mentioned,
+    tt.topic,
+    tp.platform
+  FROM agg a
+  LEFT JOIN top_topic   tt ON true
+  LEFT JOIN top_platform tp ON true
+$$;
+
+GRANT EXECUTE ON FUNCTION get_clay_kpis_rpc(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 9: PMM table (per-pmm_use_case KPIs + daily timeseries, both periods) ─
+-- Replaces getPMMTable() which did two parallel paginated fetches.
+-- Returns one row per pmm_use_case; timeseries is a JSONB array [{date,value}].
+-- citation_share denominator = total responses for use-case (matching JS logic).
+
+CREATE OR REPLACE FUNCTION get_pmm_table_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prev_start_day DATE,
+  p_prev_end_day   DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(
+  pmm_use_case     TEXT,
+  visibility_score FLOAT,
+  delta            FLOAT,
+  citation_share   FLOAT,
+  avg_position     FLOAT,
+  total_responses  BIGINT,
+  timeseries       JSONB
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH filtered AS MATERIALIZED (
+    SELECT
+      (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
+      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev,
+      run_day,
+      pmm_use_case,
+      clay_mentioned,
+      clay_mention_position::float,
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(cited_domains) d WHERE d ILIKE '%clay%'
+      ) AS has_clay
+    FROM responses
+    WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
+                      AND GREATEST(p_end_day, p_prev_end_day)
+      AND pmm_use_case IS NOT NULL
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+      AND (run_day BETWEEN p_start_day AND p_end_day
+           OR run_day BETWEEN p_prev_start_day AND p_prev_end_day)
+  ),
+  cur_by_pmm AS (
+    SELECT
+      pmm_use_case,
+      COUNT(*)                                                          AS total,
+      COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')               AS mentioned,
+      COUNT(*) FILTER (WHERE has_clay)                                  AS clay_cited,
+      AVG(clay_mention_position)
+        FILTER (WHERE clay_mentioned ILIKE 'yes'
+                AND clay_mention_position IS NOT NULL)                  AS avg_pos
+    FROM filtered
+    WHERE is_cur
+    GROUP BY pmm_use_case
+  ),
+  prev_by_pmm AS (
+    SELECT
+      pmm_use_case,
+      COUNT(*)                                                          AS total,
+      COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')               AS mentioned
+    FROM filtered
+    WHERE is_prev
+    GROUP BY pmm_use_case
+  ),
+  ts_by_day AS (
+    SELECT
+      pmm_use_case,
+      run_day,
+      COUNT(*)                                                          AS total,
+      COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')               AS mentioned
+    FROM filtered
+    WHERE is_cur
+    GROUP BY pmm_use_case, run_day
+  ),
+  ts_agg AS (
+    SELECT
+      pmm_use_case,
+      jsonb_agg(
+        jsonb_build_object(
+          'date',  run_day::text,
+          'value', CASE WHEN total > 0 THEN mentioned::float / total * 100 ELSE 0 END
+        ) ORDER BY run_day
+      ) AS timeseries
+    FROM ts_by_day
+    GROUP BY pmm_use_case
+  )
+  SELECT
+    c.pmm_use_case,
+    CASE WHEN c.total > 0 THEN c.mentioned::float / c.total * 100 ELSE 0 END       AS visibility_score,
+    CASE
+      WHEN c.total > 0 AND p.total > 0
+      THEN c.mentioned::float / c.total * 100 - p.mentioned::float / p.total * 100
+      ELSE NULL
+    END                                                                              AS delta,
+    CASE WHEN c.total > 0 THEN c.clay_cited::float / c.total * 100 ELSE NULL END   AS citation_share,
+    c.avg_pos                                                                        AS avg_position,
+    c.total                                                                          AS total_responses,
+    COALESCE(t.timeseries, '[]'::jsonb)                                             AS timeseries
+  FROM cur_by_pmm c
+  LEFT JOIN prev_by_pmm p USING (pmm_use_case)
+  LEFT JOIN ts_agg      t USING (pmm_use_case)
+  ORDER BY visibility_score DESC
+$$;
+
+GRANT EXECUTE ON FUNCTION get_pmm_table_rpc(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;

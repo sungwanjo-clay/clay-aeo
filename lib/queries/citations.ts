@@ -202,24 +202,23 @@ export async function getCitationCount(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
-  const count = async (start: string, end: string) => {
-    const data = await fetchAllPages(applyResponseFilters(
-      sb.from('responses').select('cited_domains'),
-      { ...f, startDate: start, endDate: end }
-    ))
-    if (!data.length) return 0
-    return data.filter(r => {
-      try {
-        const domains = Array.isArray(r.cited_domains) ? r.cited_domains : JSON.parse(r.cited_domains ?? '[]')
-        return domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))
-      } catch { return false }
-    }).length
+  // Single RPC call replaces two parallel paginated fetches (was 10–20 round trips).
+  const { data, error } = await sb.rpc('get_citation_count_kpi', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
+    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getCitationCount] RPC error:', error)
+  const r = !error && data?.[0] ? data[0] : null
+  return {
+    current:  r?.current_count  ?? 0,
+    previous: r?.previous_count ?? 0,
   }
-  const [current, previous] = await Promise.all([
-    count(f.startDate, f.endDate),
-    count(f.prevStartDate, f.prevEndDate),
-  ])
-  return { current, previous }
 }
 
 export async function getCompetitorCitationTimeseries(
