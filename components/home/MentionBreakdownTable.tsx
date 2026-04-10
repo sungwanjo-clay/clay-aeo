@@ -146,8 +146,12 @@ function ResponseRow({ r, accentColor, defaultOpen }: { r: MentionResponseRow; a
 }
 
 // ── Prompt row (expands to responses) ──────────────────────────────────────
-function PromptRow({ p, accentColor, defaultOpen }: { p: MentionPromptRow; accentColor: string; defaultOpen?: boolean }) {
+function PromptRow({ p, accentColor, defaultOpen, requireSnippet }: { p: MentionPromptRow; accentColor: string; defaultOpen?: boolean; requireSnippet?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false)
+
+  // When requireSnippet is true, only show responses that have a snippet
+  const visibleResponses = requireSnippet ? p.responses.filter(r => r.snippet) : p.responses
+  if (requireSnippet && visibleResponses.length === 0) return null
 
   return (
     <React.Fragment>
@@ -167,7 +171,7 @@ function PromptRow({ p, accentColor, defaultOpen }: { p: MentionPromptRow; accen
         <td className="px-3 py-2.5 text-right">
           <span className="text-[12px] font-bold tabular-nums px-2 py-0.5 rounded"
             style={{ background: 'rgba(26,25,21,0.06)', color: 'var(--clay-black)' }}>
-            {p.count}
+            {visibleResponses.length}
           </span>
         </td>
       </tr>
@@ -183,7 +187,7 @@ function PromptRow({ p, accentColor, defaultOpen }: { p: MentionPromptRow; accen
                   <span key={h} style={labelStyle}>{h}</span>
                 ))}
               </div>
-              {p.responses.map((r, idx) => <ResponseRow key={r.id} r={r} accentColor={accentColor} defaultOpen={defaultOpen && idx < 4} />)}
+              {visibleResponses.map((r, idx) => <ResponseRow key={r.id} r={r} accentColor={accentColor} defaultOpen={defaultOpen && idx < 4} />)}
             </div>
           </td>
         </tr>
@@ -193,7 +197,7 @@ function PromptRow({ p, accentColor, defaultOpen }: { p: MentionPromptRow; accen
 }
 
 // ── Topic row (expands to prompts) ─────────────────────────────────────────
-function TopicRow({ topic, accentColor }: { topic: MentionTopicRow; accentColor: string }) {
+function TopicRow({ topic, accentColor, requireSnippet }: { topic: MentionTopicRow; accentColor: string; requireSnippet?: boolean }) {
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
 
@@ -234,7 +238,7 @@ function TopicRow({ topic, accentColor }: { topic: MentionTopicRow; accentColor:
               </div>
               <table className="w-full">
                 <tbody>
-                  {visible.map((p, idx) => <PromptRow key={p.prompt_id} p={p} accentColor={accentColor} defaultOpen={idx < 4} />)}
+                  {visible.map((p, idx) => <PromptRow key={p.prompt_id} p={p} accentColor={accentColor} defaultOpen={idx < 4} requireSnippet={requireSnippet} />)}
                 </tbody>
               </table>
               {topic.prompts.length > PROMPT_LIMIT && (
@@ -255,7 +259,7 @@ function TopicRow({ topic, accentColor }: { topic: MentionTopicRow; accentColor:
 }
 
 // ── Exported table ──────────────────────────────────────────────────────────
-export default function MentionBreakdownTable({ data, accentColor }: Props) {
+export default function MentionBreakdownTable({ data, accentColor, requireSnippet }: Props & { requireSnippet?: boolean }) {
   if (data.length === 0) {
     return (
       <p className="py-6 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>
@@ -274,7 +278,7 @@ export default function MentionBreakdownTable({ data, accentColor }: Props) {
       </thead>
       <tbody>
         {data.map(topic => (
-          <TopicRow key={topic.topic} topic={topic} accentColor={accentColor} />
+          <TopicRow key={topic.topic} topic={topic} accentColor={accentColor} requireSnippet={requireSnippet} />
         ))}
       </tbody>
     </table>

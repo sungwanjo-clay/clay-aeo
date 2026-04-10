@@ -21,12 +21,14 @@ function CountChart({
   subtitle,
   color,
   breakdown,
+  requireSnippet,
 }: {
   data: { date: string; count: number }[]
   title: string
   subtitle: string
   color: string
   breakdown: MentionTopicRow[]
+  requireSnippet?: boolean
 }) {
   const total = data.reduce((s, d) => s + d.count, 0)
 
@@ -95,7 +97,7 @@ function CountChart({
         <p className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
           By topic & prompt — click to expand
         </p>
-        <MentionBreakdownTable data={breakdown} accentColor={color} />
+        <MentionBreakdownTable data={breakdown} accentColor={color} requireSnippet={requireSnippet} />
       </div>
     </div>
   )
@@ -110,6 +112,7 @@ export default function ClaygentSection({ claygentData, followupData, claygentBr
         subtitle="Times ClayMCP or Clay Agent was mentioned per day"
         color="#4A5AFF"
         breakdown={claygentBreakdown}
+        requireSnippet
       />
       <CountChart
         data={followupData}
