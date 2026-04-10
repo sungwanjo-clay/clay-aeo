@@ -285,11 +285,13 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
     }
   }
 
-  // Group table rows by pmm_use_case; sort use cases by max visibility descending
+  // Group table rows by pmm_classification (e.g. "Clay for Marketing") — sorted by max visibility desc
+  // Within each classification, rows are pmm_use_case (e.g. "PLG Assist", "CRM Enrichment")
   const grouped: Record<string, PMMRow[]> = {}
   for (const row of table) {
-    if (!grouped[row.pmm_use_case]) grouped[row.pmm_use_case] = []
-    grouped[row.pmm_use_case].push(row)
+    const key = row.pmm_classification ?? '(no classification)'
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(row)
   }
   const useCases = Object.keys(grouped).sort((a, b) => {
     const aMax = Math.max(...grouped[a].map(r => r.visibility_score))
@@ -376,13 +378,13 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                     {/* Classification rows under this use case */}
                     {rows.map(row => {
                       const isUp = row.delta != null ? row.delta > 0 : null
-                      const key = drillKey(useCase, row.pmm_classification)
+                      const key = drillKey(row.pmm_use_case, row.pmm_classification)
                       const expanded = expandedKey === key
                       const drill = drillRows[key]
                       return (
                         <React.Fragment key={key}>
                           <tr
-                            onClick={() => toggleDrill(useCase, row.pmm_classification)}
+                            onClick={() => toggleDrill(row.pmm_use_case, row.pmm_classification)}
                             className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
                             style={{ borderBottom: expanded ? 'none' : '1px solid rgba(26,25,21,0.04)' }}
                           >
@@ -391,7 +393,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                                 {expanded
                                   ? <ChevronDown size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
                                   : <ChevronRight size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />}
-                                {row.pmm_classification ?? '(no classification)'}
+                                {row.pmm_use_case}
                               </div>
                             </td>
                             <td className="py-2.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>

@@ -723,8 +723,9 @@ GRANT EXECUTE ON FUNCTION get_visibility_by_topic_rpc(DATE,DATE,TEXT,TEXT[],TEXT
   TO anon, authenticated;
 
 
--- ── RPC 11: Visibility by PMM use-case timeseries ────────────────────────────
--- Replaces getVisibilityByPMM() paginated fetch.
+-- ── RPC 11: Visibility by PMM classification (eg "Clay for Marketing") timeseries ─
+-- Groups by pmm_classification so the line chart shows Clay's product lines,
+-- not the internal PMM solution buckets.
 
 CREATE OR REPLACE FUNCTION get_visibility_by_pmm_rpc(
   p_start_day      DATE,
@@ -740,20 +741,20 @@ SET statement_timeout = '30000'
 AS $$
   SELECT
     run_day AS date,
-    pmm_use_case,
+    pmm_classification AS pmm_use_case,  -- alias kept for backwards compat with JS
     COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')::float
       / NULLIF(COUNT(*), 0) * 100 AS value
   FROM responses
   WHERE run_day BETWEEN p_start_day AND p_end_day
-    AND pmm_use_case IS NOT NULL
+    AND pmm_classification IS NOT NULL
     AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
     AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
     AND (p_branded_filter = 'all'
          OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
          OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
     AND (p_tags = 'all' OR tags = p_tags)
-  GROUP BY run_day, pmm_use_case
-  ORDER BY run_day, pmm_use_case
+  GROUP BY run_day, pmm_classification
+  ORDER BY run_day, pmm_classification
 $$;
 
 GRANT EXECUTE ON FUNCTION get_visibility_by_pmm_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
