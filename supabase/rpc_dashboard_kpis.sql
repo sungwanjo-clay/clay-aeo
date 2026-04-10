@@ -140,7 +140,9 @@ GRANT EXECUTE ON FUNCTION get_visibility_kpis(DATE,DATE,DATE,DATE,TEXT,TEXT[],TE
   TO anon, authenticated;
 
 
--- ── RPC 2: Citation share (MATERIALIZED CTEs + timeout) ─────────────────────
+-- ── RPC 2: Citation share KPI (single-pass scan + single join) ───────────────
+-- Optimized: scan responses once for both periods, join citation_domains once.
+-- Avoids double table scan that caused statement_timeout on Supabase free tier.
 
 CREATE OR REPLACE FUNCTION get_citation_share_kpi(
   p_start_day      DATE,
@@ -156,42 +158,51 @@ RETURNS TABLE(current_pct FLOAT, previous_pct FLOAT)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET statement_timeout = '30000'
 AS $$
-  WITH cur_ids AS MATERIALIZED (
-    SELECT id FROM responses
-    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
-  ),
-  prev_ids AS MATERIALIZED (
-    SELECT id FROM responses
-    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
-  ),
-  cur_per AS (
-    SELECT cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
-    FROM citation_domains cd
-    WHERE cd.response_id IN (SELECT id FROM cur_ids)
-    GROUP BY cd.response_id
-  ),
-  prev_per AS (
-    SELECT cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
-    FROM citation_domains cd
-    WHERE cd.response_id IN (SELECT id FROM prev_ids)
-    GROUP BY cd.response_id
+  WITH filtered AS MATERIALIZED (
+    SELECT id,
+      (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
+      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev
+    FROM responses
+    WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
+                      AND GREATEST(p_end_day, p_prev_end_day)
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+      AND (run_day BETWEEN p_start_day AND p_end_day
+           OR run_day BETWEEN p_prev_start_day AND p_prev_end_day)
   ),
   -- Denominator = responses with ANY citation (citation share, not citation coverage)
-  cur_agg  AS (SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE has_clay) AS c FROM cur_per),
-  prev_agg AS (SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE has_clay) AS c FROM prev_per)
+  per_response AS (
+    SELECT f.id, f.is_cur, f.is_prev,
+      bool_or(cd.domain ILIKE '%clay%') AS has_clay
+    FROM filtered f
+    JOIN citation_domains cd ON cd.response_id = f.id
+    GROUP BY f.id, f.is_cur, f.is_prev
+  ),
+  agg AS (
+    SELECT
+      COUNT(*) FILTER (WHERE is_cur)               AS cur_n,
+      COUNT(*) FILTER (WHERE is_cur  AND has_clay) AS cur_c,
+      COUNT(*) FILTER (WHERE is_prev)              AS prev_n,
+      COUNT(*) FILTER (WHERE is_prev AND has_clay) AS prev_c
+    FROM per_response
+  )
   SELECT
-    CASE WHEN c.n > 0 THEN c.c::float / c.n * 100 ELSE NULL END,
-    CASE WHEN p.n > 0 THEN p.c::float / p.n * 100 ELSE NULL END
-  FROM cur_agg c, prev_agg p
+    CASE WHEN cur_n  > 0 THEN cur_c::float  / cur_n  * 100 ELSE NULL END,
+    CASE WHEN prev_n > 0 THEN prev_c::float / prev_n * 100 ELSE NULL END
+  FROM agg
 $$;
 
 GRANT EXECUTE ON FUNCTION get_citation_share_kpi(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
   TO anon, authenticated;
 
 
--- ── RPC 3: Competitor leaderboard (MATERIALIZED CTEs + timeout + LIMIT 20) ───
+-- ── RPC 3: Competitor leaderboard (single-pass scan + single join) ───────────
+-- Optimized: scan responses once for both periods, join response_competitors once.
+-- Avoids double table scan that caused statement_timeout on Supabase free tier.
 
 CREATE OR REPLACE FUNCTION get_competitor_leaderboard_rpc(
   p_start_day      DATE,
@@ -211,41 +222,46 @@ RETURNS TABLE(
 ) LANGUAGE sql STABLE SECURITY DEFINER
 SET statement_timeout = '30000'
 AS $$
-  WITH cur_ids AS MATERIALIZED (
-    SELECT id FROM responses
-    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+  WITH filtered AS MATERIALIZED (
+    SELECT id,
+      (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
+      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev
+    FROM responses
+    WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
+                      AND GREATEST(p_end_day, p_prev_end_day)
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+      AND (run_day BETWEEN p_start_day AND p_end_day
+           OR run_day BETWEEN p_prev_start_day AND p_prev_end_day)
   ),
-  prev_ids AS MATERIALIZED (
-    SELECT id FROM responses
-    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+  totals AS (
+    SELECT
+      COUNT(*) FILTER (WHERE is_cur)  AS cur_n,
+      COUNT(*) FILTER (WHERE is_prev) AS prev_n
+    FROM filtered
   ),
-  cur_total  AS (SELECT COUNT(*) AS n FROM cur_ids),
-  prev_total AS (SELECT COUNT(*) AS n FROM prev_ids),
-  cur_counts AS (
-    SELECT rc.competitor_name, COUNT(rc.response_id) AS cnt
-    FROM response_competitors rc
-    WHERE rc.response_id IN (SELECT id FROM cur_ids)
-    GROUP BY rc.competitor_name
-  ),
-  prev_counts AS (
-    SELECT rc.competitor_name, COUNT(rc.response_id) AS cnt
-    FROM response_competitors rc
-    WHERE rc.response_id IN (SELECT id FROM prev_ids)
+  comp_counts AS (
+    SELECT rc.competitor_name,
+      COUNT(*) FILTER (WHERE f.is_cur)  AS cur_cnt,
+      COUNT(*) FILTER (WHERE f.is_prev) AS prev_cnt
+    FROM filtered f
+    JOIN response_competitors rc ON rc.response_id = f.id
     GROUP BY rc.competitor_name
   )
   SELECT
     c.competitor_name,
-    c.cnt                                                               AS mention_count,
-    CASE WHEN t.n > 0 THEN c.cnt::float / t.n * 100 ELSE 0 END        AS visibility_score,
-    CASE WHEN pt.n > 0 AND p.cnt IS NOT NULL
-      THEN c.cnt::float / t.n * 100 - p.cnt::float / pt.n * 100
-      ELSE NULL END                                                     AS delta
-  FROM cur_counts c
-  CROSS JOIN cur_total t
-  LEFT JOIN prev_counts p USING (competitor_name)
-  CROSS JOIN prev_total pt
+    c.cur_cnt                                                                   AS mention_count,
+    CASE WHEN t.cur_n > 0 THEN c.cur_cnt::float / t.cur_n * 100 ELSE 0 END     AS visibility_score,
+    CASE WHEN t.cur_n > 0 AND t.prev_n > 0 AND c.prev_cnt > 0
+      THEN c.cur_cnt::float / t.cur_n * 100 - c.prev_cnt::float / t.prev_n * 100
+      ELSE NULL END                                                               AS delta
+  FROM comp_counts c
+  CROSS JOIN totals t
+  WHERE c.cur_cnt > 0
   ORDER BY visibility_score DESC
   LIMIT 20
 $$;
@@ -321,7 +337,9 @@ GRANT EXECUTE ON FUNCTION get_competitor_visibility_timeseries_rpc(DATE,DATE,TEX
   TO anon, authenticated;
 
 
--- ── RPC 6: Citation timeseries (MATERIALIZED CTE + bool_or + timeout) ────────
+-- ── RPC 6: Citation timeseries (inline filters for index usage) ──────────────
+-- Optimized: inline WHERE conditions instead of passes_filters() call so
+-- PostgreSQL can use idx_responses_run_day_prompt_type composite index.
 
 CREATE OR REPLACE FUNCTION get_citation_timeseries_rpc(
   p_start_day      DATE,
@@ -337,24 +355,32 @@ SET statement_timeout = '30000'
 AS $$
   WITH filtered_ids AS MATERIALIZED (
     SELECT id, run_day FROM responses
-    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+    WHERE run_day BETWEEN p_start_day AND p_end_day
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
   ),
   per_response AS (
-    SELECT f.run_day, cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
-    FROM citation_domains cd
-    JOIN filtered_ids f ON f.id = cd.response_id
-    GROUP BY f.run_day, cd.response_id
+    SELECT f.run_day, f.id,
+      bool_or(cd.domain ILIKE '%clay%') AS has_clay
+    FROM filtered_ids f
+    JOIN citation_domains cd ON cd.response_id = f.id
+    GROUP BY f.run_day, f.id
   ),
   by_day AS (
     SELECT run_day,
       COUNT(*) FILTER (WHERE has_clay) AS clay_cited,
-      COUNT(*) AS any_cited
-    FROM per_response GROUP BY run_day
+      COUNT(*)                          AS any_cited
+    FROM per_response
+    GROUP BY run_day
   )
   SELECT run_day AS date,
     CASE WHEN any_cited > 0 THEN clay_cited::float / any_cited * 100 ELSE 0 END AS value
-  FROM by_day ORDER BY run_day
+  FROM by_day
+  ORDER BY run_day
 $$;
 
 GRANT EXECUTE ON FUNCTION get_citation_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
