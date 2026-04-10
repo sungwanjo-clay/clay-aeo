@@ -422,7 +422,7 @@ export async function getMentionBreakdown(
   const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(
       `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
-    ).ilike(column, 'yes'),  // filter at DB level — only rows where the column = 'yes'
+    ).eq(column, 'Yes'),  // DB stores 'Yes'/'No' (capitalized)
     f
   ))
   const data = allData
