@@ -217,25 +217,20 @@ export async function getVisibilityByPMM(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, pmm_use_case, clay_mentioned'), f)
-  if (!data.length) return []
-
-  const map = new Map<string, { total: number; mentioned: number }>()
-  for (const row of data) {
-    if (!row.pmm_use_case) continue
-    const date = (row.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    const key = `${date}|||${row.pmm_use_case}`
-    const cur = map.get(key) ?? { total: 0, mentioned: 0 }
-    cur.total++
-    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
-    map.set(key, cur)
-  }
-
-  return Array.from(map.entries()).map(([key, { total, mentioned }]) => {
-    const [date, pmm_use_case] = key.split('|||')
-    return { date, pmm_use_case, value: total > 0 ? (mentioned / total) * 100 : 0 }
-  }).sort((a, b) => a.date.localeCompare(b.date))
+  const { data, error } = await sb.rpc('get_visibility_by_pmm_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getVisibilityByPMM] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    date:         String(r.date),
+    pmm_use_case: r.pmm_use_case,
+    value:        r.value ?? 0,
+  }))
 }
 
 export async function getPMMTable(
@@ -263,65 +258,41 @@ export async function getVisibilityByTopic(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TimeseriesRow[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, topic, clay_mentioned'), f)
-  if (!data) return []
-
-  const map = new Map<string, { total: number; mentioned: number }>()
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    const key = `${date}|||${row.topic ?? 'Unknown'}`
-    const cur = map.get(key) ?? { total: 0, mentioned: 0 }
-    cur.total++
-    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
-    map.set(key, cur)
-  }
-
-  return Array.from(map.entries()).map(([key, { total, mentioned }]) => {
-    const [date, topic] = key.split('|||')
-    return { date, topic, value: total > 0 ? (mentioned / total) * 100 : 0 }
-  }).sort((a, b) => a.date.localeCompare(b.date))
+  const { data, error } = await sb.rpc('get_visibility_by_topic_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getVisibilityByTopic] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    date:  String(r.date),
+    topic: r.topic,
+    value: r.value ?? 0,
+  }))
 }
 
 export async function getShareOfVoice(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  const responses = await fetchFiltered(sb.from('responses').select('id'), f)
-  if (!responses?.length) return []
-  const validIds = responses.map((r: any) => String(r.id))
-
-  // Fetch response_competitors via IN() batches — avoids run_date type mismatch
-  // BATCH capped at 100: response_competitors has ~8 rows per response, so 100×8=800 rows/request
-  // safely under Supabase's hard 1000-row cap. 500 would silently truncate ~75% of data.
-  const BATCH = 100
-  const rc = (await Promise.all(
-    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
-      sb.from('response_competitors')
-        .select('competitor_name, response_id')
-        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
-        .then(({ data }) => data ?? [])
-    )
-  )).flat() as any[]
-
-  if (!rc.length) return []
-
-  const counts = new Map<string, number>()
-  let total = 0
-  for (const row of rc) {
-    const name = row.competitor_name ?? ''
-    if (!name) continue
-    counts.set(name, (counts.get(name) ?? 0) + 1)
-    total++
-  }
-
-  return Array.from(counts.entries())
-    .map(([competitor_name, mention_count]) => ({
-      competitor_name,
-      mention_count,
-      sov_pct: total > 0 ? (mention_count / total) * 100 : 0,
-    }))
-    .sort((a, b) => b.mention_count - a.mention_count)
+  // Single RPC call replaces paginated responses + hundreds of batched response_competitors requests.
+  const { data, error } = await sb.rpc('get_share_of_voice_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getShareOfVoice] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    competitor_name: r.competitor_name,
+    mention_count:   r.mention_count,
+    sov_pct:         r.sov_pct ?? 0,
+  }))
 }
 
 export async function getMentionShare(
@@ -369,55 +340,43 @@ export async function getClaygentTimeseriesByPlatform(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; platform: string; count: number }[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, platform, claygent_or_mcp_mentioned'), f)
-  if (!data) return []
-
-  const map = new Map<string, number>()
-  const allDates = new Set<string>()
-  const allPlatforms = new Set<string>()
-
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
-    const platform = row.platform ?? 'Unknown'
-    if (!date) continue
-    allDates.add(date)
-    allPlatforms.add(platform)
-    if ((row.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes') {
-      const key = `${date}|||${platform}`
-      map.set(key, (map.get(key) ?? 0) + 1)
-    }
-  }
-
-  const results: { date: string; platform: string; count: number }[] = []
+  const { data, error } = await sb.rpc('get_claygent_platform_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getClaygentTimeseriesByPlatform] RPC error:', error)
+  // RPC returns only rows with data; fill zeros for all date×platform combos
+  const rows = (data ?? []) as { date: string; platform: string; count: number }[]
+  const allDates    = [...new Set(rows.map(r => String(r.date)))]
+  const allPlatforms = [...new Set(rows.map(r => r.platform))]
+  const lookup = new Map(rows.map(r => [`${String(r.date)}|||${r.platform}`, r.count]))
+  const result: { date: string; platform: string; count: number }[] = []
   for (const date of allDates) {
     for (const platform of allPlatforms) {
-      results.push({ date, platform, count: map.get(`${date}|||${platform}`) ?? 0 })
+      result.push({ date, platform, count: lookup.get(`${date}|||${platform}`) ?? 0 })
     }
   }
-  return results.sort((a, b) => a.date.localeCompare(b.date))
+  return result.sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export async function getClaygentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; count: number }[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, claygent_or_mcp_mentioned'), f)
-  if (!data) return []
-
-  const map = new Map<string, number>()
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    if ((row.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes') {
-      map.set(date, (map.get(date) ?? 0) + 1)
-    }
-  }
-
-  // Ensure dates with zero mentions still appear
-  const allDates = [...new Set(data.map(r => (r.run_date ?? '').substring(0, 10)).filter(Boolean))]
-  return allDates
-    .map(date => ({ date, count: map.get(date) ?? 0 }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const { data, error } = await sb.rpc('get_claygent_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getClaygentTimeseries] RPC error:', error)
+  return (data ?? []).map((r: any) => ({ date: String(r.date), count: r.count ?? 0 }))
 }
 
 export interface MentionResponseRow {

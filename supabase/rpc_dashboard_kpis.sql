@@ -669,3 +669,523 @@ $$;
 
 GRANT EXECUTE ON FUNCTION get_pmm_table_rpc(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
   TO anon, authenticated;
+
+
+-- ── Shared filter macro (inline in every RPC below) ──────────────────────────
+-- WHERE run_day BETWEEN p_start_day AND p_end_day
+--   AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+--   AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+--   AND (p_branded_filter = 'all'
+--        OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+--        OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+--   AND (p_tags = 'all' OR tags = p_tags)
+
+
+-- ── RPC 10: Visibility by topic timeseries ───────────────────────────────────
+-- Replaces getVisibilityByTopic() paginated fetch.
+
+CREATE OR REPLACE FUNCTION get_visibility_by_topic_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(date DATE, topic TEXT, value FLOAT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  SELECT
+    run_day AS date,
+    COALESCE(topic, 'Unknown') AS topic,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')::float
+      / NULLIF(COUNT(*), 0) * 100 AS value
+  FROM responses
+  WHERE run_day BETWEEN p_start_day AND p_end_day
+    AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+    AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    AND (p_branded_filter = 'all'
+         OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+         OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+    AND (p_tags = 'all' OR tags = p_tags)
+  GROUP BY run_day, topic
+  ORDER BY run_day, topic
+$$;
+
+GRANT EXECUTE ON FUNCTION get_visibility_by_topic_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 11: Visibility by PMM use-case timeseries ────────────────────────────
+-- Replaces getVisibilityByPMM() paginated fetch.
+
+CREATE OR REPLACE FUNCTION get_visibility_by_pmm_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(date DATE, pmm_use_case TEXT, value FLOAT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  SELECT
+    run_day AS date,
+    pmm_use_case,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')::float
+      / NULLIF(COUNT(*), 0) * 100 AS value
+  FROM responses
+  WHERE run_day BETWEEN p_start_day AND p_end_day
+    AND pmm_use_case IS NOT NULL
+    AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+    AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    AND (p_branded_filter = 'all'
+         OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+         OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+    AND (p_tags = 'all' OR tags = p_tags)
+  GROUP BY run_day, pmm_use_case
+  ORDER BY run_day, pmm_use_case
+$$;
+
+GRANT EXECUTE ON FUNCTION get_visibility_by_pmm_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 12: Claygent daily count timeseries ──────────────────────────────────
+-- Replaces getClaygentTimeseries() paginated fetch.
+
+CREATE OR REPLACE FUNCTION get_claygent_timeseries_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(date DATE, count BIGINT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  SELECT
+    run_day AS date,
+    COUNT(*) FILTER (WHERE claygent_or_mcp_mentioned ILIKE 'yes') AS count
+  FROM responses
+  WHERE run_day BETWEEN p_start_day AND p_end_day
+    AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+    AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    AND (p_branded_filter = 'all'
+         OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+         OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+    AND (p_tags = 'all' OR tags = p_tags)
+  GROUP BY run_day
+  ORDER BY run_day
+$$;
+
+GRANT EXECUTE ON FUNCTION get_claygent_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 13: Claygent count timeseries by platform ────────────────────────────
+-- Replaces getClaygentTimeseriesByPlatform() paginated fetch.
+
+CREATE OR REPLACE FUNCTION get_claygent_platform_timeseries_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(date DATE, platform TEXT, count BIGINT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  SELECT
+    run_day AS date,
+    platform,
+    COUNT(*) FILTER (WHERE claygent_or_mcp_mentioned ILIKE 'yes') AS count
+  FROM responses
+  WHERE run_day BETWEEN p_start_day AND p_end_day
+    AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+    AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    AND (p_branded_filter = 'all'
+         OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+         OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+    AND (p_tags = 'all' OR tags = p_tags)
+  GROUP BY run_day, platform
+  ORDER BY run_day, platform
+$$;
+
+GRANT EXECUTE ON FUNCTION get_claygent_platform_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 14: Share of voice (competitor mention share) ────────────────────────
+-- Replaces getShareOfVoice() which did paginated responses + batched response_competitors.
+-- sov_pct = competitor's mention rows / total mention rows across all competitors.
+-- LIMIT 50: prevents PostgREST 1000-row cap; chart shows top 10-20 anyway.
+
+CREATE OR REPLACE FUNCTION get_share_of_voice_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(competitor_name TEXT, mention_count BIGINT, sov_pct FLOAT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH filtered AS MATERIALIZED (
+    SELECT id FROM responses
+    WHERE run_day BETWEEN p_start_day AND p_end_day
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+  ),
+  rc_counts AS (
+    SELECT rc.competitor_name, COUNT(*) AS cnt
+    FROM response_competitors rc
+    JOIN filtered f ON f.id = rc.response_id
+    WHERE rc.competitor_name IS NOT NULL
+    GROUP BY rc.competitor_name
+  ),
+  total AS (SELECT SUM(cnt)::float AS n FROM rc_counts)
+  SELECT
+    rc.competitor_name,
+    rc.cnt AS mention_count,
+    CASE WHEN t.n > 0 THEN rc.cnt::float / t.n * 100 ELSE 0 END AS sov_pct
+  FROM rc_counts rc
+  CROSS JOIN total t
+  ORDER BY rc.cnt DESC
+  LIMIT 50
+$$;
+
+GRANT EXECUTE ON FUNCTION get_share_of_voice_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 15: Sentiment breakdown KPI ──────────────────────────────────────────
+-- Replaces getSentimentBreakdown() paginated fetch. Single pass, no child joins.
+
+CREATE OR REPLACE FUNCTION get_sentiment_breakdown_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(
+  total_count      BIGINT,
+  mentioned_count  BIGINT,
+  positive_count   BIGINT,
+  neutral_count    BIGINT,
+  negative_count   BIGINT,
+  avg_score        FLOAT
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  SELECT
+    COUNT(*)                                                                          AS total_count,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')                               AS mentioned_count,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment = 'Positive') AS positive_count,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment = 'Neutral')  AS neutral_count,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment = 'Negative') AS negative_count,
+    AVG(brand_sentiment_score::float)
+      FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment_score IS NOT NULL) AS avg_score
+  FROM responses
+  WHERE run_day BETWEEN p_start_day AND p_end_day
+    AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+    AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    AND (p_branded_filter = 'all'
+         OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+         OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+    AND (p_tags = 'all' OR tags = p_tags)
+$$;
+
+GRANT EXECUTE ON FUNCTION get_sentiment_breakdown_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 16: Sentiment timeseries (daily pos/neu/neg breakdown) ───────────────
+-- Replaces getSentimentTimeseries() paginated fetch.
+
+CREATE OR REPLACE FUNCTION get_sentiment_timeseries_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(date DATE, positive FLOAT, neutral FLOAT, negative FLOAT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  SELECT
+    run_day AS date,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment = 'Positive')::float
+      / NULLIF(COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes'), 0) * 100 AS positive,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment = 'Neutral')::float
+      / NULLIF(COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes'), 0) * 100 AS neutral,
+    COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes' AND brand_sentiment = 'Negative')::float
+      / NULLIF(COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes'), 0) * 100 AS negative
+  FROM responses
+  WHERE run_day BETWEEN p_start_day AND p_end_day
+    AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+    AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    AND (p_branded_filter = 'all'
+         OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+         OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+    AND (p_tags = 'all' OR tags = p_tags)
+  GROUP BY run_day
+  ORDER BY run_day
+$$;
+
+GRANT EXECUTE ON FUNCTION get_sentiment_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 17: Use-case attribution ─────────────────────────────────────────────
+-- Replaces getUseCaseAttribution() paginated fetch.
+-- mode() WITHIN GROUP returns the most frequent value per use-case.
+
+CREATE OR REPLACE FUNCTION get_use_case_attribution_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(
+  use_case     TEXT,
+  count        BIGINT,
+  pct          FLOAT,
+  top_platform TEXT,
+  top_topic    TEXT
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH mentioned AS MATERIALIZED (
+    SELECT primary_use_case_attributed, platform, topic
+    FROM responses
+    WHERE run_day BETWEEN p_start_day AND p_end_day
+      AND clay_mentioned ILIKE 'yes'
+      AND primary_use_case_attributed IS NOT NULL
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+  ),
+  total AS (SELECT COUNT(*)::float AS n FROM mentioned)
+  SELECT
+    primary_use_case_attributed AS use_case,
+    COUNT(*) AS count,
+    CASE WHEN t.n > 0 THEN COUNT(*)::float / t.n * 100 ELSE 0 END AS pct,
+    mode() WITHIN GROUP (ORDER BY platform) AS top_platform,
+    mode() WITHIN GROUP (ORDER BY topic)    AS top_topic
+  FROM mentioned
+  CROSS JOIN total t
+  GROUP BY primary_use_case_attributed, t.n
+  ORDER BY count DESC
+$$;
+
+GRANT EXECUTE ON FUNCTION get_use_case_attribution_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;
+
+
+-- ── RPC 18: Competitor citation timeseries ───────────────────────────────────
+-- Replaces getCompetitorCitationTimeseries() which did paginated responses
+-- + hundreds of batched citation_domains requests.
+-- Returns top p_top_n competitor domains (citation_type='Competition') + clay.com,
+-- per day, as share of cited responses.
+
+CREATE OR REPLACE FUNCTION get_competitor_citation_timeseries_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all',
+  p_top_n          INT     DEFAULT 5
+)
+RETURNS TABLE(date DATE, domain TEXT, value FLOAT)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH filtered AS MATERIALIZED (
+    SELECT id, run_day FROM responses
+    WHERE run_day BETWEEN p_start_day AND p_end_day
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+  ),
+  -- Join citation_domains once; normalise clay.com variants
+  cited AS (
+    SELECT
+      f.run_day,
+      f.id AS response_id,
+      CASE WHEN LOWER(cd.domain) LIKE '%clay.com%' THEN 'clay.com'
+           ELSE LOWER(cd.domain) END AS domain,
+      cd.citation_type
+    FROM citation_domains cd
+    JOIN filtered f ON f.id = cd.response_id
+    WHERE cd.domain IS NOT NULL
+  ),
+  -- Denominator: unique responses with any citation per day
+  daily_totals AS (
+    SELECT run_day, COUNT(DISTINCT response_id) AS total_cited
+    FROM cited
+    GROUP BY run_day
+  ),
+  -- Top N competitor domains by unique citing responses across all days
+  top_competitors AS (
+    SELECT domain
+    FROM cited
+    WHERE citation_type = 'Competition' AND domain NOT LIKE '%clay%'
+    GROUP BY domain
+    ORDER BY COUNT(DISTINCT response_id) DESC
+    LIMIT p_top_n
+  ),
+  -- Relevant domains = top competitors + clay.com
+  relevant AS (
+    SELECT domain FROM top_competitors
+    UNION
+    SELECT 'clay.com'
+  ),
+  -- Per-day per-domain unique citing response count
+  domain_day AS (
+    SELECT run_day, domain, COUNT(DISTINCT response_id) AS cnt
+    FROM cited
+    WHERE domain IN (SELECT domain FROM relevant)
+    GROUP BY run_day, domain
+  )
+  SELECT
+    dd.run_day AS date,
+    dd.domain,
+    CASE WHEN dt.total_cited > 0 THEN dd.cnt::float / dt.total_cited * 100 ELSE 0 END AS value
+  FROM domain_day dd
+  JOIN daily_totals dt USING (run_day)
+  ORDER BY dd.run_day, dd.domain
+$$;
+
+GRANT EXECUTE ON FUNCTION get_competitor_citation_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT,INT)
+  TO anon, authenticated;
+
+
+-- ── RPC 19: Top cited domains with URLs ──────────────────────────────────────
+-- Replaces getTopCitedDomainsWithURLs() which did paginated responses
+-- + hundreds of batched citation_domains requests.
+-- Returns top 20 domains by unique citing responses; top_urls is JSONB [{url,title,count}].
+-- share_pct denominator = unique responses with any citation (matches line chart).
+
+CREATE OR REPLACE FUNCTION get_top_cited_domains_rpc(
+  p_start_day      DATE,
+  p_end_day        DATE,
+  p_prompt_type    TEXT    DEFAULT 'all',
+  p_platforms      TEXT[]  DEFAULT '{}',
+  p_branded_filter TEXT    DEFAULT 'all',
+  p_tags           TEXT    DEFAULT 'all'
+)
+RETURNS TABLE(
+  domain         TEXT,
+  citation_count BIGINT,
+  share_pct      FLOAT,
+  is_clay        BOOLEAN,
+  citation_type  TEXT,
+  top_urls       JSONB
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '30000'
+AS $$
+  WITH filtered AS MATERIALIZED (
+    SELECT id FROM responses
+    WHERE run_day BETWEEN p_start_day AND p_end_day
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
+  ),
+  citations AS (
+    SELECT
+      LOWER(cd.domain)    AS domain,
+      cd.url,
+      cd.title,
+      cd.citation_type,
+      cd.response_id
+    FROM citation_domains cd
+    JOIN filtered f ON f.id = cd.response_id
+    WHERE cd.domain IS NOT NULL
+  ),
+  -- Total unique cited responses (denominator for share_pct)
+  total_cited AS (
+    SELECT COUNT(DISTINCT response_id)::float AS n FROM citations
+  ),
+  -- Per-domain aggregates
+  domain_stats AS (
+    SELECT
+      domain,
+      COUNT(DISTINCT response_id)                AS response_count,
+      BOOL_OR(domain LIKE '%clay.com%')          AS is_clay,
+      MAX(citation_type)                         AS citation_type
+    FROM citations
+    GROUP BY domain
+  ),
+  -- Per-domain per-url counts, ranked
+  url_ranked AS (
+    SELECT
+      domain,
+      url,
+      MAX(title) AS title,
+      COUNT(*)   AS cnt,
+      ROW_NUMBER() OVER (PARTITION BY domain ORDER BY COUNT(*) DESC) AS rn
+    FROM citations
+    WHERE url IS NOT NULL
+    GROUP BY domain, url
+  ),
+  -- Aggregate top 8 URLs per domain into JSONB
+  top_urls AS (
+    SELECT
+      domain,
+      jsonb_agg(
+        jsonb_build_object('url', url, 'title', title, 'count', cnt)
+        ORDER BY cnt DESC
+      ) AS top_urls
+    FROM url_ranked
+    WHERE rn <= 8
+    GROUP BY domain
+  )
+  SELECT
+    ds.domain,
+    ds.response_count                                                              AS citation_count,
+    CASE WHEN tc.n > 0 THEN ds.response_count::float / tc.n * 100 ELSE 0 END     AS share_pct,
+    ds.is_clay,
+    ds.citation_type,
+    COALESCE(tu.top_urls, '[]'::jsonb)                                            AS top_urls
+  FROM domain_stats ds
+  CROSS JOIN total_cited tc
+  LEFT JOIN top_urls tu USING (domain)
+  ORDER BY ds.response_count DESC
+  LIMIT 20
+$$;
+
+GRANT EXECUTE ON FUNCTION get_top_cited_domains_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
+  TO anon, authenticated;

@@ -38,6 +38,17 @@ function applyFilters(query: any, f: FilterParams): any {
   return query
 }
 
+function sentimentRpcParams(f: FilterParams) {
+  return {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  }
+}
+
 export async function getSentimentBreakdown(
   sb: SupabaseClient,
   f: FilterParams
@@ -48,24 +59,18 @@ export async function getSentimentBreakdown(
   notMentioned: number | null
   avgScore: number | null
 }> {
-  const data = await fetchFiltered(sb.from('responses').select('brand_sentiment, brand_sentiment_score, clay_mentioned'), f)
-  if (!data?.length) return { positive: null, neutral: null, negative: null, notMentioned: null, avgScore: null }
-
-  const mentioned = data.filter(r => r.clay_mentioned === 'Yes')
-  if (!mentioned.length) return { positive: null, neutral: null, negative: null, notMentioned: null, avgScore: null }
-
-  const pos = mentioned.filter(r => r.brand_sentiment === 'Positive').length
-  const neu = mentioned.filter(r => r.brand_sentiment === 'Neutral').length
-  const neg = mentioned.filter(r => r.brand_sentiment === 'Negative').length
-  const scores = mentioned.map(r => r.brand_sentiment_score).filter((s): s is number => s != null)
-  const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null
-
+  const { data, error } = await sb.rpc('get_sentiment_breakdown_rpc', sentimentRpcParams(f))
+  if (error) console.error('[getSentimentBreakdown] RPC error:', error)
+  const r = !error && data?.[0] ? data[0] : null
+  if (!r || !r.mentioned_count) return { positive: null, neutral: null, negative: null, notMentioned: null, avgScore: null }
+  const m = Number(r.mentioned_count)
+  const t = Number(r.total_count)
   return {
-    positive: (pos / mentioned.length) * 100,
-    neutral: (neu / mentioned.length) * 100,
-    negative: (neg / mentioned.length) * 100,
-    notMentioned: ((data.length - mentioned.length) / data.length) * 100,
-    avgScore,
+    positive:     m > 0 ? (Number(r.positive_count) / m) * 100 : null,
+    neutral:      m > 0 ? (Number(r.neutral_count)  / m) * 100 : null,
+    negative:     m > 0 ? (Number(r.negative_count) / m) * 100 : null,
+    notMentioned: t > 0 ? ((t - m) / t) * 100 : null,
+    avgScore:     r.avg_score ?? null,
   }
 }
 
@@ -73,29 +78,14 @@ export async function getSentimentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; positive: number; neutral: number; negative: number }[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, brand_sentiment, clay_mentioned'), f)
-  if (!data.length) return []
-
-  const map = new Map<string, { pos: number; neu: number; neg: number; total: number }>()
-  for (const row of data) {
-    if (row.clay_mentioned !== 'Yes') continue
-    const date = row.run_date?.split('T')[0] ?? ''
-    const cur = map.get(date) ?? { pos: 0, neu: 0, neg: 0, total: 0 }
-    cur.total++
-    if (row.brand_sentiment === 'Positive') cur.pos++
-    else if (row.brand_sentiment === 'Neutral') cur.neu++
-    else if (row.brand_sentiment === 'Negative') cur.neg++
-    map.set(date, cur)
-  }
-
-  return Array.from(map.entries())
-    .map(([date, { pos, neu, neg, total }]) => ({
-      date,
-      positive: total > 0 ? (pos / total) * 100 : 0,
-      neutral: total > 0 ? (neu / total) * 100 : 0,
-      negative: total > 0 ? (neg / total) * 100 : 0,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const { data, error } = await sb.rpc('get_sentiment_timeseries_rpc', sentimentRpcParams(f))
+  if (error) console.error('[getSentimentTimeseries] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    date:     String(r.date),
+    positive: r.positive ?? 0,
+    neutral:  r.neutral  ?? 0,
+    negative: r.negative ?? 0,
+  }))
 }
 
 export async function getThemes(
@@ -128,31 +118,15 @@ export async function getUseCaseAttribution(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ use_case: string; count: number; pct: number; top_platform: string; top_topic: string }[]> {
-  const data = await fetchFiltered(sb.from('responses').select('primary_use_case_attributed, platform, topic, clay_mentioned'), f)
-  if (!data.length) return []
-
-  const mentioned = data.filter(r => r.clay_mentioned === 'Yes' && r.primary_use_case_attributed)
-  const map = new Map<string, { count: number; platforms: Map<string, number>; topics: Map<string, number> }>()
-  for (const row of mentioned) {
-    const uc = row.primary_use_case_attributed!
-    const cur = map.get(uc) ?? { count: 0, platforms: new Map(), topics: new Map() }
-    cur.count++
-    cur.platforms.set(row.platform, (cur.platforms.get(row.platform) ?? 0) + 1)
-    if (row.topic) cur.topics.set(row.topic, (cur.topics.get(row.topic) ?? 0) + 1)
-    map.set(uc, cur)
-  }
-
-  return Array.from(map.entries()).map(([use_case, { count, platforms, topics }]) => {
-    const top_platform = [...platforms.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
-    const top_topic = [...topics.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
-    return {
-      use_case,
-      count,
-      pct: mentioned.length > 0 ? (count / mentioned.length) * 100 : 0,
-      top_platform,
-      top_topic,
-    }
-  }).sort((a, b) => b.count - a.count)
+  const { data, error } = await sb.rpc('get_use_case_attribution_rpc', sentimentRpcParams(f))
+  if (error) console.error('[getUseCaseAttribution] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    use_case:     r.use_case,
+    count:        r.count    ?? 0,
+    pct:          r.pct      ?? 0,
+    top_platform: r.top_platform ?? '—',
+    top_topic:    r.top_topic    ?? '—',
+  }))
 }
 
 export async function getPositioningSnippets(

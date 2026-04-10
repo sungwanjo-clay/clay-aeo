@@ -226,83 +226,22 @@ export async function getCompetitorCitationTimeseries(
   f: FilterParams,
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
-  // Step 1: Get filtered response IDs (applies all filters: topic, branded, promptType, platform)
-  const responses = await fetchAllPages(applyResponseFilters(
-    sb.from('responses').select('id, run_date'),
-    f
-  ))
-  if (!responses.length) return []
-
-  // Build a map of response_id -> date for fast lookup
-  const responseIdToDate = new Map<string, string>()
-  for (const r of responses) {
-    const date = (r.run_date ?? '').substring(0, 10)
-    if (r.id && date) responseIdToDate.set(String(r.id), date)
-  }
-
-  // Step 2: Fetch citation_domains via response_id IN() batches — avoids run_date type mismatch
-  // BATCH capped at 100: citation_domains has ~7 rows per response, so 100×7=700 rows/request
-  // safely under Supabase's hard 1000-row cap. 500 would silently truncate ~70% of data.
-  const validIds = [...responseIdToDate.keys()]
-  const BATCH = 100
-  const citations = (await Promise.all(
-    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
-      sb.from('citation_domains')
-        .select('domain, response_id, citation_type')
-        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
-        .then(({ data }) => data ?? [])
-    )
-  )).flat() as any[]
-  if (!citations.length) return []
-
-  // Step 3: Compute per-date unique response counts
-  // Denominator: unique response_ids with any citation entry per date
-  // Numerator: unique response_ids citing each domain per date
-  // For competitor ranking, only count citation_type = 'Competition' rows
-  const citingByDate = new Map<string, Set<string>>()       // date -> Set<response_id>
-  const domainByDate = new Map<string, Set<string>>()       // `${date}|||${domain}` -> Set<response_id>
-  const competitorTotals = new Map<string, number>()         // competitor domain -> total unique responses
-
-  for (const c of citations as any[]) {
-    const rid = String(c.response_id)
-    const date = responseIdToDate.get(rid)
-    if (!date) continue                       // skip responses excluded by topic/branded/promptType filters
-    const d = (c.domain ?? '').toLowerCase()
-    if (!d) continue
-    const isClay = d.includes('clay.com')
-    const key = isClay ? 'clay.com' : d
-
-    if (!citingByDate.has(date)) citingByDate.set(date, new Set())
-    citingByDate.get(date)!.add(rid)
-
-    const dk = `${date}|||${key}`
-    if (!domainByDate.has(dk)) domainByDate.set(dk, new Set())
-    const wasNew = !domainByDate.get(dk)!.has(rid)
-    domainByDate.get(dk)!.add(rid)
-
-    // Only rank non-clay domains that have citation_type = 'Competition'
-    if (wasNew && !isClay && c.citation_type === 'Competition') {
-      competitorTotals.set(key, (competitorTotals.get(key) ?? 0) + 1)
-    }
-  }
-
-  // Top N competitor domains (Competition type only) + always include clay.com
-  const topNonClay = [...competitorTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, topN)
-    .map(([d]) => d)
-  const topDomains = new Set([...topNonClay, 'clay.com'])
-
-  const result: { date: string; domain: string; value: number }[] = []
-  for (const date of [...citingByDate.keys()].sort()) {
-    const total = citingByDate.get(date)!.size
-    if (total === 0) continue
-    for (const domain of topDomains) {
-      const count = domainByDate.get(`${date}|||${domain}`)?.size ?? 0
-      result.push({ date, domain, value: (count / total) * 100 })
-    }
-  }
-  return result
+  // Single RPC call replaces paginated responses + hundreds of batched citation_domains requests.
+  const { data, error } = await sb.rpc('get_competitor_citation_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+    p_top_n:          topN,
+  })
+  if (error) console.error('[getCompetitorCitationTimeseries] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    date:   String(r.date),
+    domain: r.domain,
+    value:  r.value ?? 0,
+  }))
 }
 
 export async function getCitationOverallTimeseries(
@@ -325,65 +264,25 @@ export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
-  // Filter via responses.run_day (not citation_domains.run_date) to avoid timestamp mismatch.
-  // citation_domains.run_date may not align with the filter window, but response_id always does.
-
-  // Step 1: get valid response IDs using run_day filter on responses
-  const validResponses = await fetchAllPages(applyResponseFilters(sb.from('responses').select('id'), f))
-  if (!validResponses.length) return []
-  const validIds = validResponses.map((r: any) => String(r.id))
-
-  // Step 2: fetch citation_domains for those response IDs in parallel batches of 100
-  // citation_domains has ~7 rows per response; 100×7=700 safely under Supabase's 1000-row cap
-  const BATCH = 100
-  const allCitations = (await Promise.all(
-    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
-      sb.from('citation_domains')
-        .select('domain, url, title, citation_type, response_id')
-        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
-        .then(({ data }) => data ?? [])
-    )
-  )).flat() as any[]
-  if (!allCitations.length) return []
-
-  // Step 3: aggregate by domain — count unique response_ids per domain
-  // (matches the line chart denominator: % of responses-with-citations that cite each domain)
-  const domainMap = new Map<string, {
-    responseIds: Set<string>; is_clay: boolean; citation_type: string | null
-    urls: Map<string, { title: string | null; count: number }>
-  }>()
-  const allCitedResponseIds = new Set<string>()
-  for (const row of allCitations) {
-    const d = (row.domain ?? '').toLowerCase()
-    if (!d) continue
-    const rid = String(row.response_id)
-    if (rid) allCitedResponseIds.add(rid)
-    if (!domainMap.has(d)) domainMap.set(d, { responseIds: new Set(), is_clay: d.includes('clay.com'), citation_type: row.citation_type ?? null, urls: new Map() })
-    const entry = domainMap.get(d)!
-    if (rid) entry.responseIds.add(rid)
-    if (row.url) {
-      const u = entry.urls.get(row.url) ?? { title: row.title ?? null, count: 0 }
-      u.count++
-      entry.urls.set(row.url, u)
-    }
-  }
-
-  // Denominator = unique responses with any citation (matches line chart)
-  const total = allCitedResponseIds.size
-  return Array.from(domainMap.entries())
-    .map(([domain, { responseIds, is_clay, citation_type, urls }]) => ({
-      domain,
-      citation_count: responseIds.size,
-      share_pct: total > 0 ? (responseIds.size / total) * 100 : 0,
-      is_clay,
-      citation_type,
-      top_urls: Array.from(urls.entries())
-        .map(([url, { title, count }]) => ({ url, title, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 8),
-    }))
-    .sort((a, b) => b.citation_count - a.citation_count)
-    .slice(0, 20)
+  // Single RPC call replaces paginated responses + hundreds of batched citation_domains requests.
+  // top_urls is returned as JSONB [{url, title, count}] from the RPC.
+  const { data, error } = await sb.rpc('get_top_cited_domains_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getTopCitedDomainsWithURLs] RPC error:', error)
+  return (data ?? []).map((r: any) => ({
+    domain:         r.domain,
+    citation_count: r.citation_count,
+    share_pct:      r.share_pct ?? 0,
+    is_clay:        r.is_clay ?? false,
+    citation_type:  r.citation_type ?? null,
+    top_urls:       Array.isArray(r.top_urls) ? r.top_urls : [],
+  }))
 }
 
 // ── Clay citations grouped by URL type ───────────────────────────────────────
