@@ -41,14 +41,15 @@ CREATE OR REPLACE FUNCTION passes_filters(
   p_start_day            DATE,
   p_end_day              DATE,
   p_prompt_type          TEXT,   -- 'all' or specific value
-  p_platforms            TEXT[], -- empty array = all platforms
+  p_platforms            TEXT[], -- NULL or empty array = all platforms
   p_branded_filter       TEXT,   -- 'all' | 'branded' | 'non-branded'
   p_tags                 TEXT    -- 'all' or specific tag
 ) RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
   SELECT
     r_run_day BETWEEN p_start_day AND p_end_day
     AND (p_prompt_type = 'all'  OR r_prompt_type ILIKE p_prompt_type)
-    AND (array_length(p_platforms, 1) IS NULL OR r_platform = ANY(p_platforms))
+    -- NULL or empty array means "all platforms"
+    AND (p_platforms IS NULL OR array_length(p_platforms, 1) IS NULL OR r_platform = ANY(p_platforms))
     AND (
       p_branded_filter = 'all'
       OR (p_branded_filter = 'branded'     AND r_branded_or_non_branded ILIKE 'branded')

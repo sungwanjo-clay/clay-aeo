@@ -61,7 +61,8 @@ function visRpcParams(f: FilterParams) {
     p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
     p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
     p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      f.platforms     ?? [],
+    // Send null (not []) when no platforms selected — PostgREST serializes [] ambiguously
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
   }
@@ -111,7 +112,7 @@ export async function getClayOverallTimeseries(
     p_start_day:      f.startDate.split('T')[0],
     p_end_day:        f.endDate.split('T')[0],
     p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      f.platforms     ?? [],
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
   })
@@ -185,7 +186,7 @@ export async function getCompetitorVisibilityTimeseries(
     p_start_day:      f.startDate.split('T')[0],
     p_end_day:        f.endDate.split('T')[0],
     p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      f.platforms     ?? [],
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
   })
