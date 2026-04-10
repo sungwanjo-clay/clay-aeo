@@ -259,9 +259,27 @@ function PromptBlock({ p, colSpan }: { p: PMMPromptDrillRow; colSpan: number }) 
 
 const PROMPT_LIMIT = 10
 
+// ── Roll-up helper: correct numerator/denominator aggregation ───────────────
+function computeRollup(rows: PMMRow[]) {
+  const totalResponses = rows.reduce((s, r) => s + r.total_responses, 0)
+  // Reconstruct exact counts from percentage × total (avoids average-of-averages)
+  const totalMentioned  = rows.reduce((s, r) => s + Math.round(r.visibility_score / 100 * r.total_responses), 0)
+  const totalCited      = rows.reduce((s, r) => s + Math.round((r.citation_share ?? 0) / 100 * r.total_responses), 0)
+  const posRows = rows.filter(r => r.avg_position != null)
+  const avgPos  = posRows.length > 0 ? posRows.reduce((s, r) => s + r.avg_position!, 0) / posRows.length : null
+  return {
+    visibility_score: totalResponses > 0 ? totalMentioned / totalResponses * 100 : 0,
+    citation_share:   totalResponses > 0 ? totalCited / totalResponses * 100 : null,
+    avg_position:     avgPos,
+    total_responses:  totalResponses,
+  }
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function PMMTopicsSection({ series, table, compareEnabled, onDrilldown }: Props) {
-  // drillKey = "pmm_use_case|||pmm_classification" to uniquely identify a classification row
+  // Level 1: which pmm_classification is expanded (Clay for Marketing, etc.)
+  const [expandedClassification, setExpandedClassification] = useState<string | null>(null)
+  // Level 2: which pmm_use_case within a classification is drilled into (PLG Assist, etc.)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [drillRows, setDrillRows] = useState<Record<string, PMMPromptDrillRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
@@ -271,6 +289,11 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
 
   function drillKey(useCase: string, classification: string | null) {
     return `${useCase}|||${classification ?? ''}`
+  }
+
+  function toggleClassification(classification: string) {
+    setExpandedClassification(prev => prev === classification ? null : classification)
+    setExpandedKey(null) // collapse any open drilldown when switching
   }
 
   async function toggleDrill(useCase: string, classification: string | null) {
@@ -285,19 +308,17 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
     }
   }
 
-  // Group table rows by pmm_classification (e.g. "Clay for Marketing") — sorted by max visibility desc
-  // Within each classification, rows are pmm_use_case (e.g. "PLG Assist", "CRM Enrichment")
+  // Group by pmm_classification (header); rows within are pmm_use_case (solutions)
   const grouped: Record<string, PMMRow[]> = {}
   for (const row of table) {
     const key = row.pmm_classification ?? '(no classification)'
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(row)
   }
-  const useCases = Object.keys(grouped).sort((a, b) => {
-    const aMax = Math.max(...grouped[a].map(r => r.visibility_score))
-    const bMax = Math.max(...grouped[b].map(r => r.visibility_score))
-    return bMax - aMax
-  })
+  // Sort top-level classifications by rolled-up visibility descending
+  const useCases = Object.keys(grouped).sort((a, b) =>
+    computeRollup(grouped[b]).visibility_score - computeRollup(grouped[a]).visibility_score
+  )
 
   const colSpan = compareEnabled ? 7 : 6
 
@@ -344,7 +365,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
       <div className="p-5" style={cardStyle}>
         <h2 style={labelStyle} className="mb-1">PMM Breakdown</h2>
         <p className="text-[11px] font-semibold mb-4" style={{ color: 'rgba(26,25,21,0.4)' }}>
-          Click a solution row to expand prompts → click a prompt to see responses with snippets
+          Click a use case to expand solutions → click a solution to see individual prompts &amp; responses
         </p>
         {table.length === 0 ? (
           <p className="py-6 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM data</p>
@@ -352,7 +373,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--clay-border-dashed)' }}>
-                <th className="pb-2 text-left" style={labelStyle}>PMM Solution</th>
+                <th className="pb-2 text-left" style={labelStyle}>PMM Use Case</th>
                 <th className="pb-2 text-right" style={labelStyle}>Visibility</th>
                 {compareEnabled && <th className="pb-2 text-right" style={labelStyle}>vs Prev</th>}
                 <th className="pb-2 text-right" style={labelStyle}>Citation Share</th>
@@ -362,41 +383,67 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
               </tr>
             </thead>
             <tbody>
-              {useCases.map(useCase => {
-                const rows = grouped[useCase]
+              {useCases.map(classification => {
+                const rows = grouped[classification]
+                const rollup = computeRollup(rows)
+                const classExpanded = expandedClassification === classification
+                // Solutions sorted by visibility descending within each use case
+                const sortedRows = [...rows].sort((a, b) => b.visibility_score - a.visibility_score)
+
                 return (
-                  <React.Fragment key={useCase}>
-                    {/* Use case group header */}
-                    <tr style={{ background: 'rgba(26,25,21,0.03)', borderTop: '1px solid rgba(26,25,21,0.08)' }}>
-                      <td colSpan={colSpan} className="px-3 py-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.55)' }}>
-                          {useCase}
-                        </span>
+                  <React.Fragment key={classification}>
+                    {/* ── Level 1: Use case row (collapsed by default, shows rollup metrics) ── */}
+                    <tr
+                      onClick={() => toggleClassification(classification)}
+                      className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+                      style={{ borderBottom: classExpanded ? 'none' : '1px solid rgba(26,25,21,0.06)', borderTop: '1px solid rgba(26,25,21,0.06)' }}
+                    >
+                      <td className="py-3 text-[13px] font-bold" style={{ color: 'var(--clay-black)' }}>
+                        <div className="flex items-center gap-2">
+                          {classExpanded
+                            ? <ChevronDown size={13} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />
+                            : <ChevronRight size={13} style={{ color: 'rgba(26,25,21,0.4)', flexShrink: 0 }} />}
+                          {classification}
+                        </div>
                       </td>
+                      <td className="py-3 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                        {rollup.visibility_score.toFixed(1)}%
+                      </td>
+                      {compareEnabled && <td />}
+                      <td className="py-3 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                        {rollup.citation_share != null ? `${rollup.citation_share.toFixed(1)}%` : '—'}
+                      </td>
+                      <td className="py-3 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                        {rollup.avg_position != null ? `#${rollup.avg_position.toFixed(1)}` : '—'}
+                      </td>
+                      <td className="py-3 text-right text-[12px] font-semibold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
+                        {rollup.total_responses.toLocaleString()}
+                      </td>
+                      <td />
                     </tr>
 
-                    {/* Classification rows under this use case */}
-                    {rows.map(row => {
+                    {/* ── Level 2: Solution rows (visible when use case expanded, sorted by visibility desc) ── */}
+                    {classExpanded && sortedRows.map(row => {
                       const isUp = row.delta != null ? row.delta > 0 : null
                       const key = drillKey(row.pmm_use_case, row.pmm_classification)
-                      const expanded = expandedKey === key
+                      const drillExpanded = expandedKey === key
                       const drill = drillRows[key]
                       return (
                         <React.Fragment key={key}>
                           <tr
                             onClick={() => toggleDrill(row.pmm_use_case, row.pmm_classification)}
                             className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
-                            style={{ borderBottom: expanded ? 'none' : '1px solid rgba(26,25,21,0.04)' }}
+                            style={{ borderBottom: drillExpanded ? 'none' : '1px solid rgba(26,25,21,0.04)', background: 'rgba(26,25,21,0.01)' }}
                           >
-                            <td className="py-2.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)', paddingLeft: '16px' }}>
+                            <td className="py-2.5 text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.75)', paddingLeft: '28px' }}>
                               <div className="flex items-center gap-2">
-                                {expanded
-                                  ? <ChevronDown size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
-                                  : <ChevronRight size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />}
+                                {drillExpanded
+                                  ? <ChevronDown size={11} style={{ color: 'rgba(26,25,21,0.3)', flexShrink: 0 }} />
+                                  : <ChevronRight size={11} style={{ color: 'rgba(26,25,21,0.3)', flexShrink: 0 }} />}
                                 {row.pmm_use_case}
                               </div>
                             </td>
-                            <td className="py-2.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                            <td className="py-2.5 text-right text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
                               {row.visibility_score.toFixed(1)}%
                             </td>
                             {compareEnabled && (
@@ -410,22 +457,22 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                                 ) : <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px' }}>—</span>}
                               </td>
                             )}
-                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
                               {row.citation_share != null ? `${row.citation_share.toFixed(1)}%` : '—'}
                             </td>
-                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.45)' }}>
                               {row.avg_position != null ? `#${row.avg_position.toFixed(1)}` : '—'}
                             </td>
-                            <td className="py-2.5 text-right text-[12px] font-semibold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
+                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.4)' }}>
                               {row.total_responses.toLocaleString()}
                             </td>
                             <td />
                           </tr>
 
-                          {/* Drill-down: prompt list */}
-                          {expanded && (
+                          {/* ── Level 3: Prompt drilldown ── */}
+                          {drillExpanded && (
                             <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                              <td colSpan={colSpan} style={{ paddingBottom: '10px', paddingLeft: '16px', paddingRight: '4px' }}>
+                              <td colSpan={colSpan} style={{ paddingBottom: '10px', paddingLeft: '28px', paddingRight: '4px' }}>
                                 {loadingDrill === key ? (
                                   <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading prompts…</p>
                                 ) : !drill || drill.length === 0 ? (
@@ -442,7 +489,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
                                       ))}
                                     </div>
                                     {(() => {
-                                      const sorted = [...drill].sort((a, b) => b.response_count - a.response_count)
+                                      const sorted = [...drill].sort((a, b) => b.visibility_pct - a.visibility_pct)
                                       const showAll = showAllPrompts[key]
                                       const visible = showAll ? sorted : sorted.slice(0, PROMPT_LIMIT)
                                       return (
