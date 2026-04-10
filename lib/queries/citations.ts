@@ -45,35 +45,24 @@ export async function getCitationShare(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  const calc = async (startDate: string, endDate: string): Promise<number | null> => {
-    const ff = { ...f, startDate, endDate }
-    const validResponses = await fetchAllPages(applyResponseFilters(sb.from('responses').select('id'), ff))
-    if (!validResponses.length) return null
-    const validIds = validResponses.map((r: any) => String(r.id))
-    const BATCH = 500
-    const results = await Promise.all(
-      Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
-        sb.from('citation_domains').select('response_id, domain')
-          .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
-          .then(({ data }) => data ?? [])
-      )
-    )
-    const allCitations = results.flat() as any[]
-    if (!allCitations.length) return null
-    const distinctAny = new Set(allCitations.map((c: any) => String(c.response_id))).size
-    const distinctClay = new Set(
-      allCitations
-        .filter((c: any) => (c.domain ?? '').toLowerCase().includes('clay'))
-        .map((c: any) => String(c.response_id))
-    ).size
-    return distinctAny > 0 ? (distinctClay / distinctAny) * 100 : null
+  const { data, error } = await sb.rpc('get_citation_share_kpi', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
+    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      f.platforms     ?? [],
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error || !data) {
+    console.error('[getCitationShare] RPC error:', error)
+    return { current: null, previous: null }
   }
-
-  const [current, previous] = await Promise.all([
-    calc(f.startDate, f.endDate),
-    f.prevStartDate && f.prevEndDate ? calc(f.prevStartDate, f.prevEndDate) : Promise.resolve(null),
-  ])
-  return { current, previous }
+  return {
+    current:  data.current  ?? null,
+    previous: data.previous ?? null,
+  }
 }
 
 export async function getCitationDomains(
@@ -320,47 +309,19 @@ export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  // Step 1: get valid response IDs + run_date using run_day filter (reliable)
-  const responses = await fetchAllPages(applyResponseFilters(sb.from('responses').select('id, run_date'), f))
-  if (!responses.length) return []
-
-  const responseIdToDate = new Map<string, string>()
-  for (const r of responses) {
-    const date = (r.run_date ?? '').substring(0, 10)
-    if (date) responseIdToDate.set(String(r.id), date)
+  const { data, error } = await sb.rpc('get_citation_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      f.platforms     ?? [],
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error || !data) {
+    console.error('[getCitationOverallTimeseries] RPC error:', error)
+    return []
   }
-  const validIds = [...responseIdToDate.keys()]
-
-  // Step 2: fetch citation_domains for those response_ids in parallel batches
-  const BATCH = 500
-  const allCitations = (await Promise.all(
-    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
-      sb.from('citation_domains').select('response_id, domain')
-        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
-        .then(({ data }) => data ?? [])
-    )
-  )).flat() as any[]
-
-  if (!allCitations.length) return []
-
-  // Step 3: group by date — clay share = clay-cited responses / responses-with-any-citation
-  const byDate = new Map<string, { clayCited: Set<string>; total: Set<string> }>()
-  for (const c of allCitations) {
-    const rid = String(c.response_id)
-    const date = responseIdToDate.get(rid)
-    if (!date) continue
-    if (!byDate.has(date)) byDate.set(date, { clayCited: new Set(), total: new Set() })
-    const entry = byDate.get(date)!
-    entry.total.add(rid)
-    if ((c.domain ?? '').toLowerCase().includes('clay')) entry.clayCited.add(rid)
-  }
-
-  return Array.from(byDate.entries())
-    .map(([date, { clayCited, total }]) => ({
-      date,
-      value: total.size > 0 ? (clayCited.size / total.size) * 100 : 0,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  return (data as any[]).map(r => ({ date: String(r.date), value: r.value ?? 0 }))
 }
 
 export async function getTopCitedDomainsWithURLs(

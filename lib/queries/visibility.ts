@@ -53,59 +53,54 @@ async function countResponses(sb: SupabaseClient, f: FilterParams, extraFilter?:
   return data.length
 }
 
+/** Shared helper: build the params object for visibility RPCs */
+function visRpcParams(f: FilterParams, extra?: Record<string, unknown>) {
+  return {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
+    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      f.platforms     ?? [],
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+    ...extra,
+  }
+}
+
 export async function getVisibilityScore(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null; total: number }> {
-  // Use JS-side filtering for clay_mentioned to avoid DB-level eq() interaction with fetchAllPages
-  const calcScore = async (startDate: string, endDate: string): Promise<{ mentioned: number; total: number }> => {
-    if (!startDate || !endDate) return { mentioned: 0, total: 0 }
-    const ff = { ...f, startDate, endDate }
-    const data = await fetchAllPages(applyFilters(sb.from('responses').select('id, clay_mentioned'), ff))
-    const total = data.length
-    const mentioned = data.filter((r: any) => (r.clay_mentioned ?? '').toLowerCase() === 'yes').length
-    return { mentioned, total }
+  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
+  if (error || !data) {
+    console.error('[getVisibilityScore] RPC error:', error)
+    return { current: null, previous: null, total: 0 }
   }
-
-  const [cur, prev, promptCount] = await Promise.all([
-    calcScore(f.startDate, f.endDate),
-    calcScore(f.prevStartDate, f.prevEndDate),
-    (() => {
-      let q = sb.from('prompts').select('*', { count: 'exact', head: true }).eq('is_active', true)
-      if (f.promptType && f.promptType !== 'all') q = q.filter('prompt_type', 'ilike', f.promptType)
-      if (f.brandedFilter === 'branded') q = q.ilike('branded_or_non_branded', 'branded')
-      else if (f.brandedFilter === 'non-branded') q = q.not('branded_or_non_branded', 'ilike', 'branded')
-      if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
-      return q.then((r: any) => r.count ?? 0)
-    })(),
-  ])
-
-  const current = cur.total > 0 ? (cur.mentioned / cur.total) * 100 : null
-  const previous = prev.total > 0 ? (prev.mentioned / prev.total) * 100 : null
-  return { current, previous, total: promptCount }
+  return {
+    current:  data.visibility?.current  ?? null,
+    previous: data.visibility?.previous ?? null,
+    total:    data.visibility?.total    ?? 0,
+  }
 }
 
 export async function getClayOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, clay_mentioned'), f)
-  if (!data.length) return []
-
-  const map = new Map<string, { total: number; mentioned: number }>()
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    const cur = map.get(date) ?? { total: 0, mentioned: 0 }
-    cur.total++
-    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
-    map.set(date, cur)
+  const { data, error } = await sb.rpc('get_visibility_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      f.platforms     ?? [],
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error || !data) {
+    console.error('[getClayOverallTimeseries] RPC error:', error)
+    return []
   }
-
-  return Array.from(map.entries()).map(([date, { total, mentioned }]) => ({
-    date,
-    value: total > 0 ? (mentioned / total) * 100 : 0,
-  })).sort((a, b) => a.date.localeCompare(b.date))
+  return (data as any[]).map(r => ({ date: String(r.date), value: r.value ?? 0 }))
 }
 
 export async function getFullLeaderboard(
@@ -170,103 +165,41 @@ export async function getCompetitorVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; competitor: string; value: number }[]> {
-  // Get total responses per day for denominator (also used to enforce platform/topic filters)
-  const responses = await fetchFiltered(sb.from('responses').select('id, run_date'), f)
-  if (!responses.length) return []
-
-  const totalByDate = new Map<string, number>()
-  const responseIdToDate = new Map<string, string>()
-  for (const r of responses) {
-    const date = (r.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
-    responseIdToDate.set(String(r.id), date)
+  const { data, error } = await sb.rpc('get_competitor_visibility_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      f.platforms     ?? [],
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error || !data) {
+    console.error('[getCompetitorVisibilityTimeseries] RPC error:', error)
+    return []
   }
-
-  // Fetch competitor rows via response_id IN() batches — avoids run_date type mismatch
-  const validIdsList = responses.map((r: any) => String(r.id))
-  const BATCH = 500
-  const rc = (await Promise.all(
-    Array.from({ length: Math.ceil(validIdsList.length / BATCH) }, (_, i) =>
-      sb.from('response_competitors')
-        .select('response_id, competitor_name')
-        .in('response_id', validIdsList.slice(i * BATCH, (i + 1) * BATCH))
-        .then(({ data }) => data ?? [])
-    )
-  )).flat() as any[]
-
-  if (!rc.length) return []
-
-  // All fetched rows are already scoped to valid response IDs
-  const validIds = new Set(validIdsList)
-
-  const map = new Map<string, number>()
-  for (const row of rc) {
-    const rid = String(row.response_id)
-    if (!validIds.has(rid)) continue
-    const date = responseIdToDate.get(rid) ?? ''
-    if (!date) continue
-    const key = `${date}|||${row.competitor_name}`
-    map.set(key, (map.get(key) ?? 0) + 1)
-  }
-
-  return Array.from(map.entries()).map(([key, count]) => {
-    const [date, competitor] = key.split('|||')
-    const total = totalByDate.get(date) ?? 0
-    return { date, competitor, value: total > 0 ? (count / total) * 100 : 0 }
-  }).sort((a, b) => a.date.localeCompare(b.date))
+  return (data as any[]).map(r => ({
+    date:       String(r.date),
+    competitor: r.competitor,
+    value:      r.value ?? 0,
+  }))
 }
 
 export async function getCompetitorLeaderboard(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  const calcLeaderboard = async (startDate: string, endDate: string): Promise<Map<string, { count: number; total: number }>> => {
-    const ff = { ...f, startDate, endDate }
-    const responses = await fetchFiltered(sb.from('responses').select('id'), ff)
-    if (!responses.length) return new Map()
-    const ids = responses.map((r: any) => String(r.id))
-    const total = ids.length
-    const BATCH = 500
-    const rc = (await Promise.all(
-      Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) =>
-        sb.from('response_competitors')
-          .select('competitor_name')
-          .in('response_id', ids.slice(i * BATCH, (i + 1) * BATCH))
-          .then(({ data }) => data ?? [])
-      )
-    )).flat() as any[]
-
-    const map = new Map<string, { count: number; total: number }>()
-    for (const row of rc) {
-      const name = row.competitor_name
-      if (!name) continue
-      const cur = map.get(name) ?? { count: 0, total }
-      cur.count++
-      map.set(name, cur)
-    }
-    return map
+  const { data, error } = await sb.rpc('get_competitor_leaderboard_rpc', visRpcParams(f))
+  if (error || !data) {
+    console.error('[getCompetitorLeaderboard] RPC error:', error)
+    return []
   }
-
-  const [curMap, prevMap] = await Promise.all([
-    calcLeaderboard(f.startDate, f.endDate),
-    f.prevStartDate && f.prevEndDate
-      ? calcLeaderboard(f.prevStartDate, f.prevEndDate)
-      : Promise.resolve(new Map<string, { count: number; total: number }>()),
-  ])
-
-  return Array.from(curMap.entries()).map(([name, { count, total }]) => {
-    const score = total > 0 ? (count / total) * 100 : 0
-    const prev = prevMap.get(name)
-    const prevScore = prev && prev.total > 0 ? (prev.count / prev.total) * 100 : null
-    return {
-      competitor_name:  name,
-      mention_count:    count,
-      sov_pct:          score,
-      visibility_score: score,
-      delta: prevScore != null ? score - prevScore : null,
-    }
-  }).sort((a, b) => b.visibility_score - a.visibility_score)
+  return (data as any[]).map(r => ({
+    competitor_name:  r.competitor_name,
+    mention_count:    r.mention_count,
+    sov_pct:          r.visibility_score,
+    visibility_score: r.visibility_score,
+    delta:            r.delta,
+  }))
 }
 
 export async function getVisibilityByPMM(
@@ -426,26 +359,15 @@ export async function getAvgPosition(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  const calc = async (startDate: string, endDate: string) => {
-    if (!startDate || !endDate) return null
-    const ff = { ...f, startDate, endDate }
-    const data = await fetchAllPages(applyFilters(
-      sb.from('responses')
-        .select('clay_mention_position')
-        .ilike('clay_mentioned', 'yes')
-        .not('clay_mention_position', 'is', null),
-      ff
-    ))
-    if (!data.length) return null
-    const sum = data.reduce((acc: number, r: any) => acc + (r.clay_mention_position ?? 0), 0)
-    return sum / data.length
+  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
+  if (error || !data) {
+    console.error('[getAvgPosition] RPC error:', error)
+    return { current: null, previous: null }
   }
-
-  const [current, previous] = await Promise.all([
-    calc(f.startDate, f.endDate),
-    f.prevStartDate && f.prevEndDate ? calc(f.prevStartDate, f.prevEndDate) : Promise.resolve(null),
-  ])
-  return { current, previous }
+  return {
+    current:  data.avg_position?.current  ?? null,
+    previous: data.avg_position?.previous ?? null,
+  }
 }
 
 export async function getDistinctTopics(sb: SupabaseClient): Promise<string[]> {
@@ -470,17 +392,15 @@ export async function getClaygentCount(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
-  const calcCount = async (startDate: string, endDate: string): Promise<number> => {
-    if (!startDate || !endDate) return 0
-    const ff = { ...f, startDate, endDate }
-    const data = await fetchAllPages(applyFilters(sb.from('responses').select('id, claygent_or_mcp_mentioned'), ff))
-    return data.filter((r: any) => (r.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes').length
+  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
+  if (error || !data) {
+    console.error('[getClaygentCount] RPC error:', error)
+    return { current: 0, previous: 0 }
   }
-  const [current, previous] = await Promise.all([
-    calcCount(f.startDate, f.endDate),
-    calcCount(f.prevStartDate, f.prevEndDate),
-  ])
-  return { current, previous }
+  return {
+    current:  data.claygent_count?.current  ?? 0,
+    previous: data.claygent_count?.previous ?? 0,
+  }
 }
 
 export async function getClaygentTimeseriesByPlatform(
