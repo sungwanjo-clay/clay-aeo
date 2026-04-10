@@ -421,7 +421,7 @@ export async function getMentionBreakdown(
 
   const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(
-      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}, clay_mention_snippet`
+      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
     ),
     f
   ))
@@ -473,7 +473,7 @@ export async function getMentionBreakdown(
       id: row.id,
       platform: row.platform,
       run_date: (row.run_date ?? '').substring(0, 10),
-      snippet: row[snippetCol] ?? row.clay_mention_snippet ?? null,
+      snippet: row[snippetCol] ?? null,
       response_text: row.response_text ?? null,
       brand_sentiment: row.brand_sentiment ?? null,
       other_cited_domains: otherDomains,

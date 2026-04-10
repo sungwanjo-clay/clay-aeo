@@ -285,13 +285,17 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
     }
   }
 
-  // Group table rows by pmm_use_case
+  // Group table rows by pmm_use_case; sort use cases by max visibility descending
   const grouped: Record<string, PMMRow[]> = {}
   for (const row of table) {
     if (!grouped[row.pmm_use_case]) grouped[row.pmm_use_case] = []
     grouped[row.pmm_use_case].push(row)
   }
-  const useCases = Object.keys(grouped)
+  const useCases = Object.keys(grouped).sort((a, b) => {
+    const aMax = Math.max(...grouped[a].map(r => r.visibility_score))
+    const bMax = Math.max(...grouped[b].map(r => r.visibility_score))
+    return bMax - aMax
+  })
 
   const colSpan = compareEnabled ? 7 : 6
 
