@@ -53,46 +53,57 @@ async function countResponses(sb: SupabaseClient, f: FilterParams, extraFilter?:
   return data.length
 }
 
-/** Shared helper: build the params object for visibility RPCs */
-function visRpcParams(f: FilterParams, extra?: Record<string, unknown>) {
-  return {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
-    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
-    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
-    p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      f.platforms     ?? [],
-    p_branded_filter: f.brandedFilter || 'all',
-    p_tags:           f.tags          || 'all',
-    ...extra,
-  }
-}
-
-/** Single call that fetches all 3 visibility KPIs at once. Use this from page.tsx. */
+/**
+ * Fetches all 3 visibility KPIs (score, avg position, claygent count) in one
+ * pass — current and previous period in parallel. Used by page.tsx so we only
+ * paginate the responses table once per period instead of 3 separate queries.
+ */
 export async function getVisibilityKpis(sb: SupabaseClient, f: FilterParams): Promise<{
   visibility:    { current: number | null; previous: number | null; total: number }
   avgPosition:   { current: number | null; previous: number | null }
   claygentCount: { current: number; previous: number }
 }> {
-  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
-  if (error) console.error('[getVisibilityKpis] RPC error:', error)
-  // Supabase may return RETURNS JSON as a raw string — parse defensively
-  const d = !error && data
-    ? (typeof data === 'string' ? JSON.parse(data) : data)
-    : null
+  const calc = async (startDate: string, endDate: string) => {
+    if (!startDate || !endDate) return { mentioned: 0, total: 0, positions: [] as number[], claygent: 0 }
+    const ff = { ...f, startDate, endDate }
+    const data = await fetchAllPages(applyFilters(
+      sb.from('responses').select('clay_mentioned, clay_mention_position, claygent_or_mcp_mentioned'),
+      ff
+    ))
+    const mentioned  = data.filter((r: any) => (r.clay_mentioned            ?? '').toLowerCase() === 'yes').length
+    const claygent   = data.filter((r: any) => (r.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes').length
+    const positions  = data
+      .filter((r: any) => (r.clay_mentioned ?? '').toLowerCase() === 'yes' && r.clay_mention_position != null)
+      .map((r: any) => Number(r.clay_mention_position))
+    return { mentioned, total: data.length, positions, claygent }
+  }
+
+  const [cur, prev, promptCount] = await Promise.all([
+    calc(f.startDate, f.endDate),
+    calc(f.prevStartDate, f.prevEndDate),
+    (() => {
+      let q = sb.from('prompts').select('*', { count: 'exact', head: true }).eq('is_active', true)
+      if (f.promptType && f.promptType !== 'all') q = q.filter('prompt_type', 'ilike', f.promptType)
+      if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
+      return q.then((r: any) => r.count ?? 0)
+    })(),
+  ])
+
+  const avgOf = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null
+
   return {
     visibility: {
-      current:  d?.visibility?.current  ?? null,
-      previous: d?.visibility?.previous ?? null,
-      total:    d?.visibility?.total    ?? 0,
+      current:  cur.total  > 0 ? (cur.mentioned  / cur.total)  * 100 : null,
+      previous: prev.total > 0 ? (prev.mentioned / prev.total) * 100 : null,
+      total:    promptCount,
     },
     avgPosition: {
-      current:  d?.avg_position?.current  ?? null,
-      previous: d?.avg_position?.previous ?? null,
+      current:  avgOf(cur.positions),
+      previous: avgOf(prev.positions),
     },
     claygentCount: {
-      current:  d?.claygent_count?.current  ?? 0,
-      previous: d?.claygent_count?.previous ?? 0,
+      current:  cur.claygent,
+      previous: prev.claygent,
     },
   }
 }
@@ -108,19 +119,23 @@ export async function getClayOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data, error } = await sb.rpc('get_visibility_timeseries_rpc', {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
-    p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      f.platforms     ?? [],
-    p_branded_filter: f.brandedFilter || 'all',
-    p_tags:           f.tags          || 'all',
-  })
-  if (error || !data) {
-    console.error('[getClayOverallTimeseries] RPC error:', error)
-    return []
+  const data = await fetchFiltered(sb.from('responses').select('run_day, clay_mentioned'), f)
+  if (!data.length) return []
+
+  const map = new Map<string, { total: number; mentioned: number }>()
+  for (const row of data) {
+    const date = String(row.run_day ?? '').substring(0, 10)
+    if (!date) continue
+    const cur = map.get(date) ?? { total: 0, mentioned: 0 }
+    cur.total++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
+    map.set(date, cur)
   }
-  return (data as any[]).map(r => ({ date: String(r.date), value: r.value ?? 0 }))
+
+  return Array.from(map.entries()).map(([date, { total, mentioned }]) => ({
+    date,
+    value: total > 0 ? (mentioned / total) * 100 : 0,
+  })).sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export async function getFullLeaderboard(
@@ -185,41 +200,96 @@ export async function getCompetitorVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; competitor: string; value: number }[]> {
-  const { data, error } = await sb.rpc('get_competitor_visibility_timeseries_rpc', {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
-    p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      f.platforms     ?? [],
-    p_branded_filter: f.brandedFilter || 'all',
-    p_tags:           f.tags          || 'all',
-  })
-  if (error || !data) {
-    console.error('[getCompetitorVisibilityTimeseries] RPC error:', error)
-    return []
+  const responses = await fetchFiltered(sb.from('responses').select('id, run_day'), f)
+  if (!responses.length) return []
+
+  const totalByDate = new Map<string, number>()
+  const responseIdToDate = new Map<string, string>()
+  for (const r of responses) {
+    const date = String(r.run_day ?? '').substring(0, 10)
+    if (!date) continue
+    totalByDate.set(date, (totalByDate.get(date) ?? 0) + 1)
+    responseIdToDate.set(String(r.id), date)
   }
-  return (data as any[]).map(r => ({
-    date:       String(r.date),
-    competitor: r.competitor,
-    value:      r.value ?? 0,
-  }))
+
+  const validIdsList = responses.map((r: any) => String(r.id))
+  const BATCH = 500
+  const rc = (await Promise.all(
+    Array.from({ length: Math.ceil(validIdsList.length / BATCH) }, (_, i) =>
+      sb.from('response_competitors')
+        .select('response_id, competitor_name')
+        .in('response_id', validIdsList.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat() as any[]
+
+  if (!rc.length) return []
+
+  const map = new Map<string, number>()
+  for (const row of rc) {
+    const date = responseIdToDate.get(String(row.response_id)) ?? ''
+    if (!date) continue
+    const key = `${date}|||${row.competitor_name}`
+    map.set(key, (map.get(key) ?? 0) + 1)
+  }
+
+  return Array.from(map.entries()).map(([key, count]) => {
+    const [date, competitor] = key.split('|||')
+    const total = totalByDate.get(date) ?? 0
+    return { date, competitor, value: total > 0 ? (count / total) * 100 : 0 }
+  }).sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export async function getCompetitorLeaderboard(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<CompetitorRow[]> {
-  const { data, error } = await sb.rpc('get_competitor_leaderboard_rpc', visRpcParams(f))
-  if (error || !data) {
-    console.error('[getCompetitorLeaderboard] RPC error:', error)
-    return []
+  const calcLeaderboard = async (startDate: string, endDate: string): Promise<Map<string, { count: number; total: number }>> => {
+    const ff = { ...f, startDate, endDate }
+    const responses = await fetchFiltered(sb.from('responses').select('id'), ff)
+    if (!responses.length) return new Map()
+    const ids = responses.map((r: any) => String(r.id))
+    const total = ids.length
+    const BATCH = 500
+    const rc = (await Promise.all(
+      Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) =>
+        sb.from('response_competitors')
+          .select('competitor_name')
+          .in('response_id', ids.slice(i * BATCH, (i + 1) * BATCH))
+          .then(({ data }) => data ?? [])
+      )
+    )).flat() as any[]
+
+    const map = new Map<string, { count: number; total: number }>()
+    for (const row of rc) {
+      const name = row.competitor_name
+      if (!name) continue
+      const cur = map.get(name) ?? { count: 0, total }
+      cur.count++
+      map.set(name, cur)
+    }
+    return map
   }
-  return (data as any[]).map(r => ({
-    competitor_name:  r.competitor_name,
-    mention_count:    r.mention_count,
-    sov_pct:          r.visibility_score,
-    visibility_score: r.visibility_score,
-    delta:            r.delta,
-  }))
+
+  const [curMap, prevMap] = await Promise.all([
+    calcLeaderboard(f.startDate, f.endDate),
+    f.prevStartDate && f.prevEndDate
+      ? calcLeaderboard(f.prevStartDate, f.prevEndDate)
+      : Promise.resolve(new Map<string, { count: number; total: number }>()),
+  ])
+
+  return Array.from(curMap.entries()).map(([name, { count, total }]) => {
+    const score = total > 0 ? (count / total) * 100 : 0
+    const prev = prevMap.get(name)
+    const prevScore = prev && prev.total > 0 ? (prev.count / prev.total) * 100 : null
+    return {
+      competitor_name:  name,
+      mention_count:    count,
+      sov_pct:          score,
+      visibility_score: score,
+      delta: prevScore != null ? score - prevScore : null,
+    }
+  }).sort((a, b) => b.visibility_score - a.visibility_score)
 }
 
 export async function getVisibilityByPMM(
