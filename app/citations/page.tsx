@@ -220,16 +220,15 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
           <td colSpan={5} className="px-4 pb-3 pt-1">
             <div className="ml-8 space-y-1">
               <div className="grid gap-2 px-2 pb-1"
-                style={{ gridTemplateColumns: '1fr 90px 64px 28px', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
-                {['Page', 'Type', 'Count', ''].map((h, i) => (
-                  <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
-                ))}
+                style={{ gridTemplateColumns: '1fr 64px', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
+                <span style={{ ...LABEL, fontSize: '9px' }}>Page</span>
+                <span className="text-right" style={{ ...LABEL, fontSize: '9px' }}>Count</span>
               </div>
               {(showAllUrls ? row.top_urls : row.top_urls.slice(0, URL_LIMIT)).map(u => {
                 const uc = urlTypeColor(u.url_type ?? 'Other')
                 return (
-                  <div key={u.url} className="grid gap-2 items-start px-2 py-1.5 rounded hover:bg-[rgba(26,25,21,0.02)]"
-                    style={{ gridTemplateColumns: '1fr 90px 64px 28px' }}>
+                  <div key={u.url} className="grid gap-2 items-start px-2 py-2 rounded hover:bg-[rgba(26,25,21,0.02)]"
+                    style={{ gridTemplateColumns: '1fr 64px' }}>
                     <div className="min-w-0">
                       {u.title && (
                         <p className="text-[11px] font-semibold leading-tight mb-0.5 truncate" style={{ color: 'var(--clay-black)' }}>
@@ -241,28 +240,24 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
                         <ExternalLink size={9} className="shrink-0 opacity-40 group-hover:opacity-70" />
                         <span className="text-[10px] truncate group-hover:underline" style={{ color: 'rgba(26,25,21,0.45)' }}>{u.url}</span>
                       </a>
-                      {u.topics.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {u.topics.slice(0, 3).map(t => (
-                            <span key={t} className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
-                              style={{ background: 'rgba(74,90,255,0.08)', color: '#4A5AFF' }}>{t}</span>
-                          ))}
-                          {u.topics.length > 3 && <span className="text-[9px]" style={{ color: 'rgba(26,25,21,0.35)' }}>+{u.topics.length - 3}</span>}
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-right pt-0.5">
-                      {u.url_type && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                          style={{ background: `${uc}18`, color: uc, border: `1px solid ${uc}30` }}>
-                          {u.url_type}
-                        </span>
-                      )}
+                      {/* Topic context — shows which prompt categories cited this URL */}
+                      <div className="flex flex-wrap gap-1 mt-1.5 items-center">
+                        {u.url_type && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                            style={{ background: `${uc}18`, color: uc, border: `1px solid ${uc}30` }}>
+                            {u.url_type}
+                          </span>
+                        )}
+                        {u.topics.slice(0, 4).map(t => (
+                          <span key={t} className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                            style={{ background: 'rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.55)' }}>{t}</span>
+                        ))}
+                        {u.topics.length > 4 && <span className="text-[9px]" style={{ color: 'rgba(26,25,21,0.35)' }}>+{u.topics.length - 4} topics</span>}
+                      </div>
                     </div>
                     <span className="text-right text-[12px] font-bold tabular-nums pt-0.5" style={{ color: 'var(--clay-black)' }}>
                       {u.count.toLocaleString()}
                     </span>
-                    <span />
                   </div>
                 )
               })}
@@ -458,28 +453,28 @@ function ContentTypeRow({ urlType, total, grandTotal, urls }: {
 // ── Citation activity chart ────────────────────────────────────────────────────
 // clay.com line uses citationRateKPI (period-aggregate from responses table) so it
 // always matches the KPI card. Competitor lines use per-day rates from competitorTs.
-function CitationActivityChart({ competitorTs, citationRateKPI }: {
+function CitationActivityChart({ competitorTs }: {
   competitorTs: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
 }) {
   const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
+  // RPC already includes clay.com — use actual daily values, not a flat period average
+  const clayTs = competitorTs.filter(r => r.domain.includes('clay.com'))
   const nonClayTs = competitorTs.filter(r => !r.domain.includes('clay.com'))
-  const allDates = [...new Set(nonClayTs.map(r => r.date))].sort()
-  const compMap = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
+  const allDates = [...new Set(competitorTs.map(r => r.date))].sort()
+  const compMap = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const totals = new Map<string, number>()
   for (const r of nonClayTs) {
     totals.set(r.domain, (totals.get(r.domain) ?? 0) + r.value)
   }
   const top5 = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d)
-
-  // Clay is a flat line at the KPI value — matches the Citation Rate KPI card exactly
-  const clayValue = citationRateKPI ?? 0
+  const hasClayData = clayTs.length > 0
 
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
-    row['clay.com'] = clayValue
+    if (hasClayData) row['clay.com'] = compMap.get(`${date}|||clay.com`) ?? 0
     for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
     return row
   })
@@ -495,7 +490,7 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
   // Single data point — show all domain metrics as stat cards
   if (chartData.length === 1) {
     const d = chartData[0]
-    const allDomains = ['clay.com', ...top5]
+    const allDomains = [...(hasClayData ? ['clay.com'] : []), ...top5]
     return (
       <div>
         <div className="flex items-center mb-3">
@@ -548,8 +543,10 @@ function CitationActivityChart({ competitorTs, citationRateKPI }: {
               stroke={COMP_COLORS[i % COMP_COLORS.length]}
               strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d} />
           ))}
-          <Line type="monotone" dataKey="clay.com" stroke="var(--clay-black)" strokeWidth={2.5}
-            dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="clay.com" />
+          {hasClayData && (
+            <Line type="monotone" dataKey="clay.com" stroke="var(--clay-black)" strokeWidth={2.5}
+              dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="clay.com" />
+          )}
         </LineChart>
       </ResponsiveContainer>
     </>
