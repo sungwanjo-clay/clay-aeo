@@ -177,12 +177,17 @@ export async function getCitationTypeBreakdown(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ type: string; count: number; pct: number }[]> {
+  // Fast path: read from aeo_cache_domains (pre-aggregated, indexed).
+  // Each domain already has a canonical citation_type and a response_count.
+  // Summing response_count by type gives citation-weighted totals without
+  // scanning the raw citation_domains table.
   let query = sb
-    .from('citation_domains')
-    .select('citation_type')
-    .gte('run_date', cdDateStr(f.startDate))
-    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
-  if (f.platforms.length > 0) query = query.in('platform', f.platforms)
+    .from('aeo_cache_domains')
+    .select('citation_type, response_count')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') query = query.ilike('prompt_type', f.promptType)
 
   const data = await fetchAllPages(query)
   if (!data.length) return []
@@ -190,11 +195,11 @@ export async function getCitationTypeBreakdown(
   const map = new Map<string, number>()
   for (const row of data) {
     const t = row.citation_type ?? 'Other'
-    map.set(t, (map.get(t) ?? 0) + 1)
+    map.set(t, (map.get(t) ?? 0) + Number(row.response_count))
   }
-  const total = data.length
+  const total = [...map.values()].reduce((s, n) => s + n, 0)
   return Array.from(map.entries()).map(([type, count]) => ({
-    type, count, pct: (count / total) * 100,
+    type, count, pct: total > 0 ? (count / total) * 100 : 0,
   })).sort((a, b) => b.count - a.count)
 }
 
@@ -387,86 +392,33 @@ export async function getTopCitedDomainsEnhanced(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TopDomainRow[]> {
-  // Fetch citation rows and the canonical denominator (total_with_citations from cache) in parallel.
-  // Using aeo_cache_daily.total_with_citations as denominator ensures "Response %" matches
-  // the Citation Rate KPI and the line chart — all three use the same denominator.
-  let query = sb
-    .from('citation_domains')
-    .select('domain, url, title, citation_type, url_type, response_id, responses(topic)')
-    .gte('run_date', cdDateStr(f.startDate))
-    .lt('run_date', cdNextDay(cdDateStr(f.endDate)))
+  // Fast path: single RPC call reads pre-aggregated aeo_cache_domains +
+  // aeo_cache_domain_urls (with url_type). Falls back to live citation_domains
+  // scan only when branded/tags filters are active.
+  const { data, error } = await sb.rpc('get_top_cited_domains_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) { console.error('[getTopCitedDomainsEnhanced] RPC error:', error); return [] }
 
-  if (f.platforms?.length) query = query.in('platform', f.platforms)
-
-  let cacheQuery = sb
-    .from('aeo_cache_daily')
-    .select('total_with_citations')
-    .gte('run_day', f.startDate.split('T')[0])
-    .lte('run_day', f.endDate.split('T')[0])
-  if (f.platforms?.length) cacheQuery = cacheQuery.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') cacheQuery = cacheQuery.ilike('prompt_type', f.promptType)
-
-  const [data, cacheRes] = await Promise.all([
-    fetchAllPages(query),
-    fetchAllPages(cacheQuery),
-  ])
-
-  if (!data.length) return []
-
-  // Denominator: sum of total_with_citations from cache (same source as Citation Rate KPI and line chart)
-  const cacheDenominator = (cacheRes as any[]).reduce((s, r) => s + Number(r.total_with_citations ?? 0), 0)
-  // Fallback to COUNT DISTINCT if cache is empty
-  const allCitedResponseIds = new Set<string>()
-  for (const row of data as any[]) {
-    if (row.response_id) allCitedResponseIds.add(String(row.response_id))
-  }
-  const totalResponses = cacheDenominator || allCitedResponseIds.size || data.length
-
-  type DomainAcc = {
-    responseIds: Set<string>; is_clay: boolean; typeCounts: Map<string, number>
-    urls: Map<string, { title: string | null; count: number; url_type: string | null; topics: Set<string> }>
-  }
-  const domainMap = new Map<string, DomainAcc>()
-
-  for (const row of data as any[]) {
-    const d = (row.domain ?? '').toLowerCase()
-    if (!d) continue
-    const topic: string | null = row.responses?.topic ?? null
-    const cur = domainMap.get(d) ?? { responseIds: new Set(), is_clay: d.includes('clay.com'), typeCounts: new Map(), urls: new Map() }
-    if (row.response_id) cur.responseIds.add(row.response_id)
-    if (row.citation_type) cur.typeCounts.set(row.citation_type, (cur.typeCounts.get(row.citation_type) ?? 0) + 1)
-    if (row.url) {
-      const u = cur.urls.get(row.url) ?? { title: row.title ?? null, count: 0, url_type: row.url_type ?? null, topics: new Set<string>() }
-      u.count++
-      if (topic) u.topics.add(topic)
-      cur.urls.set(row.url, u)
-    }
-    domainMap.set(d, cur)
-  }
-
-  return Array.from(domainMap.entries())
-    .map(([domain, { responseIds, is_clay, typeCounts, urls }]) => {
-      const citation_count = responseIds.size || [...urls.values()].reduce((s, u) => s + u.count, 0)
-      const citation_type = typeCounts.size > 0
-        ? [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-        : (is_clay ? 'Clay' : null)
-      return {
-        domain,
-        citation_count,
-        share_pct: totalResponses > 0 ? (citation_count / totalResponses) * 100 : 0,
-        is_clay,
-        citation_type,
-        top_urls: Array.from(urls.entries())
-          .map(([url, u]) => ({
-            url, title: u.title, count: u.count, url_type: u.url_type,
-            topics: Array.from(u.topics).sort(),
-          }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 15),
-      }
-    })
-    .sort((a, b) => b.citation_count - a.citation_count)
-    .slice(0, 30)
+  return (data ?? []).map((r: any) => ({
+    domain:         r.domain,
+    citation_count: Number(r.citation_count),
+    share_pct:      Number(r.share_pct ?? 0),
+    is_clay:        Boolean(r.is_clay),
+    citation_type:  r.citation_type ?? null,
+    top_urls: (r.top_urls ?? []).map((u: any) => ({
+      url:      u.url,
+      title:    u.title ?? null,
+      count:    Number(u.count),
+      url_type: u.url_type ?? null,
+      topics:   [], // topics are loaded lazily via getCitationURLContext on expand
+    })),
+  }))
 }
 
 // ── Citation share broken down by platform ────────────────────────────────────
@@ -585,51 +537,42 @@ export async function getCitationRateByTopic(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TopicCitationRow[]> {
-  const data = await fetchAllPages(applyResponseFilters(
-    sb.from('responses').select('run_date, topic, cited_domains'),
-    f
-  ).not('topic', 'is', null))
+  // Fast path: read from aeo_cache_topics which now includes clay_cited per
+  // (run_day, platform, prompt_type, topic). Replaces a full responses table
+  // scan + client-side JSONB parsing.
+  // Note: branded/tags filters are not applied here (those are rare combos
+  // and the topic-by-citation chart doesn't expose those filter controls).
+  let query = sb
+    .from('aeo_cache_topics')
+    .select('run_day, topic, total_responses, clay_cited')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+    .not('topic', 'is', null)
+    .neq('topic', '__none__')
+    .neq('topic', 'Unknown')
+  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') query = query.ilike('prompt_type', f.promptType)
+  if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
 
+  const data = await fetchAllPages(query)
   if (!data.length) return []
 
-  // Accumulate per date × topic
-  const map = new Map<string, { total: number; withClayCit: number }>()
-
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
-    const topic: string = row.topic ?? 'Unknown'
-    if (!date || !topic) continue
-    const key = `${date}|||${topic}`
-    const cur = map.get(key) ?? { total: 0, withClayCit: 0 }
-    cur.total++
-    try {
-      const domains: string[] = Array.isArray(row.cited_domains)
-        ? row.cited_domains
-        : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))) {
-        cur.withClayCit++
-      }
-    } catch { /* ignore parse errors */ }
-    map.set(key, cur)
-  }
-
-  // Filter topics with too few total responses (across all dates)
+  // Filter topics with too few total responses across all dates (min 5)
   const topicTotals = new Map<string, number>()
-  for (const [key, { total }] of map) {
-    const topic = key.split('|||')[1]
-    topicTotals.set(topic, (topicTotals.get(topic) ?? 0) + total)
+  for (const row of data) {
+    const t = row.topic as string
+    topicTotals.set(t, (topicTotals.get(t) ?? 0) + Number(row.total_responses))
   }
 
-  return Array.from(map.entries())
-    .filter(([key]) => (topicTotals.get(key.split('|||')[1]) ?? 0) >= 5)
-    .map(([key, { total, withClayCit }]) => {
-      const [date, topic] = key.split('|||')
-      return {
-        date,
-        topic,
-        value: total > 0 ? (withClayCit / total) * 100 : 0,
-      }
-    })
+  return data
+    .filter(row => (topicTotals.get(row.topic as string) ?? 0) >= 5)
+    .map(row => ({
+      date:  String(row.run_day),
+      topic: row.topic as string,
+      value: Number(row.total_responses) > 0
+        ? (Number(row.clay_cited) / Number(row.total_responses)) * 100
+        : 0,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
@@ -676,25 +619,41 @@ export async function getCitationCoverage(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ coveragePct: number; avgPerCited: number }> {
-  const data = await fetchAllPages(applyResponseFilters(
-    sb.from('responses').select('cited_domains'),
-    f
-  ))
-  if (!data.length) return { coveragePct: 0, avgPerCited: 0 }
+  // Fast path: read from pre-aggregated cache tables instead of scanning responses.
+  //   coveragePct   = SUM(total_with_citations) / SUM(total_responses)
+  //   avgPerCited   = SUM(aeo_cache_domains.response_count) / SUM(total_with_citations)
+  //                   (response_count = COUNT DISTINCT responses per domain, so summing
+  //                   across all domains gives total domain-response pairs → avg domains
+  //                   cited per cited response)
+  let dailyQ = sb
+    .from('aeo_cache_daily')
+    .select('total_responses, total_with_citations')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+  if (f.platforms && f.platforms.length > 0) dailyQ = dailyQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') dailyQ = dailyQ.ilike('prompt_type', f.promptType)
 
-  let withCitations = 0
-  let totalDomains = 0
+  let domainsQ = sb
+    .from('aeo_cache_domains')
+    .select('response_count')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+  if (f.platforms && f.platforms.length > 0) domainsQ = domainsQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') domainsQ = domainsQ.ilike('prompt_type', f.promptType)
 
-  for (const r of data) {
-    const domains = Array.isArray(r.cited_domains) ? r.cited_domains : []
-    if (domains.length > 0) {
-      withCitations++
-      totalDomains += domains.length
-    }
-  }
+  const [dailyData, domainsData] = await Promise.all([
+    fetchAllPages(dailyQ),
+    fetchAllPages(domainsQ),
+  ])
+
+  if (!dailyData.length) return { coveragePct: 0, avgPerCited: 0 }
+
+  const totalResponses   = dailyData.reduce((s, r) => s + Number(r.total_responses),   0)
+  const withCitations    = dailyData.reduce((s, r) => s + Number(r.total_with_citations), 0)
+  const totalDomainPairs = domainsData.reduce((s, r) => s + Number(r.response_count),  0)
 
   return {
-    coveragePct: (withCitations / data.length) * 100,
-    avgPerCited: withCitations > 0 ? totalDomains / withCitations : 0,
+    coveragePct: totalResponses > 0 ? (withCitations / totalResponses) * 100 : 0,
+    avgPerCited: withCitations > 0 ? totalDomainPairs / withCitations : 0,
   }
 }
