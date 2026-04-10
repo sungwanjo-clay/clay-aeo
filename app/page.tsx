@@ -81,6 +81,9 @@ export default function HomePage() {
       setCompetitorVisTimeseries(compVisTs)
 
       setLoading(false)
+    }).catch(err => {
+      console.error('[page] primary Promise.all failed:', err)
+      setLoading(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
@@ -107,6 +110,9 @@ export default function HomePage() {
       setFollowupTimeseries(followupTs)
       setClaygentBreakdown(claygentBd)
       setFollowupBreakdown(followupBd)
+      setLoadingExtra(false)
+    }).catch(err => {
+      console.error('[page] secondary Promise.all failed:', err)
       setLoadingExtra(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps

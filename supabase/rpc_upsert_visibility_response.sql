@@ -6,15 +6,52 @@
 -- atomically: prompts → responses → citation_domains →
 -- response_competitors.
 --
+-- Supports two payload formats:
+--   1. Flat snake_case (original Clay table):
+--      payload.clay_mentioned, payload.brand_sentiment, etc.
+--   2. Nested camelCase (Claude demo table):
+--      payload.analyzer.clayMentioned, payload.analyzer.brandSentiment, etc.
+--      payload.parsed_response for response_text
+--
 -- Run this in the Supabase SQL Editor.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION upsert_visibility_response(payload JSONB)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-  v_prompt_id   UUID;
-  v_response_id UUID;
+  v_prompt_id     UUID;
+  v_response_id   UUID;
+  v_analyzer      JSONB;
+  v_citations     JSONB;
+  v_cited_urls    JSONB;
+  v_cited_domains JSONB;
+  v_cited_titles  JSONB;
 BEGIN
+  -- ── Normalise payload ───────────────────────────────────────
+  -- If Clay sends { analyzer: { clayMentioned: ... }, parsed_response: "..." }
+  -- we read from the nested object; otherwise fall back to flat snake_case keys.
+  v_analyzer := COALESCE(payload->'analyzer', '{}'::jsonb);
+
+  v_citations := COALESCE(
+    v_analyzer->'citations',
+    payload->'citations',
+    '[]'::jsonb
+  );
+
+  -- Extract cited arrays from citations objects when not sent as flat arrays
+  v_cited_urls := COALESCE(
+    payload->'cited_urls',
+    (SELECT jsonb_agg(c->>'url')    FROM jsonb_array_elements(v_citations) c WHERE c->>'url'    IS NOT NULL)
+  );
+  v_cited_domains := COALESCE(
+    payload->'cited_domains',
+    (SELECT jsonb_agg(c->>'domain') FROM jsonb_array_elements(v_citations) c WHERE c->>'domain' IS NOT NULL)
+  );
+  v_cited_titles := COALESCE(
+    payload->'cited_titles',
+    (SELECT jsonb_agg(c->>'title')  FROM jsonb_array_elements(v_citations) c WHERE c->>'title'  IS NOT NULL)
+  );
+
   -- ── Upsert prompt ───────────────────────────────────────────
   INSERT INTO prompts (
     prompt_text, prompt_type, tags, topic, intent, pmm_use_case,
@@ -72,27 +109,29 @@ BEGIN
     CURRENT_DATE,
     v_prompt_id,
     payload->>'platform',
-    payload->>'response_text',
-    payload->'cited_urls',
-    payload->'cited_domains',
-    payload->'cited_titles',
-    payload->>'clay_mentioned',
-    (payload->>'clay_mention_position')::int,
-    payload->>'clay_mention_snippet',
-    payload->>'brand_sentiment',
-    (payload->>'brand_sentiment_score')::int,
-    payload->>'clay_recommended_followup',
-    payload->>'clay_followup_snippet',
-    payload->>'claygent_or_mcp_mentioned',
-    (payload->>'number_of_tools_recommended')::int,
-    (payload->>'sentiment_score')::int,
-    payload->>'citation_type',
-    payload->'citations',
-    payload->'competitors_mentioned',
-    payload->'themes',
-    payload->>'primary_use_case_attributed',
-    payload->>'positioning_vs_competitors',
-    (payload->>'total_credits_charged')::float,
+    -- response_text: flat key or parsed_response (Claude demo formula column)
+    COALESCE(payload->>'response_text', payload->>'parsed_response'),
+    v_cited_urls,
+    v_cited_domains,
+    v_cited_titles,
+    -- analyzer fields: camelCase nested OR flat snake_case
+    COALESCE(v_analyzer->>'clayMentioned',              payload->>'clay_mentioned'),
+    COALESCE((v_analyzer->>'clayMentionPosition')::int, (payload->>'clay_mention_position')::int),
+    COALESCE(v_analyzer->>'clayMentionSnippet',         payload->>'clay_mention_snippet'),
+    COALESCE(v_analyzer->>'brandSentiment',             payload->>'brand_sentiment'),
+    COALESCE((v_analyzer->>'brandSentimentScore')::int, (payload->>'brand_sentiment_score')::int),
+    COALESCE(v_analyzer->>'clayRecommendedFollowup',    payload->>'clay_recommended_followup'),
+    COALESCE(v_analyzer->>'clayFollowupSnippet',        payload->>'clay_followup_snippet'),
+    COALESCE(v_analyzer->>'claygentOrMcpMentioned',     payload->>'claygent_or_mcp_mentioned'),
+    COALESCE((v_analyzer->>'numberOfToolsRecommended')::int, (payload->>'number_of_tools_recommended')::int),
+    COALESCE((v_analyzer->>'sentimentScore')::int,      (payload->>'sentiment_score')::int),
+    COALESCE(v_analyzer->>'citationType',               payload->>'citation_type'),
+    v_citations,
+    COALESCE(v_analyzer->'competitorsMentioned',        payload->'competitors_mentioned'),
+    COALESCE(v_analyzer->'themes',                      payload->'themes'),
+    COALESCE(v_analyzer->>'primaryUseCaseAttributed',   payload->>'primary_use_case_attributed'),
+    COALESCE(v_analyzer->>'positioningVsCompetitors',   payload->>'positioning_vs_competitors'),
+    COALESCE((v_analyzer->>'totalCreditsCharged')::float, (payload->>'total_credits_charged')::float),
     payload->>'prompt_type',
     payload->>'tags',
     payload->>'topic',
@@ -142,9 +181,7 @@ BEGIN
   SELECT
     v_response_id, NOW(), v_prompt_id, payload->>'platform',
     c->>'domain', c->>'url', c->>'title', c->>'type', c->>'urlType'
-  FROM jsonb_array_elements(
-    COALESCE(payload->'citations', '[]'::jsonb)
-  ) AS c
+  FROM jsonb_array_elements(v_citations) AS c
   WHERE c->>'url' IS NOT NULL;
 
   -- ── Replace response_competitors for this response ──────────
@@ -157,7 +194,7 @@ BEGIN
     v_response_id, NOW(), v_prompt_id, payload->>'platform',
     comp.value
   FROM jsonb_array_elements_text(
-    COALESCE(payload->'competitors_mentioned', '[]'::jsonb)
+    COALESCE(v_analyzer->'competitorsMentioned', payload->'competitors_mentioned', '[]'::jsonb)
   ) AS comp(value)
   WHERE comp.value IS NOT NULL AND comp.value <> '';
 

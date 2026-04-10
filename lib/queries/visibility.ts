@@ -59,13 +59,19 @@ export async function getVisibilityScore(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null; total: number }> {
-  const prevF = { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }
+  // Use JS-side filtering for clay_mentioned to avoid DB-level eq() interaction with fetchAllPages
+  const calcScore = async (startDate: string, endDate: string): Promise<{ mentioned: number; total: number }> => {
+    if (!startDate || !endDate) return { mentioned: 0, total: 0 }
+    const ff = { ...f, startDate, endDate }
+    const data = await fetchAllPages(applyFilters(sb.from('responses').select('id, clay_mentioned'), ff))
+    const total = data.length
+    const mentioned = data.filter((r: any) => (r.clay_mentioned ?? '').toLowerCase() === 'yes').length
+    return { mentioned, total }
+  }
 
-  const [mentionedCur, totalCur, mentionedPrev, totalPrev, promptCount] = await Promise.all([
-    countResponses(sb, f, q => q.eq('clay_mentioned', 'Yes')),
-    countResponses(sb, f),
-    countResponses(sb, prevF, q => q.eq('clay_mentioned', 'Yes')),
-    countResponses(sb, prevF),
+  const [cur, prev, promptCount] = await Promise.all([
+    calcScore(f.startDate, f.endDate),
+    calcScore(f.prevStartDate, f.prevEndDate),
     (() => {
       let q = sb.from('prompts').select('*', { count: 'exact', head: true }).eq('is_active', true)
       if (f.promptType === 'benchmark') q = q.filter('prompt_type', 'ilike', 'benchmark')
@@ -77,8 +83,8 @@ export async function getVisibilityScore(
     })(),
   ])
 
-  const current = totalCur > 0 ? (mentionedCur / totalCur) * 100 : null
-  const previous = totalPrev > 0 ? (mentionedPrev / totalPrev) * 100 : null
+  const current = cur.total > 0 ? (cur.mentioned / cur.total) * 100 : null
+  const previous = prev.total > 0 ? (prev.mentioned / prev.total) * 100 : null
   return { current, previous, total: promptCount }
 }
 
@@ -95,7 +101,7 @@ export async function getClayOverallTimeseries(
     if (!date) continue
     const cur = map.get(date) ?? { total: 0, mentioned: 0 }
     cur.total++
-    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
     map.set(date, cur)
   }
 
@@ -152,7 +158,7 @@ export async function getVisibilityTimeseries(
     const key = `${date}|||${row.platform}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
-    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
     map.set(key, cur)
   }
 
@@ -280,7 +286,7 @@ export async function getVisibilityByPMM(
     const key = `${date}|||${row.pmm_use_case}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
-    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
     map.set(key, cur)
   }
 
@@ -306,7 +312,7 @@ export async function getPMMTable(
     if (!curMap.has(row.pmm_use_case)) curMap.set(row.pmm_use_case, { mentioned: 0, total: 0, cited: 0, positions: [], byDate: new Map() })
     const entry = curMap.get(row.pmm_use_case)!
     entry.total++
-    if (row.clay_mentioned === 'Yes') entry.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') entry.mentioned++
     if (row.clay_mention_position != null) entry.positions.push(row.clay_mention_position)
     try {
       const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
@@ -323,7 +329,7 @@ export async function getPMMTable(
     if (!row.pmm_use_case) continue
     const entry = prevMap.get(row.pmm_use_case) ?? { mentioned: 0, total: 0 }
     entry.total++
-    if (row.clay_mentioned === 'Yes') entry.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') entry.mentioned++
     prevMap.set(row.pmm_use_case, entry)
   }
 
@@ -360,7 +366,7 @@ export async function getVisibilityByTopic(
     const key = `${date}|||${row.topic ?? 'Unknown'}`
     const cur = map.get(key) ?? { total: 0, mentioned: 0 }
     cur.total++
-    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
     map.set(key, cur)
   }
 
@@ -418,34 +424,24 @@ export async function getAvgPosition(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  const fetch = async (start: string, end: string) => {
-    let q = sb
-      .from('responses')
-      .select('clay_mention_position')
-      .gte('run_date', start)
-      .lte('run_date', end)
-      .eq('clay_mentioned', 'Yes')
-      .not('clay_mention_position', 'is', null)
-
-    if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
-    if (f.topics && f.topics.length > 0) q = q.in('topic', f.topics)
-    if (f.brandedFilter !== 'all') {
-      const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-      q = q.eq('branded_or_non_branded', val)
-    }
-    if (f.promptType === 'benchmark') q = q.filter('prompt_type', 'ilike', 'benchmark')
-    else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
-    if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
-
-    const { data } = await q
-    if (!data?.length) return null
-    const sum = data.reduce((acc, r) => acc + (r.clay_mention_position ?? 0), 0)
+  const calc = async (startDate: string, endDate: string) => {
+    if (!startDate || !endDate) return null
+    const ff = { ...f, startDate, endDate }
+    const data = await fetchAllPages(applyFilters(
+      sb.from('responses')
+        .select('clay_mention_position')
+        .ilike('clay_mentioned', 'yes')
+        .not('clay_mention_position', 'is', null),
+      ff
+    ))
+    if (!data.length) return null
+    const sum = data.reduce((acc: number, r: any) => acc + (r.clay_mention_position ?? 0), 0)
     return sum / data.length
   }
 
   const [current, previous] = await Promise.all([
-    fetch(f.startDate, f.endDate),
-    fetch(f.prevStartDate, f.prevEndDate),
+    calc(f.startDate, f.endDate),
+    f.prevStartDate && f.prevEndDate ? calc(f.prevStartDate, f.prevEndDate) : Promise.resolve(null),
   ])
   return { current, previous }
 }
@@ -472,9 +468,15 @@ export async function getClaygentCount(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
+  const calcCount = async (startDate: string, endDate: string): Promise<number> => {
+    if (!startDate || !endDate) return 0
+    const ff = { ...f, startDate, endDate }
+    const data = await fetchAllPages(applyFilters(sb.from('responses').select('id, claygent_or_mcp_mentioned'), ff))
+    return data.filter((r: any) => (r.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes').length
+  }
   const [current, previous] = await Promise.all([
-    countResponses(sb, f, q => q.eq('claygent_or_mcp_mentioned', 'Yes')),
-    countResponses(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }, q => q.eq('claygent_or_mcp_mentioned', 'Yes')),
+    calcCount(f.startDate, f.endDate),
+    calcCount(f.prevStartDate, f.prevEndDate),
   ])
   return { current, previous }
 }
@@ -496,7 +498,7 @@ export async function getClaygentTimeseriesByPlatform(
     if (!date) continue
     allDates.add(date)
     allPlatforms.add(platform)
-    if (row.claygent_or_mcp_mentioned === 'Yes') {
+    if ((row.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes') {
       const key = `${date}|||${platform}`
       map.set(key, (map.get(key) ?? 0) + 1)
     }
@@ -522,7 +524,7 @@ export async function getClaygentTimeseries(
   for (const row of data) {
     const date = (row.run_date ?? '').substring(0, 10)
     if (!date) continue
-    if (row.claygent_or_mcp_mentioned === 'Yes') {
+    if ((row.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes') {
       map.set(date, (map.get(date) ?? 0) + 1)
     }
   }
@@ -569,14 +571,17 @@ export async function getMentionBreakdown(
 ): Promise<MentionTopicRow[]> {
   const snippetCol = column === 'clay_recommended_followup'
     ? 'clay_followup_snippet'
-    : 'clay_mention_snippet'
+    : column === 'claygent_or_mcp_mentioned'
+      ? 'claygent_or_mcp_snippet'
+      : 'clay_mention_snippet'
 
-  const data = await fetchAllPages(applyFilters(
+  const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(
       `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
     ),
     f
-  ).eq(column, 'Yes'))
+  ))
+  const data = allData.filter((r: any) => (r[column] ?? '').toLowerCase() === 'yes')
 
   if (!data.length) return []
 
@@ -661,7 +666,7 @@ export async function getFollowupTimeseries(
   for (const row of data) {
     const date = (row.run_date ?? '').substring(0, 10)
     if (!date) continue
-    if (row.clay_recommended_followup === 'Yes') {
+    if ((row.clay_recommended_followup ?? '').toLowerCase() === 'yes') {
       map.set(date, (map.get(date) ?? 0) + 1)
     }
   }
@@ -715,7 +720,7 @@ export async function getPMMPromptDrilldown(
   for (const row of data) {
     const cur = map.get(row.prompt_id) ?? { mentioned: 0, total: 0, positions: [], rows: [] }
     cur.total++
-    if (row.clay_mentioned === 'Yes') cur.mentioned++
+    if ((row.clay_mentioned ?? '').toLowerCase() === 'yes') cur.mentioned++
     if (row.clay_mention_position != null) cur.positions.push(row.clay_mention_position)
 
     // Parse cited_domains
