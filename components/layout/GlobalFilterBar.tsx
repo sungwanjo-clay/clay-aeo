@@ -73,7 +73,7 @@ export default function GlobalFilterBar() {
   const keywordTypeValue = filters.promptType
 
   const handleKeywordTypeChange = (v: string) => {
-    setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all', brandedFilter: 'all' })
+    setFilters({ promptType: v, brandedFilter: 'all' })
   }
 
   // Show only actual prompt_type values from the DB — no synthetic options

@@ -36,10 +36,8 @@ function applyFilters(query: any, f: FilterParams): any {
     // everything that is NOT an exact 'branded' match (covers 'Non Branded', 'Non-Branded', etc.)
     query = query.not('branded_or_non_branded', 'ilike', 'branded')
   }
-  if (f.promptType === 'benchmark') {
-    query = query.filter('prompt_type', 'ilike', 'benchmark')
-  } else if (f.promptType === 'campaign') {
-    query = query.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
+  if (f.promptType && f.promptType !== 'all') {
+    query = query.filter('prompt_type', 'ilike', f.promptType)
   }
   if (f.tags && f.tags !== 'all') {
     query = query.eq('tags', f.tags)
@@ -74,8 +72,7 @@ export async function getVisibilityScore(
     calcScore(f.prevStartDate, f.prevEndDate),
     (() => {
       let q = sb.from('prompts').select('*', { count: 'exact', head: true }).eq('is_active', true)
-      if (f.promptType === 'benchmark') q = q.filter('prompt_type', 'ilike', 'benchmark')
-      else if (f.promptType === 'campaign') q = q.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
+      if (f.promptType && f.promptType !== 'all') q = q.filter('prompt_type', 'ilike', f.promptType)
       if (f.brandedFilter === 'branded') q = q.ilike('branded_or_non_branded', 'branded')
       else if (f.brandedFilter === 'non-branded') q = q.not('branded_or_non_branded', 'ilike', 'branded')
       if (f.tags && f.tags !== 'all') q = q.eq('tags', f.tags)
@@ -139,8 +136,9 @@ export async function getFullLeaderboard(
 }
 
 export async function getDistinctPromptTypes(sb: SupabaseClient): Promise<string[]> {
-  const data = await fetchAllPages(sb.from('responses').select('prompt_type').not('prompt_type', 'is', null))
-  const normalized = data.map(r => (r.prompt_type ?? '').trim().toLowerCase()).filter(Boolean)
+  // Query prompts table (small, fast) rather than paginating 9000+ response rows
+  const data = await fetchAllPages(sb.from('prompts').select('prompt_type').not('prompt_type', 'is', null))
+  const normalized = data.map((r: any) => (r.prompt_type ?? '').trim().toLowerCase()).filter(Boolean)
   return [...new Set(normalized)].sort() as string[]
 }
 
@@ -573,12 +571,11 @@ export async function getMentionBreakdown(
   f: FilterParams,
   column: 'claygent_or_mcp_mentioned' | 'clay_recommended_followup'
 ): Promise<MentionTopicRow[]> {
-  // NOTE: claygent_or_mcp_snippet does not yet exist in the DB.
-  // Run `ALTER TABLE responses ADD COLUMN IF NOT EXISTS claygent_or_mcp_snippet TEXT;`
-  // in the Supabase SQL editor, then change this line to use that column.
   const snippetCol = column === 'clay_recommended_followup'
     ? 'clay_followup_snippet'
-    : 'clay_mention_snippet'
+    : column === 'claygent_or_mcp_mentioned'
+      ? 'claygent_or_mcp_snippet'
+      : 'clay_mention_snippet'
 
   const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(

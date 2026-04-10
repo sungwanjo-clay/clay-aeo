@@ -4,7 +4,7 @@ import { createContext, useContext, useState, ReactNode } from 'react'
 import type { FilterParams } from '@/lib/queries/types'
 
 export interface GlobalFilters {
-  promptType: 'benchmark' | 'campaign' | 'all'
+  promptType: string  // 'all' or any prompt_type value from DB (e.g. 'benchmark', 'branded')
   tags: string        // 'all' or specific tag value
   dateRange: { start: Date; end: Date }
   comparisonRange: { start: Date; end: Date }

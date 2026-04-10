@@ -14,10 +14,8 @@ function applyFilters(query: any, f: FilterParams): any {
   } else if (f.brandedFilter === 'non-branded') {
     query = query.not('branded_or_non_branded', 'ilike', 'branded')
   }
-  if (f.promptType === 'benchmark') {
-    query = query.filter('prompt_type', 'ilike', 'benchmark')
-  } else if (f.promptType === 'campaign') {
-    query = query.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
+  if (f.promptType && f.promptType !== 'all') {
+    query = query.filter('prompt_type', 'ilike', f.promptType)
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
