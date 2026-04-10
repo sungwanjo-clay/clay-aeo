@@ -236,7 +236,7 @@ export async function getVisibilityByPMM(
 export async function getPMMTable(
   sb: SupabaseClient,
   f: FilterParams
-): Promise<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
+): Promise<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]> {
   // Single RPC call replaces two parallel paginated fetches (was 10–20 round trips).
   // timeseries is returned as JSONB [{date, value}] from the RPC.
   const { data, error } = await sb.rpc('get_pmm_table_rpc', visRpcParams(f))
@@ -244,13 +244,14 @@ export async function getPMMTable(
   if (!data?.length) return []
 
   return data.map((r: any) => ({
-    pmm_use_case:     r.pmm_use_case,
-    visibility_score: r.visibility_score ?? 0,
-    delta:            r.delta            ?? null,
-    citation_share:   r.citation_share   ?? null,
-    avg_position:     r.avg_position     ?? null,
-    total_responses:  r.total_responses  ?? 0,
-    timeseries:       Array.isArray(r.timeseries) ? r.timeseries : [],
+    pmm_use_case:       r.pmm_use_case,
+    pmm_classification: r.pmm_classification ?? null,
+    visibility_score:   r.visibility_score ?? 0,
+    delta:              r.delta            ?? null,
+    citation_share:     r.citation_share   ?? null,
+    avg_position:       r.avg_position     ?? null,
+    total_responses:    r.total_responses  ?? 0,
+    timeseries:         Array.isArray(r.timeseries) ? r.timeseries : [],
   }))
 }
 
@@ -420,7 +421,7 @@ export async function getMentionBreakdown(
 
   const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(
-      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
+      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}, clay_mention_snippet`
     ),
     f
   ))
@@ -472,7 +473,7 @@ export async function getMentionBreakdown(
       id: row.id,
       platform: row.platform,
       run_date: (row.run_date ?? '').substring(0, 10),
-      snippet: row[snippetCol] ?? null,
+      snippet: row[snippetCol] ?? row.clay_mention_snippet ?? null,
       response_text: row.response_text ?? null,
       brand_sentiment: row.brand_sentiment ?? null,
       other_cited_domains: otherDomains,
@@ -544,14 +545,17 @@ export interface PMMPromptDrillRow {
 export async function getPMMPromptDrilldown(
   sb: SupabaseClient,
   f: FilterParams,
-  pmmUseCase: string
+  pmmUseCase: string,
+  pmmClassification?: string | null
 ): Promise<PMMPromptDrillRow[]> {
-  const data = await fetchAllPages(applyFilters(
+  let q = applyFilters(
     sb.from('responses').select(
       'id, prompt_id, platform, run_date, clay_mentioned, clay_mention_position, clay_mention_snippet, response_text, cited_domains, pmm_use_case'
     ),
     { ...f }
-  ).eq('pmm_use_case', pmmUseCase))
+  ).eq('pmm_use_case', pmmUseCase)
+  if (pmmClassification) q = q.eq('pmm_classification', pmmClassification)
+  const data = await fetchAllPages(q)
   if (!data.length) return []
 
   // Group by prompt

@@ -554,10 +554,9 @@ GRANT EXECUTE ON FUNCTION get_clay_kpis_rpc(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT
   TO anon, authenticated;
 
 
--- ── RPC 9: PMM table (per-pmm_use_case KPIs + daily timeseries, both periods) ─
--- Replaces getPMMTable() which did two parallel paginated fetches.
--- Returns one row per pmm_use_case; timeseries is a JSONB array [{date,value}].
--- citation_share denominator = total responses for use-case (matching JS logic).
+-- ── RPC 9: PMM table (per-pmm_use_case + pmm_classification KPIs + daily timeseries, both periods) ─
+-- Returns one row per (pmm_use_case, pmm_classification); timeseries is a JSONB array [{date,value}].
+-- citation_share denominator = total responses for the use-case × classification combo.
 
 CREATE OR REPLACE FUNCTION get_pmm_table_rpc(
   p_start_day      DATE,
@@ -570,13 +569,14 @@ CREATE OR REPLACE FUNCTION get_pmm_table_rpc(
   p_tags           TEXT    DEFAULT 'all'
 )
 RETURNS TABLE(
-  pmm_use_case     TEXT,
-  visibility_score FLOAT,
-  delta            FLOAT,
-  citation_share   FLOAT,
-  avg_position     FLOAT,
-  total_responses  BIGINT,
-  timeseries       JSONB
+  pmm_use_case        TEXT,
+  pmm_classification  TEXT,
+  visibility_score    FLOAT,
+  delta               FLOAT,
+  citation_share      FLOAT,
+  avg_position        FLOAT,
+  total_responses     BIGINT,
+  timeseries          JSONB
 )
 LANGUAGE sql STABLE SECURITY DEFINER
 SET statement_timeout = '30000'
@@ -587,6 +587,7 @@ AS $$
       (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev,
       run_day,
       pmm_use_case,
+      pmm_classification,
       clay_mentioned,
       clay_mention_position::float,
       EXISTS (
@@ -608,6 +609,7 @@ AS $$
   cur_by_pmm AS (
     SELECT
       pmm_use_case,
+      pmm_classification,
       COUNT(*)                                                          AS total,
       COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')               AS mentioned,
       COUNT(*) FILTER (WHERE has_clay)                                  AS clay_cited,
@@ -616,30 +618,33 @@ AS $$
                 AND clay_mention_position IS NOT NULL)                  AS avg_pos
     FROM filtered
     WHERE is_cur
-    GROUP BY pmm_use_case
+    GROUP BY pmm_use_case, pmm_classification
   ),
   prev_by_pmm AS (
     SELECT
       pmm_use_case,
+      pmm_classification,
       COUNT(*)                                                          AS total,
       COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')               AS mentioned
     FROM filtered
     WHERE is_prev
-    GROUP BY pmm_use_case
+    GROUP BY pmm_use_case, pmm_classification
   ),
   ts_by_day AS (
     SELECT
       pmm_use_case,
+      pmm_classification,
       run_day,
       COUNT(*)                                                          AS total,
       COUNT(*) FILTER (WHERE clay_mentioned ILIKE 'yes')               AS mentioned
     FROM filtered
     WHERE is_cur
-    GROUP BY pmm_use_case, run_day
+    GROUP BY pmm_use_case, pmm_classification, run_day
   ),
   ts_agg AS (
     SELECT
       pmm_use_case,
+      pmm_classification,
       jsonb_agg(
         jsonb_build_object(
           'date',  run_day::text,
@@ -647,10 +652,11 @@ AS $$
         ) ORDER BY run_day
       ) AS timeseries
     FROM ts_by_day
-    GROUP BY pmm_use_case
+    GROUP BY pmm_use_case, pmm_classification
   )
   SELECT
     c.pmm_use_case,
+    c.pmm_classification,
     CASE WHEN c.total > 0 THEN c.mentioned::float / c.total * 100 ELSE 0 END       AS visibility_score,
     CASE
       WHEN c.total > 0 AND p.total > 0
@@ -662,9 +668,9 @@ AS $$
     c.total                                                                          AS total_responses,
     COALESCE(t.timeseries, '[]'::jsonb)                                             AS timeseries
   FROM cur_by_pmm c
-  LEFT JOIN prev_by_pmm p USING (pmm_use_case)
-  LEFT JOIN ts_agg      t USING (pmm_use_case)
-  ORDER BY visibility_score DESC
+  LEFT JOIN prev_by_pmm p USING (pmm_use_case, pmm_classification)
+  LEFT JOIN ts_agg      t USING (pmm_use_case, pmm_classification)
+  ORDER BY c.pmm_use_case, visibility_score DESC
 $$;
 
 GRANT EXECUTE ON FUNCTION get_pmm_table_rpc(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
@@ -1145,7 +1151,7 @@ AS $$
       domain,
       COUNT(DISTINCT response_id)                AS response_count,
       BOOL_OR(domain LIKE '%clay.com%')          AS is_clay,
-      MAX(citation_type)                         AS citation_type
+      mode() WITHIN GROUP (ORDER BY citation_type) AS citation_type
     FROM citations
     GROUP BY domain
   ),

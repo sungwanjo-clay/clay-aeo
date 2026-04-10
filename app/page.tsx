@@ -62,7 +62,7 @@ export default function HomePage() {
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
-  const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
+  const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
   const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
   const [claygentBreakdown, setClaygentBreakdown] = useState<MentionTopicRow[]>([])
@@ -142,8 +142,8 @@ export default function HomePage() {
     })
   }, [f])
 
-  const handlePMMDrilldown = useCallback(async (pmmUseCase: string) => {
-    return getPMMPromptDrilldown(supabase, f, pmmUseCase)
+  const handlePMMDrilldown = useCallback(async (pmmUseCase: string, pmmClassification: string | null) => {
+    return getPMMPromptDrilldown(supabase, f, pmmUseCase, pmmClassification)
   }, [f])
 
   function visDelta() {

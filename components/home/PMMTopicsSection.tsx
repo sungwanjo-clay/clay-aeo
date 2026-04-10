@@ -11,6 +11,7 @@ import type { PMMPromptDrillRow, PMMPromptResponseRow } from '@/lib/queries/visi
 interface TimeseriesRow { date: string; value: number; pmm_use_case?: string }
 interface PMMRow {
   pmm_use_case: string
+  pmm_classification: string | null
   visibility_score: number
   delta: number | null
   citation_share: number | null
@@ -23,7 +24,7 @@ interface Props {
   series: TimeseriesRow[]
   table: PMMRow[]
   compareEnabled: boolean
-  onDrilldown: (pmmUseCase: string) => Promise<PMMPromptDrillRow[]>
+  onDrilldown: (pmmUseCase: string, pmmClassification: string | null) => Promise<PMMPromptDrillRow[]>
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -260,23 +261,37 @@ const PROMPT_LIMIT = 10
 
 // ── Main component ─────────────────────────────────────────────────────────
 export default function PMMTopicsSection({ series, table, compareEnabled, onDrilldown }: Props) {
-  const [expandedPMM, setExpandedPMM] = useState<string | null>(null)
+  // drillKey = "pmm_use_case|||pmm_classification" to uniquely identify a classification row
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [drillRows, setDrillRows] = useState<Record<string, PMMPromptDrillRow[]>>({})
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
   const [showAllPrompts, setShowAllPrompts] = useState<Record<string, boolean>>({})
 
   const { groups, chartData } = buildChartData(series)
 
-  async function toggleDrill(pmm: string) {
-    if (expandedPMM === pmm) { setExpandedPMM(null); return }
-    setExpandedPMM(pmm)
-    if (!drillRows[pmm]) {
-      setLoadingDrill(pmm)
-      const rows = await onDrilldown(pmm)
-      setDrillRows(prev => ({ ...prev, [pmm]: rows }))
+  function drillKey(useCase: string, classification: string | null) {
+    return `${useCase}|||${classification ?? ''}`
+  }
+
+  async function toggleDrill(useCase: string, classification: string | null) {
+    const key = drillKey(useCase, classification)
+    if (expandedKey === key) { setExpandedKey(null); return }
+    setExpandedKey(key)
+    if (!drillRows[key]) {
+      setLoadingDrill(key)
+      const rows = await onDrilldown(useCase, classification)
+      setDrillRows(prev => ({ ...prev, [key]: rows }))
       setLoadingDrill(null)
     }
   }
+
+  // Group table rows by pmm_use_case
+  const grouped: Record<string, PMMRow[]> = {}
+  for (const row of table) {
+    if (!grouped[row.pmm_use_case]) grouped[row.pmm_use_case] = []
+    grouped[row.pmm_use_case].push(row)
+  }
+  const useCases = Object.keys(grouped)
 
   const colSpan = compareEnabled ? 7 : 6
 
@@ -284,7 +299,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
     <div className="space-y-4">
       {/* Line chart */}
       <div className="p-5" style={cardStyle}>
-        <h2 style={labelStyle} className="mb-4">Visibility by PMM Solution</h2>
+        <h2 style={labelStyle} className="mb-4">Visibility by PMM Use Case</h2>
         {chartData.length > 0 && groups.length > 0 ? (() => {
           const pmmAllVals = chartData.flatMap(r => groups.map(g => Number((r as any)[g!] ?? 0)))
           const pmmYMax = Math.min(100, Math.ceil(Math.max(...pmmAllVals, 1) * 1.2 / 5) * 5)
@@ -323,7 +338,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
       <div className="p-5" style={cardStyle}>
         <h2 style={labelStyle} className="mb-1">PMM Breakdown</h2>
         <p className="text-[11px] font-semibold mb-4" style={{ color: 'rgba(26,25,21,0.4)' }}>
-          Click a row to expand prompts → click a prompt to see responses with snippets
+          Click a solution row to expand prompts → click a prompt to see responses with snippets
         </p>
         {table.length === 0 ? (
           <p className="py-6 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM data</p>
@@ -341,103 +356,118 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
               </tr>
             </thead>
             <tbody>
-              {table.map(row => {
-                const isUp = row.delta != null ? row.delta > 0 : null
-                const expanded = expandedPMM === row.pmm_use_case
-                const drill = drillRows[row.pmm_use_case]
+              {useCases.map(useCase => {
+                const rows = grouped[useCase]
                 return (
-                  <React.Fragment key={row.pmm_use_case}>
-                    {/* PMM row */}
-                    <tr
-                      onClick={() => toggleDrill(row.pmm_use_case)}
-                      className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
-                      style={{ borderBottom: expanded ? 'none' : '1px solid rgba(26,25,21,0.05)' }}
-                    >
-                      <td className="py-2.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
-                        <div className="flex items-center gap-2">
-                          {expanded
-                            ? <ChevronDown size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
-                            : <ChevronRight size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />}
-                          {row.pmm_use_case}
-                        </div>
+                  <React.Fragment key={useCase}>
+                    {/* Use case group header */}
+                    <tr style={{ background: 'rgba(26,25,21,0.03)', borderTop: '1px solid rgba(26,25,21,0.08)' }}>
+                      <td colSpan={colSpan} className="px-3 py-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                          {useCase}
+                        </span>
                       </td>
-                      <td className="py-2.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                        {row.visibility_score.toFixed(1)}%
-                      </td>
-                      {compareEnabled && (
-                        <td className="py-2.5 text-right">
-                          {row.delta != null ? (
-                            <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5"
-                              style={{ borderRadius: '4px', background: isUp ? 'rgba(61,184,204,0.15)' : '#FFE0DD', color: isUp ? 'var(--clay-slushie)' : 'var(--clay-pomegranate)' }}>
-                              {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                              {isUp ? '+' : ''}{row.delta!.toFixed(1)}%
-                            </span>
-                          ) : <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px' }}>—</span>}
-                        </td>
-                      )}
-                      <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
-                        {row.citation_share != null ? `${row.citation_share.toFixed(1)}%` : '—'}
-                      </td>
-                      <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
-                        {row.avg_position != null ? `#${row.avg_position.toFixed(1)}` : '—'}
-                      </td>
-                      <td className="py-2.5 text-right text-[12px] font-semibold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
-                        {row.total_responses.toLocaleString()}
-                      </td>
-                      <td />
                     </tr>
 
-                    {/* Drill-down: prompt list */}
-                    {expanded && (
-                      <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
-                        <td colSpan={colSpan} style={{ paddingBottom: '10px', paddingLeft: '4px', paddingRight: '4px' }}>
-                          {loadingDrill === row.pmm_use_case ? (
-                            <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading prompts…</p>
-                          ) : !drill || drill.length === 0 ? (
-                            <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No prompt data</p>
-                          ) : (
-                            <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
-                              {/* Prompt table header */}
-                              <div className="grid px-3 py-1.5" style={{
-                                gridTemplateColumns: '1fr 80px 72px 72px',
-                                background: 'rgba(26,25,21,0.03)',
-                                borderBottom: '1px solid rgba(26,25,21,0.07)',
-                              }}>
-                                {['Prompt', 'Visibility', 'Avg Pos', 'Responses'].map((h, i) => (
-                                  <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...labelStyle, fontSize: '9px' }}>{h}</span>
-                                ))}
+                    {/* Classification rows under this use case */}
+                    {rows.map(row => {
+                      const isUp = row.delta != null ? row.delta > 0 : null
+                      const key = drillKey(useCase, row.pmm_classification)
+                      const expanded = expandedKey === key
+                      const drill = drillRows[key]
+                      return (
+                        <React.Fragment key={key}>
+                          <tr
+                            onClick={() => toggleDrill(useCase, row.pmm_classification)}
+                            className="cursor-pointer hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+                            style={{ borderBottom: expanded ? 'none' : '1px solid rgba(26,25,21,0.04)' }}
+                          >
+                            <td className="py-2.5 text-[13px] font-semibold" style={{ color: 'var(--clay-black)', paddingLeft: '16px' }}>
+                              <div className="flex items-center gap-2">
+                                {expanded
+                                  ? <ChevronDown size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
+                                  : <ChevronRight size={13} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />}
+                                {row.pmm_classification ?? '(no classification)'}
                               </div>
-                              {/* Prompt rows sorted by response count — limited to top 10 */}
-                              {(() => {
-                                const sorted = [...drill].sort((a, b) => b.response_count - a.response_count)
-                                const showAll = showAllPrompts[row.pmm_use_case]
-                                const visible = showAll ? sorted : sorted.slice(0, PROMPT_LIMIT)
-                                return (
-                                  <>
-                                    <table className="w-full">
-                                      <tbody>
-                                        {visible.map(p => (
-                                          <PromptBlock key={p.prompt_id} p={p} colSpan={4} />
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                    {sorted.length > PROMPT_LIMIT && (
-                                      <button
-                                        onClick={e => { e.stopPropagation(); setShowAllPrompts(prev => ({ ...prev, [row.pmm_use_case]: !showAll })) }}
-                                        className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
-                                        style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)' }}
-                                      >
-                                        {showAll ? `Show top ${PROMPT_LIMIT} ↑` : `Show all ${sorted.length} prompts ↓`}
-                                      </button>
-                                    )}
-                                  </>
-                                )
-                              })()}
-                            </div>
+                            </td>
+                            <td className="py-2.5 text-right text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                              {row.visibility_score.toFixed(1)}%
+                            </td>
+                            {compareEnabled && (
+                              <td className="py-2.5 text-right">
+                                {row.delta != null ? (
+                                  <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5"
+                                    style={{ borderRadius: '4px', background: isUp ? 'rgba(61,184,204,0.15)' : '#FFE0DD', color: isUp ? 'var(--clay-slushie)' : 'var(--clay-pomegranate)' }}>
+                                    {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                                    {isUp ? '+' : ''}{row.delta!.toFixed(1)}%
+                                  </span>
+                                ) : <span style={{ color: 'rgba(26,25,21,0.3)', fontSize: '11px' }}>—</span>}
+                              </td>
+                            )}
+                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                              {row.citation_share != null ? `${row.citation_share.toFixed(1)}%` : '—'}
+                            </td>
+                            <td className="py-2.5 text-right text-[12px] tabular-nums" style={{ color: 'rgba(26,25,21,0.55)' }}>
+                              {row.avg_position != null ? `#${row.avg_position.toFixed(1)}` : '—'}
+                            </td>
+                            <td className="py-2.5 text-right text-[12px] font-semibold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>
+                              {row.total_responses.toLocaleString()}
+                            </td>
+                            <td />
+                          </tr>
+
+                          {/* Drill-down: prompt list */}
+                          {expanded && (
+                            <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
+                              <td colSpan={colSpan} style={{ paddingBottom: '10px', paddingLeft: '16px', paddingRight: '4px' }}>
+                                {loadingDrill === key ? (
+                                  <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading prompts…</p>
+                                ) : !drill || drill.length === 0 ? (
+                                  <p className="px-4 py-3 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No prompt data</p>
+                                ) : (
+                                  <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
+                                    <div className="grid px-3 py-1.5" style={{
+                                      gridTemplateColumns: '1fr 80px 72px 72px',
+                                      background: 'rgba(26,25,21,0.03)',
+                                      borderBottom: '1px solid rgba(26,25,21,0.07)',
+                                    }}>
+                                      {['Prompt', 'Visibility', 'Avg Pos', 'Responses'].map((h, i) => (
+                                        <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...labelStyle, fontSize: '9px' }}>{h}</span>
+                                      ))}
+                                    </div>
+                                    {(() => {
+                                      const sorted = [...drill].sort((a, b) => b.response_count - a.response_count)
+                                      const showAll = showAllPrompts[key]
+                                      const visible = showAll ? sorted : sorted.slice(0, PROMPT_LIMIT)
+                                      return (
+                                        <>
+                                          <table className="w-full">
+                                            <tbody>
+                                              {visible.map(p => (
+                                                <PromptBlock key={p.prompt_id} p={p} colSpan={4} />
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                          {sorted.length > PROMPT_LIMIT && (
+                                            <button
+                                              onClick={e => { e.stopPropagation(); setShowAllPrompts(prev => ({ ...prev, [key]: !showAll })) }}
+                                              className="w-full py-2 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity"
+                                              style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)' }}
+                                            >
+                                              {showAll ? `Show top ${PROMPT_LIMIT} ↑` : `Show all ${sorted.length} prompts ↓`}
+                                            </button>
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    )}
+                        </React.Fragment>
+                      )
+                    })}
                   </React.Fragment>
                 )
               })}
