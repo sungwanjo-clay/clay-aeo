@@ -34,7 +34,9 @@ async function fetchCompetitorsByIds(
   extraFilter?: (q: any) => any
 ): Promise<any[]> {
   if (!ids.length) return []
-  const BATCH = 500
+  // BATCH capped at 100: response_competitors has ~8 rows per response, so 100×8=800 rows/request
+  // safely under Supabase's hard 1000-row cap. 500 would silently truncate ~75% of data.
+  const BATCH = 100
   return (await Promise.all(
     Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) => {
       let q = sb.from('response_competitors')

@@ -327,7 +327,9 @@ export async function getShareOfVoice(
   const validIds = responses.map((r: any) => String(r.id))
 
   // Fetch response_competitors via IN() batches — avoids run_date type mismatch
-  const BATCH = 500
+  // BATCH capped at 100: response_competitors has ~8 rows per response, so 100×8=800 rows/request
+  // safely under Supabase's hard 1000-row cap. 500 would silently truncate ~75% of data.
+  const BATCH = 100
   const rc = (await Promise.all(
     Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
       sb.from('response_competitors')

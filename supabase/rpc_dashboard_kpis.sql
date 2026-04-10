@@ -166,9 +166,6 @@ AS $$
     WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
       p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
   ),
-  -- Denominator = all filtered responses (not just those with any citation)
-  cur_total  AS (SELECT COUNT(*) AS n FROM cur_ids),
-  prev_total AS (SELECT COUNT(*) AS n FROM prev_ids),
   cur_per AS (
     SELECT cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
     FROM citation_domains cd
@@ -181,13 +178,13 @@ AS $$
     WHERE cd.response_id IN (SELECT id FROM prev_ids)
     GROUP BY cd.response_id
   ),
-  cur_agg  AS (SELECT COUNT(*) FILTER (WHERE has_clay) AS c FROM cur_per),
-  prev_agg AS (SELECT COUNT(*) FILTER (WHERE has_clay) AS c FROM prev_per)
+  -- Denominator = responses with ANY citation (citation share, not citation coverage)
+  cur_agg  AS (SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE has_clay) AS c FROM cur_per),
+  prev_agg AS (SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE has_clay) AS c FROM prev_per)
   SELECT
-    -- clay_cited / total_responses = "% of all responses that cite Clay"
-    CASE WHEN t.n > 0 THEN c.c::float / t.n * 100 ELSE NULL END,
-    CASE WHEN p.n > 0 THEN a.c::float / p.n * 100 ELSE NULL END
-  FROM cur_agg c, prev_agg a, cur_total t, prev_total p
+    CASE WHEN c.n > 0 THEN c.c::float / c.n * 100 ELSE NULL END,
+    CASE WHEN p.n > 0 THEN p.c::float / p.n * 100 ELSE NULL END
+  FROM cur_agg c, prev_agg p
 $$;
 
 GRANT EXECUTE ON FUNCTION get_citation_share_kpi(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)

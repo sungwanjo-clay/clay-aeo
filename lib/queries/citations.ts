@@ -242,8 +242,10 @@ export async function getCompetitorCitationTimeseries(
   }
 
   // Step 2: Fetch citation_domains via response_id IN() batches — avoids run_date type mismatch
+  // BATCH capped at 100: citation_domains has ~7 rows per response, so 100×7=700 rows/request
+  // safely under Supabase's hard 1000-row cap. 500 would silently truncate ~70% of data.
   const validIds = [...responseIdToDate.keys()]
-  const BATCH = 500
+  const BATCH = 100
   const citations = (await Promise.all(
     Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
       sb.from('citation_domains')
@@ -332,8 +334,9 @@ export async function getTopCitedDomainsWithURLs(
   if (!validResponses.length) return []
   const validIds = validResponses.map((r: any) => String(r.id))
 
-  // Step 2: fetch citation_domains for those response IDs in parallel batches of 500
-  const BATCH = 500
+  // Step 2: fetch citation_domains for those response IDs in parallel batches of 100
+  // citation_domains has ~7 rows per response; 100×7=700 safely under Supabase's 1000-row cap
+  const BATCH = 100
   const allCitations = (await Promise.all(
     Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
       sb.from('citation_domains')
