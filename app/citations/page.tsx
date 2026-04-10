@@ -9,12 +9,13 @@ import {
   getCitationCount,
   getCitationCoverage,
   getCompetitorCitationTimeseries,
-  getClayURLsByType,
   getTopCitedDomainsEnhanced,
   getCitationTypeBreakdown,
   getCitationRateByTopic,
+  getCitationShareByPlatform,
+  getCitationURLContext,
 } from '@/lib/queries/citations'
-import type { ClayURLTypeGroup, TopDomainRow, TopicCitationRow } from '@/lib/queries/citations'
+import type { TopDomainRow, TopicCitationRow, URLCitationContext } from '@/lib/queries/citations'
 import VisibilityLineChart from '@/components/charts/VisibilityLineChart'
 import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
@@ -165,10 +166,132 @@ function CitationCategoryBar({ types, selected, onSelect }: {
   )
 }
 
+// ── URL row with lazy-loaded prompt context ────────────────────────────────────
+function URLRowItem({ u, f }: {
+  u: TopDomainRow['top_urls'][number]
+  f: ReturnType<ReturnType<typeof useGlobalFilters>['toQueryParams']>
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [ctx, setCtx] = useState<URLCitationContext[] | null>(null)
+  const [loadingCtx, setLoadingCtx] = useState(false)
+  const uc = urlTypeColor(u.url_type ?? 'Other')
+
+  const toggle = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (expanded) { setExpanded(false); return }
+    setExpanded(true)
+    if (ctx === null && !loadingCtx) {
+      setLoadingCtx(true)
+      try {
+        const result = await getCitationURLContext(supabase, u.url, f as any)
+        setCtx(result)
+      } catch { setCtx([]) }
+      finally { setLoadingCtx(false) }
+    }
+  }
+
+  return (
+    <div className="rounded hover:bg-[rgba(26,25,21,0.02)] transition-colors"
+      style={{ borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
+      {/* URL header row */}
+      <div className="grid gap-2 items-start px-2 py-2 cursor-pointer"
+        style={{ gridTemplateColumns: '1fr 64px 20px' }}
+        onClick={toggle}>
+        <div className="min-w-0">
+          {u.title && (
+            <p className="text-[11px] font-semibold leading-tight mb-0.5 truncate" style={{ color: 'var(--clay-black)' }}>
+              {u.title}
+            </p>
+          )}
+          <a href={u.url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 group" onClick={e => e.stopPropagation()}>
+            <ExternalLink size={9} className="shrink-0 opacity-40 group-hover:opacity-70" />
+            <span className="text-[10px] truncate group-hover:underline" style={{ color: 'rgba(26,25,21,0.45)' }}>{u.url}</span>
+          </a>
+          {u.url_type && (
+            <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded mt-1"
+              style={{ background: `${uc}18`, color: uc, border: `1px solid ${uc}30` }}>
+              {u.url_type}
+            </span>
+          )}
+        </div>
+        <span className="text-right text-[12px] font-bold tabular-nums pt-0.5" style={{ color: 'var(--clay-black)' }}>
+          {u.count.toLocaleString()}
+        </span>
+        <span className="text-center pt-0.5">
+          {expanded
+            ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)' }} />
+            : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)' }} />}
+        </span>
+      </div>
+
+      {/* Expanded: prompt context rows */}
+      {expanded && (
+        <div className="px-3 pb-2 space-y-1.5" style={{ borderTop: '1px solid rgba(26,25,21,0.05)' }}>
+          {loadingCtx ? (
+            <div className="py-2 flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full animate-pulse" style={{ background: 'rgba(26,25,21,0.2)' }} />
+              <span className="text-[10px]" style={{ color: 'rgba(26,25,21,0.35)' }}>Loading citation context…</span>
+            </div>
+          ) : !ctx?.length ? (
+            <p className="text-[10px] py-2" style={{ color: 'rgba(26,25,21,0.35)' }}>No context available</p>
+          ) : (
+            <>
+              <div className="grid gap-2 pt-2 pb-1"
+                style={{ gridTemplateColumns: '1fr 60px 120px', borderBottom: '1px solid rgba(26,25,21,0.06)' }}>
+                <span style={{ ...LABEL, fontSize: '8.5px' }}>Prompt</span>
+                <span className="text-right" style={{ ...LABEL, fontSize: '8.5px' }}>Position</span>
+                <span className="text-right" style={{ ...LABEL, fontSize: '8.5px' }}>Other cited</span>
+              </div>
+              {ctx.map((c, i) => (
+                <div key={i} className="grid gap-2 py-1.5 items-start"
+                  style={{ gridTemplateColumns: '1fr 60px 120px', borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
+                  <div>
+                    <p className="text-[10px] leading-relaxed" style={{ color: 'var(--clay-black)' }}>
+                      {c.prompt_text}
+                    </p>
+                    <span className="text-[9px]" style={{ color: 'rgba(26,25,21,0.4)' }}>
+                      {c.platform} · {c.run_date}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    {c.clay_position != null ? (
+                      <span className="text-[11px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                        #{c.clay_position}
+                      </span>
+                    ) : (
+                      <span className="text-[10px]" style={{ color: 'rgba(26,25,21,0.3)' }}>—</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1 justify-end">
+                    {c.other_domains.slice(0, 3).map(d => (
+                      <span key={d} className="text-[8.5px] font-semibold px-1 py-0.5 rounded truncate max-w-[90px]"
+                        style={{ background: 'rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.5)' }}>
+                        {d}
+                      </span>
+                    ))}
+                    {c.other_domains.length > 3 && (
+                      <span className="text-[8.5px]" style={{ color: 'rgba(26,25,21,0.3)' }}>+{c.other_domains.length - 3}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Domain row ─────────────────────────────────────────────────────────────────
 const URL_LIMIT = 10
 
-function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
+function DomainRowItem({ row, rank, f }: {
+  row: TopDomainRow
+  rank: number
+  f: ReturnType<ReturnType<typeof useGlobalFilters>['toQueryParams']>
+}) {
   const [open, setOpen] = useState(false)
   const [showAllUrls, setShowAllUrls] = useState(false)
   const color = typeColor(row.citation_type ?? 'Other')
@@ -218,54 +341,21 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
       {open && row.top_urls.length > 0 && (
         <tr style={{ borderBottom: '1px solid rgba(26,25,21,0.06)', background: 'rgba(26,25,21,0.01)' }}>
           <td colSpan={5} className="px-4 pb-3 pt-1">
-            <div className="ml-8 space-y-1">
+            <div className="ml-8 space-y-0">
               <div className="grid gap-2 px-2 pb-1"
-                style={{ gridTemplateColumns: '1fr 64px', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
-                <span style={{ ...LABEL, fontSize: '9px' }}>Page</span>
+                style={{ gridTemplateColumns: '1fr 64px 20px', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
+                <span style={{ ...LABEL, fontSize: '9px' }}>Page · click to see prompts</span>
                 <span className="text-right" style={{ ...LABEL, fontSize: '9px' }}>Count</span>
+                <span />
               </div>
-              {(showAllUrls ? row.top_urls : row.top_urls.slice(0, URL_LIMIT)).map(u => {
-                const uc = urlTypeColor(u.url_type ?? 'Other')
-                return (
-                  <div key={u.url} className="grid gap-2 items-start px-2 py-2 rounded hover:bg-[rgba(26,25,21,0.02)]"
-                    style={{ gridTemplateColumns: '1fr 64px' }}>
-                    <div className="min-w-0">
-                      {u.title && (
-                        <p className="text-[11px] font-semibold leading-tight mb-0.5 truncate" style={{ color: 'var(--clay-black)' }}>
-                          {u.title}
-                        </p>
-                      )}
-                      <a href={u.url} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1 group" onClick={e => e.stopPropagation()}>
-                        <ExternalLink size={9} className="shrink-0 opacity-40 group-hover:opacity-70" />
-                        <span className="text-[10px] truncate group-hover:underline" style={{ color: 'rgba(26,25,21,0.45)' }}>{u.url}</span>
-                      </a>
-                      {/* Topic context — shows which prompt categories cited this URL */}
-                      <div className="flex flex-wrap gap-1 mt-1.5 items-center">
-                        {u.url_type && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                            style={{ background: `${uc}18`, color: uc, border: `1px solid ${uc}30` }}>
-                            {u.url_type}
-                          </span>
-                        )}
-                        {u.topics.slice(0, 4).map(t => (
-                          <span key={t} className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
-                            style={{ background: 'rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.55)' }}>{t}</span>
-                        ))}
-                        {u.topics.length > 4 && <span className="text-[9px]" style={{ color: 'rgba(26,25,21,0.35)' }}>+{u.topics.length - 4} topics</span>}
-                      </div>
-                    </div>
-                    <span className="text-right text-[12px] font-bold tabular-nums pt-0.5" style={{ color: 'var(--clay-black)' }}>
-                      {u.count.toLocaleString()}
-                    </span>
-                  </div>
-                )
-              })}
+              {(showAllUrls ? row.top_urls : row.top_urls.slice(0, URL_LIMIT)).map(u => (
+                <URLRowItem key={u.url} u={u} f={f} />
+              ))}
               {row.top_urls.length > URL_LIMIT && (
                 <button
                   onClick={e => { e.stopPropagation(); setShowAllUrls(v => !v) }}
                   className="w-full py-1.5 text-[10px] font-bold uppercase tracking-wider hover:opacity-70 transition-opacity mt-1"
-                  style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}
+                  style={{ borderTop: '1px solid rgba(26,25,21,0.06)', color: 'rgba(26,25,21,0.4)', background: 'none', cursor: 'pointer' }}
                 >
                   {showAllUrls ? `Show top ${URL_LIMIT} ↑` : `Show all ${row.top_urls.length} URLs ↓`}
                 </button>
@@ -279,7 +369,7 @@ function DomainRowItem({ row, rank }: { row: TopDomainRow; rank: number }) {
 }
 
 // ── Clay citations by content type ─────────────────────────────────────────────
-function ClayURLTypeRow({ group, totalCitations }: { group: ClayURLTypeGroup; totalCitations: number }) {
+function ClayURLTypeRow({ group, totalCitations }: { group: any; totalCitations: number }) {
   const [open, setOpen] = useState(true)
   const [showAll, setShowAll] = useState(false)
   const color = urlTypeColor(group.url_type)
@@ -319,7 +409,7 @@ function ClayURLTypeRow({ group, totalCitations }: { group: ClayURLTypeGroup; to
               <span key={h} className={i > 0 ? 'text-right' : ''} style={{ ...LABEL, fontSize: '9px' }}>{h}</span>
             ))}
           </div>
-          {visible.map(item => (
+          {(visible as any[]).map((item: any) => (
             <div key={item.url} className="grid gap-2 px-4 py-2.5 hover:bg-[rgba(26,25,21,0.02)] items-start"
               style={{ gridTemplateColumns: '1fr 80px 80px 100px', borderBottom: '1px solid rgba(26,25,21,0.04)' }}>
               <div className="min-w-0">
@@ -333,14 +423,14 @@ function ClayURLTypeRow({ group, totalCitations }: { group: ClayURLTypeGroup; to
               </div>
               <span className="text-right text-[13px] font-bold tabular-nums pt-0.5" style={{ color: 'var(--clay-black)' }}>{item.count.toLocaleString()}</span>
               <div className="flex flex-wrap gap-1 justify-end">
-                {item.topics.slice(0, 2).map(t => (
+                {(item.topics as string[]).slice(0, 2).map((t: string) => (
                   <span key={t} className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
                     style={{ background: 'rgba(74,90,255,0.08)', color: '#4A5AFF' }}>{t}</span>
                 ))}
                 {item.topics.length > 2 && <span className="text-[9px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>+{item.topics.length - 2}</span>}
               </div>
               <div className="flex flex-wrap gap-1 justify-end">
-                {item.platforms.map(p => (
+                {(item.platforms as string[]).map((p: string) => (
                   <span key={p} className="text-[9px] font-bold px-1.5 py-0.5 rounded"
                     style={{ background: 'rgba(74,90,255,0.08)', color: '#4A5AFF' }}>{p}</span>
                 ))}
@@ -499,7 +589,7 @@ function CitationActivityChart({ competitorTs }: {
         </div>
         <div className="flex flex-wrap gap-4 py-2">
           {allDomains.map((domain, i) => {
-            const val = domain === 'clay.com' ? clayValue : Number(d[domain] ?? 0)
+            const val = Number(d[domain] ?? 0)
             const color = domain === 'clay.com' ? 'var(--clay-black)' : COMP_COLORS[(i - 1) % COMP_COLORS.length]
             return (
               <div key={domain} className="flex flex-col gap-0.5">
@@ -565,6 +655,62 @@ function CitationRateByTopicChart({ data }: { data: TopicCitationRow[] }) {
   return <VisibilityLineChart data={data} groupKey="topic" height={300} yLabel="Clay cited %" />
 }
 
+// ── Platform split tile ────────────────────────────────────────────────────────
+function PlatformSplitTile({ rates, loading }: {
+  rates: { platform: string; rate: number; cited: number; total: number }[]
+  loading: boolean
+}) {
+  const PLATFORM_COLORS: Record<string, string> = {
+    'Claude':  '#CC3D8A',
+    'ChatGPT': '#3DAA6A',
+    'Gemini':  '#4A5AFF',
+    'Perplexity': '#FF6B35',
+  }
+  const color = (p: string) => {
+    for (const [k, v] of Object.entries(PLATFORM_COLORS)) {
+      if (p.toLowerCase().includes(k.toLowerCase())) return v
+    }
+    return '#9CA3AF'
+  }
+
+  if (loading) return <SkeletonCard />
+
+  if (!rates.length) return null
+
+  const max = Math.max(...rates.map(r => r.rate), 0.1)
+
+  return (
+    <div className="col-span-2 lg:col-span-4 rounded-lg p-4" style={{ background: '#FFFFFF', border: '1px solid var(--clay-border)' }}>
+      <div className="flex items-center mb-3">
+        <span style={LABEL}>Citation Rate by Platform</span>
+        <InfoTip text="How often Clay.com appears in citations, broken out per AI platform. % of responses with any citations that cited Clay.com." />
+      </div>
+      <div className="flex gap-6 flex-wrap">
+        {rates.map(r => {
+          const c = color(r.platform)
+          return (
+            <div key={r.platform} className="flex-1 min-w-[120px]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: c }} />
+                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'rgba(26,25,21,0.45)' }}>{r.platform}</span>
+              </div>
+              <p className="text-2xl font-bold tabular-nums mb-1" style={{ color: 'var(--clay-black)' }}>
+                {r.rate.toFixed(1)}<span className="text-base font-semibold">%</span>
+              </p>
+              <div className="w-full rounded-full overflow-hidden mb-1" style={{ height: '4px', background: 'rgba(26,25,21,0.07)' }}>
+                <div style={{ width: `${(r.rate / max) * 100}%`, background: c, height: '100%', transition: 'width 0.5s' }} />
+              </div>
+              <p className="text-[10px]" style={{ color: 'rgba(26,25,21,0.4)' }}>
+                {r.cited.toLocaleString()} / {r.total.toLocaleString()} cited responses
+              </p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 export default function CitationsPage() {
   const { toQueryParams } = useGlobalFilters()
@@ -572,19 +718,20 @@ export default function CitationsPage() {
 
   const [loading, setLoading] = useState(true)
   const [loadingExtra, setLoadingExtra] = useState(true)
+  const [loadingPlatform, setLoadingPlatform] = useState(true)
 
   const [citShare, setCitShare] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [citCount, setCitCount] = useState<{ current: number; previous: number } | null>(null)
   const [coverage, setCoverage] = useState<{ coveragePct: number; avgPerCited: number } | null>(null)
   const [competitorTs, setCompetitorTs] = useState<{ date: string; domain: string; value: number }[]>([])
-  const [clayUrlTypes, setClayUrlTypes] = useState<ClayURLTypeGroup[]>([])
   const [topDomains, setTopDomains] = useState<TopDomainRow[]>([])
   const [citTypes, setCitTypes] = useState<{ type: string; count: number; pct: number }[]>([])
   const [topicCitationData, setTopicCitationData] = useState<TopicCitationRow[]>([])
+  const [platformRates, setPlatformRates] = useState<{ platform: string; rate: number; cited: number; total: number }[]>([])
   const [domainSearch, setDomainSearch] = useState('')
   const [selectedType, setSelectedType] = useState<string | null>(null)
 
-  // Fast: KPIs + chart
+  // Fast: KPIs
   useEffect(() => {
     setLoading(true)
     Promise.all([
@@ -600,19 +747,26 @@ export default function CitationsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
 
+  // Platform split (fast cache query)
+  useEffect(() => {
+    setLoadingPlatform(true)
+    getCitationShareByPlatform(supabase, f)
+      .then(r => { setPlatformRates(r); setLoadingPlatform(false) })
+      .catch(() => setLoadingPlatform(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+
   // Slow: domain-level data
   useEffect(() => {
     setLoadingExtra(true)
     setSelectedType(null)
     Promise.all([
       getCompetitorCitationTimeseries(supabase, f, 5).catch(() => []),
-      getClayURLsByType(supabase, f).catch(() => []),
       getTopCitedDomainsEnhanced(supabase, f).catch(() => []),
       getCitationTypeBreakdown(supabase, f).catch(() => []),
       getCitationRateByTopic(supabase, f).catch(() => []),
-    ]).then(([compTs, urlTypes, domains, typeBreakdown, topicCit]) => {
+    ]).then(([compTs, domains, typeBreakdown, topicCit]) => {
       setCompetitorTs(compTs ?? [])
-      setClayUrlTypes(urlTypes ?? [])
       setTopDomains(domains ?? [])
       setCitTypes(typeBreakdown ?? [])
       setTopicCitationData(topicCit ?? [])
@@ -624,7 +778,6 @@ export default function CitationsPage() {
   const citDelta = (citShare?.current != null && citShare?.previous != null)
     ? citShare.current - citShare.previous : null
   const countDelta = citCount != null ? citCount.current - citCount.previous : null
-  const totalClayCitations = clayUrlTypes.reduce((s, g) => s + g.total, 0)
 
   // Filter + search — always re-sort descending by citation_count so rank is correct after filter
   const displayDomains = useMemo(() => {
@@ -632,6 +785,34 @@ export default function CitationsPage() {
     if (domainSearch) list = list.filter(d => d.domain.toLowerCase().includes(domainSearch.toLowerCase()))
     return [...list].sort((a, b) => b.citation_count - a.citation_count)
   }, [topDomains, selectedType, domainSearch])
+
+  // Clay URL type groups — derived from topDomains (no extra fetch needed)
+  const clayGroups = useMemo(() => {
+    const clayDomains = topDomains.filter(d => d.is_clay)
+    if (!clayDomains.length) return []
+    const grandTotal = clayDomains.reduce((s, d) => s + d.citation_count, 0)
+    const typeMap = new Map<string, { total: number; urls: Array<{ url: string; title: string | null; count: number; topics: string[]; platforms: string[] }> }>()
+    for (const domain of clayDomains) {
+      for (const u of domain.top_urls) {
+        const t = u.url_type ?? 'Other'
+        if (!typeMap.has(t)) typeMap.set(t, { total: 0, urls: [] })
+        const entry = typeMap.get(t)!
+        entry.total += u.count
+        entry.urls.push({ url: u.url, title: u.title, count: u.count, topics: u.topics, platforms: [] })
+      }
+    }
+    for (const [, v] of typeMap) v.urls.sort((a, b) => b.count - a.count)
+    return [...typeMap.entries()]
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([url_type, { total, urls }]) => ({
+        url_type,
+        total,
+        share_pct: grandTotal > 0 ? (total / grandTotal) * 100 : 0,
+        urls: urls.slice(0, 20).map(u => ({ ...u, citation_type: null })),
+      }))
+  }, [topDomains])
+
+  const totalClayCitations = clayGroups.reduce((s, g) => s + g.total, 0)
 
   // Aggregate all domains' URLs by url_type (for Content Types section)
   const contentTypeGroups = useMemo(() => {
@@ -688,6 +869,13 @@ export default function CitationsPage() {
         </div>
       )}
 
+      {/* Platform split tile */}
+      {!loadingPlatform && platformRates.length > 1 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <PlatformSplitTile rates={platformRates} loading={loadingPlatform} />
+        </div>
+      )}
+
       {/* Citation Activity Chart */}
       <div style={CARD} className="p-4">
         {(loading || loadingExtra) ? <SkeletonChart /> : (
@@ -741,7 +929,7 @@ export default function CitationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {displayDomains.map((row, i) => <DomainRowItem key={row.domain} row={row} rank={i + 1} />)}
+                {displayDomains.map((row, i) => <DomainRowItem key={row.domain} row={row} rank={i + 1} f={f} />)}
               </tbody>
             </table>
           )
@@ -752,18 +940,18 @@ export default function CitationsPage() {
       <div style={CARD} className="p-4">
         <div className="flex items-center mb-1">
           <span style={LABEL}>Clay Citations by Content Type</span>
-          <InfoTip text="Which types of Clay content AI cites most. Expand a type to see specific pages, the topics they appear in, and which platforms cite them." />
+          <InfoTip text="Which types of Clay content AI cites most. Expand a type to see the specific pages cited." />
         </div>
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
           How clay.com is cited — by content type, with the top cited pages per category.
         </p>
         {loadingExtra ? (
           <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg animate-pulse" style={{ background: 'rgba(26,25,21,0.05)' }} />)}</div>
-        ) : clayUrlTypes.length === 0 ? (
+        ) : clayGroups.length === 0 ? (
           <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>No Clay citation data in this period</div>
         ) : (
           <div className="space-y-2">
-            {clayUrlTypes.map(group => <ClayURLTypeRow key={group.url_type} group={group} totalCitations={totalClayCitations} />)}
+            {clayGroups.map(group => <ClayURLTypeRow key={group.url_type} group={group} totalCitations={totalClayCitations} />)}
           </div>
         )}
       </div>

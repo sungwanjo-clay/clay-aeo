@@ -455,6 +455,109 @@ export async function getTopCitedDomainsEnhanced(
     .slice(0, 30)
 }
 
+// ── Citation share broken down by platform ────────────────────────────────────
+export async function getCitationShareByPlatform(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ platform: string; rate: number; cited: number; total: number }[]> {
+  let q = sb
+    .from('aeo_cache_daily')
+    .select('platform, clay_cited_responses, total_with_citations')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+
+  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+
+  const data = await fetchAllPages(q)
+  if (!data.length) return []
+
+  const map = new Map<string, { cited: number; total: number }>()
+  for (const row of data) {
+    const p = row.platform ?? 'Unknown'
+    const cur = map.get(p) ?? { cited: 0, total: 0 }
+    cur.cited += Number(row.clay_cited_responses ?? 0)
+    cur.total += Number(row.total_with_citations ?? 0)
+    map.set(p, cur)
+  }
+
+  return Array.from(map.entries())
+    .map(([platform, { cited, total }]) => ({
+      platform,
+      cited,
+      total,
+      rate: total > 0 ? (cited / total) * 100 : 0,
+    }))
+    .sort((a, b) => b.rate - a.rate)
+}
+
+// ── Per-URL prompt context (lazy loaded when URL row is expanded) ──────────────
+export interface URLCitationContext {
+  prompt_text: string
+  clay_position: number | null
+  other_domains: string[]
+  platform: string
+  run_date: string
+}
+
+export async function getCitationURLContext(
+  sb: SupabaseClient,
+  url: string,
+  f: FilterParams,
+  limit = 8
+): Promise<URLCitationContext[]> {
+  // Fetch citation_domain rows for this URL in the period, join responses
+  const { data, error } = await sb
+    .from('citation_domains')
+    .select('response_id, platform, run_date, responses(prompt_id, clay_mention_position, cited_domains)')
+    .eq('url', url)
+    .gte('run_date', f.startDate.split('T')[0])
+    .lt('run_date', cdNextDay(f.endDate.split('T')[0]))
+    .limit(limit)
+
+  if (error || !data?.length) return []
+
+  // Collect unique prompt IDs
+  const promptIds = [...new Set(
+    (data as any[])
+      .map((r: any) => r.responses?.prompt_id)
+      .filter(Boolean)
+  )]
+
+  const promptMap = new Map<string, string>()
+  if (promptIds.length > 0) {
+    const { data: prompts } = await sb
+      .from('prompts')
+      .select('prompt_id, prompt_text')
+      .in('prompt_id', promptIds)
+    for (const p of prompts ?? []) {
+      promptMap.set(p.prompt_id, p.prompt_text)
+    }
+  }
+
+  return (data as any[]).map((row: any) => {
+    const resp = row.responses ?? {}
+    let domains: string[] = []
+    try {
+      domains = Array.isArray(resp.cited_domains)
+        ? resp.cited_domains
+        : JSON.parse(resp.cited_domains ?? '[]')
+    } catch { /* ignore */ }
+
+    const otherDomains = domains
+      .filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('clay.com'))
+      .slice(0, 5)
+
+    return {
+      prompt_text: promptMap.get(resp.prompt_id) ?? '(unknown prompt)',
+      clay_position: resp.clay_mention_position ?? null,
+      other_domains: otherDomains,
+      platform: row.platform ?? '',
+      run_date: (row.run_date ?? '').substring(0, 10),
+    }
+  })
+}
+
 // ── Citation rate grouped by prompt topic (timeseries) ────────────────────────
 // Returns one row per date × topic with Clay citation rate as the value,
 // suitable for rendering as a multi-line chart (one line per topic).
