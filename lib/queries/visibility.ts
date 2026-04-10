@@ -68,20 +68,40 @@ function visRpcParams(f: FilterParams, extra?: Record<string, unknown>) {
   }
 }
 
+/** Single call that fetches all 3 visibility KPIs at once. Use this from page.tsx. */
+export async function getVisibilityKpis(sb: SupabaseClient, f: FilterParams): Promise<{
+  visibility:    { current: number | null; previous: number | null; total: number }
+  avgPosition:   { current: number | null; previous: number | null }
+  claygentCount: { current: number; previous: number }
+}> {
+  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
+  if (error) console.error('[getVisibilityKpis] RPC error:', error)
+  // Supabase may return RETURNS JSON as a raw string — parse defensively
+  const d = !error && data
+    ? (typeof data === 'string' ? JSON.parse(data) : data)
+    : null
+  return {
+    visibility: {
+      current:  d?.visibility?.current  ?? null,
+      previous: d?.visibility?.previous ?? null,
+      total:    d?.visibility?.total    ?? 0,
+    },
+    avgPosition: {
+      current:  d?.avg_position?.current  ?? null,
+      previous: d?.avg_position?.previous ?? null,
+    },
+    claygentCount: {
+      current:  d?.claygent_count?.current  ?? 0,
+      previous: d?.claygent_count?.previous ?? 0,
+    },
+  }
+}
+
 export async function getVisibilityScore(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null; total: number }> {
-  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
-  if (error || !data) {
-    console.error('[getVisibilityScore] RPC error:', error)
-    return { current: null, previous: null, total: 0 }
-  }
-  return {
-    current:  data.visibility?.current  ?? null,
-    previous: data.visibility?.previous ?? null,
-    total:    data.visibility?.total    ?? 0,
-  }
+  return (await getVisibilityKpis(sb, f)).visibility
 }
 
 export async function getClayOverallTimeseries(
@@ -359,15 +379,7 @@ export async function getAvgPosition(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number | null; previous: number | null }> {
-  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
-  if (error || !data) {
-    console.error('[getAvgPosition] RPC error:', error)
-    return { current: null, previous: null }
-  }
-  return {
-    current:  data.avg_position?.current  ?? null,
-    previous: data.avg_position?.previous ?? null,
-  }
+  return (await getVisibilityKpis(sb, f)).avgPosition
 }
 
 export async function getDistinctTopics(sb: SupabaseClient): Promise<string[]> {
@@ -392,15 +404,7 @@ export async function getClaygentCount(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ current: number; previous: number }> {
-  const { data, error } = await sb.rpc('get_visibility_kpis', visRpcParams(f))
-  if (error || !data) {
-    console.error('[getClaygentCount] RPC error:', error)
-    return { current: 0, previous: 0 }
-  }
-  return {
-    current:  data.claygent_count?.current  ?? 0,
-    previous: data.claygent_count?.previous ?? 0,
-  }
+  return (await getVisibilityKpis(sb, f)).claygentCount
 }
 
 export async function getClaygentTimeseriesByPlatform(

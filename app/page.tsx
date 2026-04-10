@@ -1,14 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityScore, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getClaygentCount, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
+import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import type { MentionTopicRow } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
-import { getAvgPosition } from '@/lib/queries/visibility'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
@@ -26,8 +25,20 @@ import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
 export default function HomePage() {
   const { filters, toQueryParams } = useGlobalFilters()
-  const f = toQueryParams()
 
+  // Stable reference — only changes when filter values actually change
+  const f = useMemo(() => toQueryParams(), [
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    filters.dateRange.start.toISOString(),
+    filters.dateRange.end.toISOString(),
+    filters.promptType,
+    filters.platform,
+    filters.brandedFilter,
+    filters.tags,
+    filters.topics.join(','),
+  ])
+
+  // ── Tier 1: KPI cards (fast RPCs, renders first) ─────────
   const [loading, setLoading] = useState(true)
   const [insight, setInsight] = useState<InsightRow | null>(null)
   const [anomalies, setAnomalies] = useState<AnomalyRow[]>([])
@@ -36,15 +47,19 @@ export default function HomePage() {
   const [citationRate, setCitationRate] = useState<{ current: number | null; previous: number | null } | null>(null)
   const [claygentCount, setClaygentCount] = useState<{ current: number; previous: number } | null>(null)
   const [avgPos, setAvgPos] = useState<{ current: number | null; previous: number | null } | null>(null)
-  const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
-  const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
   const [freshness, setFreshness] = useState<{ lastRunDate: string | null; promptCount: number; platformCount: number } | null>(null)
 
+  // ── Tier 2: Charts (heavier, renders after KPIs) ──────────
+  const [loadingCharts, setLoadingCharts] = useState(true)
+  const [competitors, setCompetitors] = useState<CompetitorRow[]>([])
+  const [sparkData, setSparkData] = useState<{ date: string; value: number }[]>([])
+  const [competitorVisTimeseries, setCompetitorVisTimeseries] = useState<{ date: string; competitor: string; value: number }[]>([])
+  const [showVisCompetitors, setShowVisCompetitors] = useState(true)
+
+  // ── Tier 3: Secondary sections ────────────────────────────
   const [loadingExtra, setLoadingExtra] = useState(true)
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
-  const [competitorVisTimeseries, setCompetitorVisTimeseries] = useState<{ date: string; competitor: string; value: number }[]>([])
-  const [showVisCompetitors, setShowVisCompetitors] = useState(true)
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
@@ -53,41 +68,51 @@ export default function HomePage() {
   const [claygentBreakdown, setClaygentBreakdown] = useState<MentionTopicRow[]>([])
   const [followupBreakdown, setFollowupBreakdown] = useState<MentionTopicRow[]>([])
 
+  // Tier 1: KPI numbers — one RPC call covers visibility + avg pos + claygent
   useEffect(() => {
     setLoading(true)
     Promise.all([
+      getVisibilityKpis(supabase, f),   // single RPC → all 3 KPIs
+      getCitationShare(supabase, f),
+      getSentimentBreakdown(supabase, f),
       getLatestInsight(supabase),
       getActiveAnomalies(supabase),
-      getVisibilityScore(supabase, f),
-      getSentimentBreakdown(supabase, f),
-      getCitationShare(supabase, f),
-      getClaygentCount(supabase, f),
-      getAvgPosition(supabase, f),
+      getDataFreshnessStats(supabase),
+    ]).then(([kpis, citRate, sent, ins, ano, fresh]) => {
+      setVisibility(kpis.visibility)
+      setAvgPos(kpis.avgPosition)
+      setClaygentCount(kpis.claygentCount)
+      setCitationRate(citRate)
+      setSentiment({ positive: sent.positive })
+      setInsight(ins)
+      setAnomalies(ano)
+      setFreshness(fresh)
+      setLoading(false)
+    }).catch(err => {
+      console.error('[page] KPI Promise.all failed:', err)
+      setLoading(false)
+    })
+  }, [f])
+
+  // Tier 2: Visibility + competitor charts (heavier)
+  useEffect(() => {
+    setLoadingCharts(true)
+    Promise.all([
       getCompetitorLeaderboard(supabase, f),
       getClayOverallTimeseries(supabase, f),
       getCompetitorVisibilityTimeseries(supabase, f),
-      getDataFreshnessStats(supabase),
-    ]).then(([ins, ano, vis, sent, citRate, claygentCnt, pos, comp, spark, compVisTs, fresh]) => {
-      setInsight(ins)
-      setAnomalies(ano)
-      setVisibility(vis)
-      setSentiment({ positive: sent.positive })
-      setCitationRate(citRate)
-      setClaygentCount(claygentCnt)
-      setAvgPos(pos)
+    ]).then(([comp, spark, compVisTs]) => {
       setCompetitors((comp as CompetitorRow[]).slice(0, 6))
-      setFreshness(fresh)
       setSparkData(spark)
       setCompetitorVisTimeseries(compVisTs)
-
-      setLoading(false)
+      setLoadingCharts(false)
     }).catch(err => {
-      console.error('[page] primary Promise.all failed:', err)
-      setLoading(false)
+      console.error('[page] charts Promise.all failed:', err)
+      setLoadingCharts(false)
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f])
 
+  // Tier 3: Secondary sections (citations, PMM, claygent)
   useEffect(() => {
     setLoadingExtra(true)
     Promise.all([
@@ -115,13 +140,11 @@ export default function HomePage() {
       console.error('[page] secondary Promise.all failed:', err)
       setLoadingExtra(false)
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f])
 
   const handlePMMDrilldown = useCallback(async (pmmUseCase: string) => {
     return getPMMPromptDrilldown(supabase, f, pmmUseCase)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f])
 
   function visDelta() {
     if (!visibility?.current || !visibility?.previous) return null
@@ -261,7 +284,7 @@ export default function HomePage() {
                 </span>
               </span>
             </div>
-            {!loadingExtra && competitorVisTimeseries.length > 0 && (
+            {!loadingCharts && competitorVisTimeseries.length > 0 && (
               <button
                 onClick={() => setShowVisCompetitors(v => !v)}
                 className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded transition-colors"
@@ -274,7 +297,7 @@ export default function HomePage() {
               </button>
             )}
           </div>
-          {loading ? (
+          {loadingCharts ? (
             <SkeletonChart />
           ) : visChartData.length > 1 ? (
             <ResponsiveContainer width="100%" height={showVisCompetitors ? 180 : 110}>
@@ -324,7 +347,7 @@ export default function HomePage() {
 
         <div className="p-4" style={{ background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }}>
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>Top Mentioned Competitors</h3>
-          {loading ? (
+          {loadingCharts ? (
             <SkeletonCard />
           ) : competitors.length > 0 ? (
             <table className="w-full">

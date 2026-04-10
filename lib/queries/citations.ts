@@ -55,13 +55,14 @@ export async function getCitationShare(
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
   })
-  if (error || !data) {
-    console.error('[getCitationShare] RPC error:', error)
-    return { current: null, previous: null }
-  }
+  if (error) console.error('[getCitationShare] RPC error:', error)
+  // Supabase may return RETURNS JSON as a raw string — parse defensively
+  const d = !error && data
+    ? (typeof data === 'string' ? JSON.parse(data) : data)
+    : null
   return {
-    current:  data.current  ?? null,
-    previous: data.previous ?? null,
+    current:  d?.current  ?? null,
+    previous: d?.previous ?? null,
   }
 }
 
