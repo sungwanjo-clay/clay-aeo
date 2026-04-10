@@ -140,9 +140,12 @@ GRANT EXECUTE ON FUNCTION get_visibility_kpis(DATE,DATE,DATE,DATE,TEXT,TEXT[],TE
   TO anon, authenticated;
 
 
--- ── RPC 2: Citation share KPI (single-pass scan + single join) ───────────────
--- Optimized: scan responses once for both periods, join citation_domains once.
--- Avoids double table scan that caused statement_timeout on Supabase free tier.
+-- ── RPC 2: Citation share KPI (no JOIN — uses cited_domains on responses) ─────
+-- Optimized: reads cited_domains TEXT[] column directly from responses.
+-- Eliminates the expensive JOIN to citation_domains that caused statement_timeout.
+-- Denominator = responses with any citation (array_length > 0).
+-- Numerator   = responses where cited_domains contains a clay.com domain.
+-- Both computed in a single table scan — no child table JOIN needed.
 
 CREATE OR REPLACE FUNCTION get_citation_share_kpi(
   p_start_day      DATE,
@@ -159,9 +162,15 @@ LANGUAGE sql STABLE SECURITY DEFINER
 SET statement_timeout = '30000'
 AS $$
   WITH filtered AS MATERIALIZED (
-    SELECT id,
+    SELECT
       (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
-      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev
+      (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev,
+      -- has_citation: response has at least one cited domain
+      (cited_domains IS NOT NULL AND array_length(cited_domains, 1) > 0) AS has_citation,
+      -- has_clay: at least one cited domain contains 'clay'
+      EXISTS (
+        SELECT 1 FROM unnest(cited_domains) d WHERE d ILIKE '%clay%'
+      ) AS has_clay
     FROM responses
     WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
                       AND GREATEST(p_end_day, p_prev_end_day)
@@ -174,21 +183,13 @@ AS $$
       AND (run_day BETWEEN p_start_day AND p_end_day
            OR run_day BETWEEN p_prev_start_day AND p_prev_end_day)
   ),
-  -- Denominator = responses with ANY citation (citation share, not citation coverage)
-  per_response AS (
-    SELECT f.id, f.is_cur, f.is_prev,
-      bool_or(cd.domain ILIKE '%clay%') AS has_clay
-    FROM filtered f
-    JOIN citation_domains cd ON cd.response_id = f.id
-    GROUP BY f.id, f.is_cur, f.is_prev
-  ),
   agg AS (
     SELECT
-      COUNT(*) FILTER (WHERE is_cur)               AS cur_n,
-      COUNT(*) FILTER (WHERE is_cur  AND has_clay) AS cur_c,
-      COUNT(*) FILTER (WHERE is_prev)              AS prev_n,
-      COUNT(*) FILTER (WHERE is_prev AND has_clay) AS prev_c
-    FROM per_response
+      COUNT(*) FILTER (WHERE is_cur  AND has_citation)              AS cur_n,
+      COUNT(*) FILTER (WHERE is_cur  AND has_citation AND has_clay) AS cur_c,
+      COUNT(*) FILTER (WHERE is_prev AND has_citation)              AS prev_n,
+      COUNT(*) FILTER (WHERE is_prev AND has_citation AND has_clay) AS prev_c
+    FROM filtered
   )
   SELECT
     CASE WHEN cur_n  > 0 THEN cur_c::float  / cur_n  * 100 ELSE NULL END,
@@ -304,6 +305,10 @@ GRANT EXECUTE ON FUNCTION get_visibility_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TE
 
 
 -- ── RPC 5: Competitor visibility timeseries (inline filters for index usage) ──
+-- LIMIT 20 on top_competitors prevents 1000-row PostgREST hard cap from
+-- truncating data when there are 400+ unique competitors × multiple days.
+-- Without LIMIT 20, ORDER BY date fills the first 1000 rows with the earliest
+-- day, silently dropping all later days (showed 0% for Apr 9-10).
 
 CREATE OR REPLACE FUNCTION get_competitor_visibility_timeseries_rpc(
   p_start_day      DATE,
@@ -328,10 +333,21 @@ AS $$
       AND (p_tags = 'all' OR tags = p_tags)
   ),
   totals AS (SELECT run_day, COUNT(*) AS n FROM filtered GROUP BY run_day),
+  -- Limit to top 20 competitors by total mentions to stay under the
+  -- PostgREST 1000-row hard cap (20 competitors × N days << 1000).
+  top_competitors AS (
+    SELECT rc.competitor_name
+    FROM response_competitors rc
+    JOIN filtered f ON f.id = rc.response_id
+    GROUP BY rc.competitor_name
+    ORDER BY COUNT(*) DESC
+    LIMIT 20
+  ),
   comp_counts AS (
     SELECT f.run_day, rc.competitor_name, COUNT(rc.response_id) AS cnt
     FROM response_competitors rc
     JOIN filtered f ON f.id = rc.response_id
+    WHERE rc.competitor_name IN (SELECT competitor_name FROM top_competitors)
     GROUP BY f.run_day, rc.competitor_name
   )
   SELECT cc.run_day AS date, cc.competitor_name AS competitor, cc.cnt::float / t.n * 100 AS value
@@ -344,9 +360,11 @@ GRANT EXECUTE ON FUNCTION get_competitor_visibility_timeseries_rpc(DATE,DATE,TEX
   TO anon, authenticated;
 
 
--- ── RPC 6: Citation timeseries (inline filters for index usage) ──────────────
--- Optimized: inline WHERE conditions instead of passes_filters() call so
--- PostgreSQL can use idx_responses_run_day_prompt_type composite index.
+-- ── RPC 6: Citation timeseries (no JOIN — uses cited_domains on responses) ────
+-- Optimized: reads cited_domains TEXT[] column directly from responses.
+-- Same approach as get_citation_share_kpi — eliminates JOIN to citation_domains.
+-- Denominator per day = responses with any citation.
+-- Numerator per day   = responses where cited_domains contains a clay.com domain.
 
 CREATE OR REPLACE FUNCTION get_citation_timeseries_rpc(
   p_start_day      DATE,
@@ -360,8 +378,14 @@ RETURNS TABLE(date DATE, value FLOAT)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET statement_timeout = '30000'
 AS $$
-  WITH filtered_ids AS MATERIALIZED (
-    SELECT id, run_day FROM responses
+  WITH filtered AS MATERIALIZED (
+    SELECT
+      run_day,
+      (cited_domains IS NOT NULL AND array_length(cited_domains, 1) > 0) AS has_citation,
+      EXISTS (
+        SELECT 1 FROM unnest(cited_domains) d WHERE d ILIKE '%clay%'
+      ) AS has_clay
+    FROM responses
     WHERE run_day BETWEEN p_start_day AND p_end_day
       AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
       AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
@@ -369,24 +393,17 @@ AS $$
            OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
            OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
       AND (p_tags = 'all' OR tags = p_tags)
-  ),
-  per_response AS (
-    SELECT f.run_day, f.id,
-      bool_or(cd.domain ILIKE '%clay%') AS has_clay
-    FROM filtered_ids f
-    JOIN citation_domains cd ON cd.response_id = f.id
-    GROUP BY f.run_day, f.id
-  ),
-  by_day AS (
-    SELECT run_day,
-      COUNT(*) FILTER (WHERE has_clay) AS clay_cited,
-      COUNT(*)                          AS any_cited
-    FROM per_response
-    GROUP BY run_day
   )
-  SELECT run_day AS date,
-    CASE WHEN any_cited > 0 THEN clay_cited::float / any_cited * 100 ELSE 0 END AS value
-  FROM by_day
+  SELECT
+    run_day AS date,
+    CASE
+      WHEN COUNT(*) FILTER (WHERE has_citation) > 0
+      THEN COUNT(*) FILTER (WHERE has_citation AND has_clay)::float
+           / COUNT(*) FILTER (WHERE has_citation) * 100
+      ELSE 0
+    END AS value
+  FROM filtered
+  GROUP BY run_day
   ORDER BY run_day
 $$;
 
