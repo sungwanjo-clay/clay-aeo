@@ -131,23 +131,27 @@ export async function getClayVisibilityTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const data = await fetchAllPages(applyFilters(
-    sb.from('responses').select('run_date, clay_mentioned'),
-    f
-  ))
+  // Fast path: read from aeo_cache_daily instead of scanning responses
+  let q = sb.from('aeo_cache_daily')
+    .select('run_day, clay_mentioned, total_responses')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+  if (f.platforms?.length) q = q.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+
+  const data = await fetchAllPages(q)
   if (!data.length) return []
 
-  const map = new Map<string, { total: number; yes: number }>()
+  const map = new Map<string, { total: number; mentioned: number }>()
   for (const r of data) {
-    const d = (r.run_date ?? '').substring(0, 10)
-    if (!d) continue
-    const cur = map.get(d) ?? { total: 0, yes: 0 }
-    cur.total++
-    if ((r.clay_mentioned ?? '').toLowerCase() === 'yes') cur.yes++
+    const d = String(r.run_day)
+    const cur = map.get(d) ?? { total: 0, mentioned: 0 }
+    cur.total     += Number(r.total_responses)
+    cur.mentioned += Number(r.clay_mentioned)
     map.set(d, cur)
   }
   return Array.from(map.entries())
-    .map(([date, { total, yes }]) => ({ date, value: total > 0 ? (yes / total) * 100 : 0 }))
+    .map(([date, { total, mentioned }]) => ({ date, value: total > 0 ? (mentioned / total) * 100 : 0 }))
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
@@ -226,39 +230,42 @@ export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }[]> {
-  const [curIds, prevIds] = await Promise.all([
-    getValidResponseIds(sb, f),
-    getValidResponseIds(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-  ])
-  const [rcCurData, rcPrevData] = await Promise.all([
-    fetchCompetitorsByIds(sb, curIds),
-    fetchCompetitorsByIds(sb, prevIds),
-  ])
-
-  const totalNow = curIds.length
-  const totalPrevCount = prevIds.length
-
-  const curCounts = new Map<string, Set<string>>()
-  for (const r of rcCurData) {
-    if (!curCounts.has(r.competitor_name)) curCounts.set(r.competitor_name, new Set())
-    curCounts.get(r.competitor_name)!.add(r.response_id)
+  // Fast path: read from aeo_cache_competitors + aeo_cache_daily.
+  // Replaces: full responses scan + hundreds of batched response_competitors requests.
+  const applyCache = (q: any, start: string, end: string) => {
+    q = q.gte('run_day', start).lte('run_day', end)
+    if (f.platforms?.length) q = q.in('platform', f.platforms)
+    if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+    return q
   }
+  const curStart  = f.startDate.split('T')[0]
+  const curEnd    = f.endDate.split('T')[0]
+  const prevStart = (f.prevStartDate || f.startDate).split('T')[0]
+  const prevEnd   = (f.prevEndDate   || f.endDate).split('T')[0]
 
-  const prevCounts = new Map<string, Set<string>>()
-  for (const r of rcPrevData) {
-    if (!prevCounts.has(r.competitor_name)) prevCounts.set(r.competitor_name, new Set())
-    prevCounts.get(r.competitor_name)!.add(r.response_id)
-  }
+  const [curComp, prevComp, curDaily, prevDaily] = await Promise.all([
+    fetchAllPages(applyCache(sb.from('aeo_cache_competitors').select('competitor_name, mention_count'), curStart, curEnd)),
+    fetchAllPages(applyCache(sb.from('aeo_cache_competitors').select('competitor_name, mention_count'), prevStart, prevEnd)),
+    fetchAllPages(applyCache(sb.from('aeo_cache_daily').select('total_responses'), curStart, curEnd)),
+    fetchAllPages(applyCache(sb.from('aeo_cache_daily').select('total_responses'), prevStart, prevEnd)),
+  ])
+
+  const totalNow  = curDaily.reduce((s: number, r: any)  => s + Number(r.total_responses), 0)
+  const totalPrev = prevDaily.reduce((s: number, r: any) => s + Number(r.total_responses), 0)
+
+  const curCounts  = new Map<string, number>()
+  const prevCounts = new Map<string, number>()
+  for (const r of curComp)  curCounts.set(r.competitor_name,  (curCounts.get(r.competitor_name)  ?? 0) + Number(r.mention_count))
+  for (const r of prevComp) prevCounts.set(r.competitor_name, (prevCounts.get(r.competitor_name) ?? 0) + Number(r.mention_count))
 
   const allNames = new Set([...curCounts.keys(), ...prevCounts.keys()])
-
   return Array.from(allNames).map(competitor_name => {
-    const curIds = curCounts.get(competitor_name)?.size ?? 0
-    const prevIds = prevCounts.get(competitor_name)?.size ?? 0
-    const current = totalNow > 0 ? (curIds / totalNow) * 100 : 0
-    const previous = totalPrevCount > 0 ? (prevIds / totalPrevCount) * 100 : null
-    const delta = previous !== null ? current - previous : null
-    const isNew = (previous === null || previous === 0) && current > 0
+    const cur  = curCounts.get(competitor_name)  ?? 0
+    const prev = prevCounts.get(competitor_name) ?? 0
+    const current  = totalNow  > 0 ? (cur  / totalNow)  * 100 : 0
+    const previous = totalPrev > 0 ? (prev / totalPrev) * 100 : null
+    const delta    = previous !== null ? current - previous : null
+    const isNew    = (previous === null || previous === 0) && current > 0
     return { competitor_name, current, previous, delta, isNew }
   }).sort((a, b) => (b.delta ?? b.current) - (a.delta ?? a.current))
 }
@@ -454,36 +461,54 @@ export async function getCompetitorVsClayTimeseries(
   f: FilterParams,
   competitor: string
 ): Promise<{ date: string; clay: number; competitor: number }[]> {
-  const [validIds, clayData] = await Promise.all([
-    getValidResponseIds(sb, f),
-    fetchAllPages(applyFilters(sb.from('responses').select('id, run_date, clay_mentioned'), f)),
+  // Fast path: read from aeo_cache_competitors + aeo_cache_daily.
+  // Replaces: full responses scan + batched response_competitors per-date aggregation.
+  const start = f.startDate.split('T')[0]
+  const end   = f.endDate.split('T')[0]
+  const applyCache = (q: any) => {
+    q = q.gte('run_day', start).lte('run_day', end)
+    if (f.platforms?.length) q = q.in('platform', f.platforms)
+    if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+    return q
+  }
+
+  const [compData, dailyData] = await Promise.all([
+    fetchAllPages(applyCache(
+      sb.from('aeo_cache_competitors')
+        .select('run_day, mention_count')
+        .eq('competitor_name', competitor)
+    )),
+    fetchAllPages(applyCache(
+      sb.from('aeo_cache_daily')
+        .select('run_day, total_responses, clay_mentioned')
+    )),
   ])
-  const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
 
-  // Map response_id → date for competitor side
-  const responseIdToDate = new Map(clayData.map((r: any) => [String(r.id), (r.run_date ?? '').substring(0, 10)]))
-
-  const compByDate = new Map<string, number>()
-  for (const r of rcData) {
-    const d = responseIdToDate.get(String(r.response_id)) ?? ''
-    if (d) compByDate.set(d, (compByDate.get(d) ?? 0) + 1)
+  // Aggregate daily totals (sum across platforms/prompt_types)
+  const dailyMap = new Map<string, { total: number; clay: number }>()
+  for (const r of dailyData) {
+    const d = String(r.run_day)
+    const cur = dailyMap.get(d) ?? { total: 0, clay: 0 }
+    cur.total += Number(r.total_responses)
+    cur.clay  += Number(r.clay_mentioned)
+    dailyMap.set(d, cur)
   }
 
-  const clayByDate = new Map<string, { total: number; yes: number }>()
-  for (const r of clayData) {
-    const d = r.run_date?.split('T')[0] ?? ''
-    const cur = clayByDate.get(d) ?? { total: 0, yes: 0 }
-    cur.total++
-    if ((r.clay_mentioned ?? '').toLowerCase() === 'yes') cur.yes++
-    clayByDate.set(d, cur)
+  const compMap = new Map<string, number>()
+  for (const r of compData) {
+    const d = String(r.run_day)
+    compMap.set(d, (compMap.get(d) ?? 0) + Number(r.mention_count))
   }
 
-  const allDates = new Set([...compByDate.keys(), ...clayByDate.keys()])
+  const allDates = new Set([...dailyMap.keys(), ...compMap.keys()])
   return Array.from(allDates).sort().map(date => {
-    const totalForDate = clayByDate.get(date)?.total ?? 0
-    const clayScore = totalForDate > 0 ? ((clayByDate.get(date)?.yes ?? 0) / totalForDate) * 100 : 0
-    const compScore = totalForDate > 0 ? ((compByDate.get(date) ?? 0) / totalForDate) * 100 : 0
-    return { date, clay: clayScore, competitor: compScore }
+    const { total, clay } = dailyMap.get(date) ?? { total: 0, clay: 0 }
+    const comp = compMap.get(date) ?? 0
+    return {
+      date,
+      clay:       total > 0 ? (clay / total) * 100 : 0,
+      competitor: total > 0 ? (comp / total) * 100 : 0,
+    }
   })
 }
 
