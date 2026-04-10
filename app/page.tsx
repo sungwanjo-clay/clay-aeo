@@ -155,14 +155,13 @@ export default function HomePage() {
     return avgPos.current - avgPos.previous
   }
 
-  // Build visibility trend chart data (Clay + top-5 competitors, always included)
-  const visCompTotals = new Map<string, number>()
-  for (const r of competitorVisTimeseries) {
-    visCompTotals.set(r.competitor, (visCompTotals.get(r.competitor) ?? 0) + r.value)
-  }
-  const topVisComps = [...visCompTotals.entries()]
-    .filter(([c]) => c.toLowerCase() !== 'clay')
-    .sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c)
+  // Build visibility trend chart data (Clay + top-5 from leaderboard)
+  // Use leaderboard order (not timeseries totals) so chart matches the table
+  // and avoids competitors with inconsistent naming across days
+  const topVisComps = competitors
+    .filter(c => c.competitor_name !== 'Clay')
+    .slice(0, 5)
+    .map(c => c.competitor_name)
   const sparkLookup = new Map(sparkData.map(r => [r.date, r.value]))
   const visCompLookup = new Map(competitorVisTimeseries.map(r => [`${r.date}|||${r.competitor}`, r.value]))
   const visChartDates = [...new Set([
