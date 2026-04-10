@@ -166,10 +166,10 @@ AS $$
       (run_day BETWEEN p_start_day AND p_end_day)           AS is_cur,
       (run_day BETWEEN p_prev_start_day AND p_prev_end_day) AS is_prev,
       -- has_citation: response has at least one cited domain
-      (cited_domains IS NOT NULL AND array_length(cited_domains, 1) > 0) AS has_citation,
+      (cited_domains IS NOT NULL AND jsonb_array_length(cited_domains) > 0) AS has_citation,
       -- has_clay: at least one cited domain contains 'clay'
       EXISTS (
-        SELECT 1 FROM unnest(cited_domains) d WHERE d ILIKE '%clay%'
+        SELECT 1 FROM jsonb_array_elements_text(cited_domains) d WHERE d ILIKE '%clay%'
       ) AS has_clay
     FROM responses
     WHERE run_day BETWEEN LEAST(p_start_day, p_prev_start_day)
@@ -381,9 +381,9 @@ AS $$
   WITH filtered AS MATERIALIZED (
     SELECT
       run_day,
-      (cited_domains IS NOT NULL AND array_length(cited_domains, 1) > 0) AS has_citation,
+      (cited_domains IS NOT NULL AND jsonb_array_length(cited_domains) > 0) AS has_citation,
       EXISTS (
-        SELECT 1 FROM unnest(cited_domains) d WHERE d ILIKE '%clay%'
+        SELECT 1 FROM jsonb_array_elements_text(cited_domains) d WHERE d ILIKE '%clay%'
       ) AS has_clay
     FROM responses
     WHERE run_day BETWEEN p_start_day AND p_end_day
