@@ -347,17 +347,21 @@ export async function getTopCitedDomainsWithURLs(
   )).flat() as any[]
   if (!allCitations.length) return []
 
-  // Step 3: aggregate by domain
+  // Step 3: aggregate by domain — count unique response_ids per domain
+  // (matches the line chart denominator: % of responses-with-citations that cite each domain)
   const domainMap = new Map<string, {
-    count: number; is_clay: boolean; citation_type: string | null
+    responseIds: Set<string>; is_clay: boolean; citation_type: string | null
     urls: Map<string, { title: string | null; count: number }>
   }>()
+  const allCitedResponseIds = new Set<string>()
   for (const row of allCitations) {
     const d = (row.domain ?? '').toLowerCase()
     if (!d) continue
-    if (!domainMap.has(d)) domainMap.set(d, { count: 0, is_clay: d.includes('clay.com'), citation_type: row.citation_type ?? null, urls: new Map() })
+    const rid = String(row.response_id)
+    if (rid) allCitedResponseIds.add(rid)
+    if (!domainMap.has(d)) domainMap.set(d, { responseIds: new Set(), is_clay: d.includes('clay.com'), citation_type: row.citation_type ?? null, urls: new Map() })
     const entry = domainMap.get(d)!
-    entry.count++
+    if (rid) entry.responseIds.add(rid)
     if (row.url) {
       const u = entry.urls.get(row.url) ?? { title: row.title ?? null, count: 0 }
       u.count++
@@ -365,12 +369,13 @@ export async function getTopCitedDomainsWithURLs(
     }
   }
 
-  const total = allCitations.length
+  // Denominator = unique responses with any citation (matches line chart)
+  const total = allCitedResponseIds.size
   return Array.from(domainMap.entries())
-    .map(([domain, { count, is_clay, citation_type, urls }]) => ({
+    .map(([domain, { responseIds, is_clay, citation_type, urls }]) => ({
       domain,
-      citation_count: count,
-      share_pct: total > 0 ? (count / total) * 100 : 0,
+      citation_count: responseIds.size,
+      share_pct: total > 0 ? (responseIds.size / total) * 100 : 0,
       is_clay,
       citation_type,
       top_urls: Array.from(urls.entries())
