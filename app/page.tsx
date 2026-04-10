@@ -56,7 +56,7 @@ export default function HomePage() {
   const [competitorVisTimeseries, setCompetitorVisTimeseries] = useState<{ date: string; competitor: string; value: number }[]>([])
   const [showVisCompetitors, setShowVisCompetitors] = useState(true)
 
-  // ── Tier 3: Secondary sections ────────────────────────────
+  // ── Tier 3a: Charts/tables (fast RPCs) ───────────────────
   const [loadingExtra, setLoadingExtra] = useState(true)
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
@@ -65,6 +65,8 @@ export default function HomePage() {
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
   const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
+  // ── Tier 3b: Breakdown tables (heavy full-table scans, load after) ──
+  const [loadingBreakdown, setLoadingBreakdown] = useState(true)
   const [claygentBreakdown, setClaygentBreakdown] = useState<MentionTopicRow[]>([])
   const [followupBreakdown, setFollowupBreakdown] = useState<MentionTopicRow[]>([])
 
@@ -112,7 +114,7 @@ export default function HomePage() {
     })
   }, [f])
 
-  // Tier 3: Secondary sections (citations, PMM, claygent)
+  // Tier 3a: Fast RPC-backed sections — renders charts immediately
   useEffect(() => {
     setLoadingExtra(true)
     Promise.all([
@@ -122,10 +124,8 @@ export default function HomePage() {
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
-      getFollowupTimeseries(supabase, f),
-      getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned'),
-      getMentionBreakdown(supabase, f, 'clay_recommended_followup'),
-    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs, claygentBd, followupBd]) => {
+      getFollowupTimeseries(supabase, f),  // now RPC-backed (cache)
+    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
       setCompetitorCitTimeseries(compCitTs)
@@ -133,12 +133,26 @@ export default function HomePage() {
       setPmmTable(pmmTbl)
       setClaygentTimeseries(claygentTs)
       setFollowupTimeseries(followupTs)
-      setClaygentBreakdown(claygentBd)
-      setFollowupBreakdown(followupBd)
       setLoadingExtra(false)
     }).catch(err => {
-      console.error('[page] secondary Promise.all failed:', err)
+      console.error('[page] Tier3a Promise.all failed:', err)
       setLoadingExtra(false)
+    })
+  }, [f])
+
+  // Tier 3b: Heavy breakdown tables — full response table scans, deferred
+  useEffect(() => {
+    setLoadingBreakdown(true)
+    Promise.all([
+      getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned'),
+      getMentionBreakdown(supabase, f, 'clay_recommended_followup'),
+    ]).then(([claygentBd, followupBd]) => {
+      setClaygentBreakdown(claygentBd)
+      setFollowupBreakdown(followupBd)
+      setLoadingBreakdown(false)
+    }).catch(err => {
+      console.error('[page] Tier3b breakdown failed:', err)
+      setLoadingBreakdown(false)
     })
   }, [f])
 
@@ -411,6 +425,7 @@ export default function HomePage() {
             followupData={followupTimeseries}
             claygentBreakdown={claygentBreakdown}
             followupBreakdown={followupBreakdown}
+            loadingBreakdown={loadingBreakdown}
           />
         )}
       </div>

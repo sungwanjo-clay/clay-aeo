@@ -503,22 +503,17 @@ export async function getFollowupTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; count: number }[]> {
-  const data = await fetchFiltered(sb.from('responses').select('run_date, clay_recommended_followup'), f)
-  if (!data) return []
-
-  const map = new Map<string, number>()
-  for (const row of data) {
-    const date = (row.run_date ?? '').substring(0, 10)
-    if (!date) continue
-    if ((row.clay_recommended_followup ?? '').toLowerCase() === 'yes') {
-      map.set(date, (map.get(date) ?? 0) + 1)
-    }
-  }
-
-  const allDates = [...new Set(data.map(r => (r.run_date ?? '').substring(0, 10)).filter(Boolean))]
-  return allDates
-    .map(date => ({ date, count: map.get(date) ?? 0 }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  // Use cache-backed RPC (instant for default filters, falls back to live scan)
+  const { data, error } = await sb.rpc('get_followup_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType    || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags          || 'all',
+  })
+  if (error) console.error('[getFollowupTimeseries] RPC error:', error)
+  return (data ?? []).map((r: any) => ({ date: String(r.date), count: r.count ?? 0 }))
 }
 
 export interface PMMPromptResponseRow {
