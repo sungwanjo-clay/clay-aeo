@@ -138,8 +138,7 @@ GRANT EXECUTE ON FUNCTION get_visibility_kpis(DATE,DATE,DATE,DATE,TEXT,TEXT[],TE
   TO anon, authenticated;
 
 
--- ── RPC 2: Citation share ────────────────────────────────────
--- NOTE: Uses RETURNS TABLE (not JSON) so Supabase JS returns data[0].field correctly.
+-- ── RPC 2: Citation share (optimized: JOIN + bool_or, no COUNT DISTINCT) ────────
 
 CREATE OR REPLACE FUNCTION get_citation_share_kpi(
   p_start_day      DATE,
@@ -153,43 +152,35 @@ CREATE OR REPLACE FUNCTION get_citation_share_kpi(
 )
 RETURNS TABLE(current_pct FLOAT, previous_pct FLOAT)
 LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  WITH cur AS (
-    SELECT id FROM responses
-    WHERE passes_filters(
-      run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags
-    )
+  WITH cur_per_response AS (
+    SELECT cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
+    FROM citation_domains cd
+    JOIN responses r ON r.id = cd.response_id
+    WHERE passes_filters(r.run_day, r.platform, r.prompt_type, r.branded_or_non_branded, r.tags,
+      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+    GROUP BY cd.response_id
   ),
-  prev AS (
-    SELECT id FROM responses
-    WHERE passes_filters(
-      run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags
-    )
+  prev_per_response AS (
+    SELECT cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
+    FROM citation_domains cd
+    JOIN responses r ON r.id = cd.response_id
+    WHERE passes_filters(r.run_day, r.platform, r.prompt_type, r.branded_or_non_branded, r.tags,
+      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+    GROUP BY cd.response_id
   ),
-  cur_cit AS (
-    SELECT
-      COUNT(DISTINCT response_id) AS any_cited,
-      COUNT(DISTINCT response_id) FILTER (WHERE domain ILIKE '%clay%') AS clay_cited
-    FROM citation_domains WHERE response_id IN (SELECT id FROM cur)
-  ),
-  prev_cit AS (
-    SELECT
-      COUNT(DISTINCT response_id) AS any_cited,
-      COUNT(DISTINCT response_id) FILTER (WHERE domain ILIKE '%clay%') AS clay_cited
-    FROM citation_domains WHERE response_id IN (SELECT id FROM prev)
-  )
+  cur_agg  AS (SELECT COUNT(*) AS any_cited, COUNT(*) FILTER (WHERE has_clay) AS clay_cited FROM cur_per_response),
+  prev_agg AS (SELECT COUNT(*) AS any_cited, COUNT(*) FILTER (WHERE has_clay) AS clay_cited FROM prev_per_response)
   SELECT
     CASE WHEN c.any_cited > 0 THEN c.clay_cited::float / c.any_cited * 100 ELSE NULL END,
     CASE WHEN p.any_cited > 0 THEN p.clay_cited::float / p.any_cited * 100 ELSE NULL END
-  FROM cur_cit c, prev_cit p
+  FROM cur_agg c, prev_agg p
 $$;
 
 GRANT EXECUTE ON FUNCTION get_citation_share_kpi(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
   TO anon, authenticated;
 
 
--- ── RPC 3: Competitor leaderboard ───────────────────────────
+-- ── RPC 3: Competitor leaderboard (optimized: JOIN, no IN subquery, LIMIT 20) ──
 
 CREATE OR REPLACE FUNCTION get_competitor_leaderboard_rpc(
   p_start_day      DATE,
@@ -202,52 +193,50 @@ CREATE OR REPLACE FUNCTION get_competitor_leaderboard_rpc(
   p_tags           TEXT    DEFAULT 'all'
 )
 RETURNS TABLE(
-  competitor_name TEXT,
-  mention_count   BIGINT,
+  competitor_name  TEXT,
+  mention_count    BIGINT,
   visibility_score FLOAT,
-  delta           FLOAT
+  delta            FLOAT
 ) LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  WITH cur_ids AS (
-    SELECT id FROM responses
-    WHERE passes_filters(
-      run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags
-    )
+  WITH cur_total AS (
+    SELECT COUNT(*) AS n FROM responses
+    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
+      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
   ),
-  prev_ids AS (
-    SELECT id FROM responses
-    WHERE passes_filters(
-      run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags
-    )
+  prev_total AS (
+    SELECT COUNT(*) AS n FROM responses
+    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
+      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
   ),
-  cur_total  AS (SELECT COUNT(*) AS n FROM cur_ids),
-  prev_total AS (SELECT COUNT(*) AS n FROM prev_ids),
   cur_counts AS (
-    SELECT rc.competitor_name, COUNT(DISTINCT rc.response_id) AS cnt
+    SELECT rc.competitor_name, COUNT(rc.response_id) AS cnt
     FROM response_competitors rc
-    WHERE rc.response_id IN (SELECT id FROM cur_ids)
+    JOIN responses r ON r.id = rc.response_id
+    WHERE passes_filters(r.run_day, r.platform, r.prompt_type, r.branded_or_non_branded, r.tags,
+      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
     GROUP BY rc.competitor_name
   ),
   prev_counts AS (
-    SELECT rc.competitor_name, COUNT(DISTINCT rc.response_id) AS cnt
+    SELECT rc.competitor_name, COUNT(rc.response_id) AS cnt
     FROM response_competitors rc
-    WHERE rc.response_id IN (SELECT id FROM prev_ids)
+    JOIN responses r ON r.id = rc.response_id
+    WHERE passes_filters(r.run_day, r.platform, r.prompt_type, r.branded_or_non_branded, r.tags,
+      p_prev_start_day, p_prev_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
     GROUP BY rc.competitor_name
   )
   SELECT
     c.competitor_name,
-    c.cnt                                                                AS mention_count,
-    CASE WHEN t.n > 0 THEN c.cnt::float / t.n * 100 ELSE 0 END         AS visibility_score,
+    c.cnt                                                               AS mention_count,
+    CASE WHEN t.n > 0 THEN c.cnt::float / t.n * 100 ELSE 0 END        AS visibility_score,
     CASE WHEN pt.n > 0 AND p.cnt IS NOT NULL
       THEN c.cnt::float / t.n * 100 - p.cnt::float / pt.n * 100
-      ELSE NULL
-    END                                                                  AS delta
+      ELSE NULL END                                                     AS delta
   FROM cur_counts c
   CROSS JOIN cur_total t
   LEFT JOIN prev_counts p USING (competitor_name)
   CROSS JOIN prev_total pt
   ORDER BY visibility_score DESC
+  LIMIT 20
 $$;
 
 GRANT EXECUTE ON FUNCTION get_competitor_leaderboard_rpc(DATE,DATE,DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
@@ -282,7 +271,7 @@ GRANT EXECUTE ON FUNCTION get_visibility_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TE
   TO anon, authenticated;
 
 
--- ── RPC 5: Competitor visibility timeseries ──────────────────
+-- ── RPC 5: Competitor visibility timeseries (optimized: no COUNT DISTINCT) ───────
 
 CREATE OR REPLACE FUNCTION get_competitor_visibility_timeseries_rpc(
   p_start_day      DATE,
@@ -295,23 +284,19 @@ CREATE OR REPLACE FUNCTION get_competitor_visibility_timeseries_rpc(
 RETURNS TABLE(date DATE, competitor TEXT, value FLOAT) LANGUAGE sql STABLE SECURITY DEFINER AS $$
   WITH filtered AS (
     SELECT id, run_day FROM responses
-    WHERE passes_filters(
-      run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags
-    )
+    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
+      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
   ),
-  totals AS (
-    SELECT run_day, COUNT(*) AS n FROM filtered GROUP BY run_day
-  ),
+  totals AS (SELECT run_day, COUNT(*) AS n FROM filtered GROUP BY run_day),
   comp_counts AS (
-    SELECT f.run_day, rc.competitor_name, COUNT(DISTINCT rc.response_id) AS cnt
+    SELECT f.run_day, rc.competitor_name, COUNT(rc.response_id) AS cnt
     FROM response_competitors rc
     JOIN filtered f ON f.id = rc.response_id
     GROUP BY f.run_day, rc.competitor_name
   )
   SELECT
-    cc.run_day            AS date,
-    cc.competitor_name    AS competitor,
+    cc.run_day         AS date,
+    cc.competitor_name AS competitor,
     cc.cnt::float / t.n * 100 AS value
   FROM comp_counts cc
   JOIN totals t USING (run_day)
@@ -322,7 +307,7 @@ GRANT EXECUTE ON FUNCTION get_competitor_visibility_timeseries_rpc(DATE,DATE,TEX
   TO anon, authenticated;
 
 
--- ── RPC 6: Citation timeseries (clay share per day) ──────────
+-- ── RPC 6: Citation timeseries (optimized: bool_or, no COUNT DISTINCT) ──────────
 
 CREATE OR REPLACE FUNCTION get_citation_timeseries_rpc(
   p_start_day      DATE,
@@ -333,22 +318,20 @@ CREATE OR REPLACE FUNCTION get_citation_timeseries_rpc(
   p_tags           TEXT    DEFAULT 'all'
 )
 RETURNS TABLE(date DATE, value FLOAT) LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  WITH filtered AS (
-    SELECT id, run_day FROM responses
-    WHERE passes_filters(
-      run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags
-    )
+  WITH per_response AS (
+    SELECT r.run_day, cd.response_id, bool_or(cd.domain ILIKE '%clay%') AS has_clay
+    FROM citation_domains cd
+    JOIN responses r ON r.id = cd.response_id
+    WHERE passes_filters(r.run_day, r.platform, r.prompt_type, r.branded_or_non_branded, r.tags,
+      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+    GROUP BY r.run_day, cd.response_id
   ),
   by_day AS (
-    SELECT
-      f.run_day,
-      COUNT(DISTINCT cd.response_id)
-        FILTER (WHERE cd.domain ILIKE '%clay%')  AS clay_cited,
-      COUNT(DISTINCT cd.response_id)              AS any_cited
-    FROM citation_domains cd
-    JOIN filtered f ON f.id = cd.response_id
-    GROUP BY f.run_day
+    SELECT run_day,
+      COUNT(*) FILTER (WHERE has_clay) AS clay_cited,
+      COUNT(*)                          AS any_cited
+    FROM per_response
+    GROUP BY run_day
   )
   SELECT
     run_day AS date,
