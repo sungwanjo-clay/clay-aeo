@@ -36,11 +36,12 @@ async function fetchCompetitorsByIds(
   if (!ids.length) return []
   // BATCH capped at 100: response_competitors has ~8 rows per response, so 100×8=800 rows/request
   // safely under Supabase's hard 1000-row cap. 500 would silently truncate ~75% of data.
+  // NOTE: response_competitors does NOT have a `topic` column — topic lives on responses.
   const BATCH = 100
   return (await Promise.all(
     Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) => {
       let q = sb.from('response_competitors')
-        .select('competitor_name, response_id, platform, topic, run_date')
+        .select('competitor_name, response_id, platform, run_date')
         .in('response_id', ids.slice(i * BATCH, (i + 1) * BATCH))
       if (extraFilter) q = extraFilter(q)
       return q.then(({ data }) => data ?? [])
@@ -391,14 +392,12 @@ export async function getCompetitorKPIs(
 
   if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
 
-  const topicMap = new Map<string, number>()
   const platformMap = new Map<string, number>()
   for (const r of rcData) {
-    if (r.topic) topicMap.set(r.topic, (topicMap.get(r.topic) ?? 0) + 1)
     if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
   }
 
-  const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const topTopic = null // topic is on responses table, not response_competitors — omitted for perf
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
   const currentVis = curIds.length ? (rcData.length / curIds.length) * 100 : null
