@@ -296,12 +296,14 @@ AS $$
   GROUP BY run_day
   ORDER BY run_day
 $$;
+-- Note: get_visibility_timeseries_rpc uses passes_filters() which PostgreSQL inlines
+-- (LANGUAGE sql IMMUTABLE). Fast enough since it only aggregates responses (no child joins).
 
 GRANT EXECUTE ON FUNCTION get_visibility_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT)
   TO anon, authenticated;
 
 
--- ── RPC 5: Competitor visibility timeseries (MATERIALIZED CTE + timeout) ─────
+-- ── RPC 5: Competitor visibility timeseries (inline filters for index usage) ──
 
 CREATE OR REPLACE FUNCTION get_competitor_visibility_timeseries_rpc(
   p_start_day      DATE,
@@ -317,8 +319,13 @@ SET statement_timeout = '30000'
 AS $$
   WITH filtered AS MATERIALIZED (
     SELECT id, run_day FROM responses
-    WHERE passes_filters(run_day, platform, prompt_type, branded_or_non_branded, tags,
-      p_start_day, p_end_day, p_prompt_type, p_platforms, p_branded_filter, p_tags)
+    WHERE run_day BETWEEN p_start_day AND p_end_day
+      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+      AND (p_branded_filter = 'all'
+           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR tags = p_tags)
   ),
   totals AS (SELECT run_day, COUNT(*) AS n FROM filtered GROUP BY run_day),
   comp_counts AS (
