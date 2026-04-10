@@ -28,9 +28,23 @@ function computeComparisonRange(start: Date, end: Date): { start: Date; end: Dat
   return { start: prevStart, end: prevEnd }
 }
 
+/** Format a Date as a local-timezone date string (YYYY-MM-DD).
+ *  Avoids the toISOString() UTC-conversion bug: e.g. at 5pm PDT (UTC-7),
+ *  toISOString() returns the next day in UTC, causing April 10 to appear
+ *  as the end date when today is still April 9 locally.
+ */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function defaultFilters(): GlobalFilters {
   const end = new Date()
+  end.setHours(23, 59, 59, 999)   // end of today in local time
   const start = new Date()
+  start.setHours(0, 0, 0, 0)
   start.setDate(start.getDate() - 7)
   return {
     promptType: 'benchmark',
@@ -62,10 +76,12 @@ export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
   const toQueryParams = (): FilterParams => ({
     promptType: filters.promptType,
     tags: filters.tags,
-    startDate: filters.dateRange.start.toISOString(),
-    endDate: filters.dateRange.end.toISOString(),
-    prevStartDate: filters.comparisonRange.start.toISOString(),
-    prevEndDate: filters.comparisonRange.end.toISOString(),
+    // Use local date strings (not toISOString) to avoid UTC offset shifting
+    // the date into the next/previous day for users in non-UTC timezones.
+    startDate: localDateStr(filters.dateRange.start) + 'T00:00:00',
+    endDate:   localDateStr(filters.dateRange.end)   + 'T23:59:59',
+    prevStartDate: localDateStr(filters.comparisonRange.start) + 'T00:00:00',
+    prevEndDate:   localDateStr(filters.comparisonRange.end)   + 'T23:59:59',
     platforms: filters.platform === 'all' ? [] : [filters.platform],
     topics: filters.topics,
     brandedFilter: filters.brandedFilter,
