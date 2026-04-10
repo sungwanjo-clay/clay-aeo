@@ -1,6 +1,6 @@
 'use client'
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatShortDate } from '@/lib/utils/formatters'
 import MentionBreakdownTable from './MentionBreakdownTable'
 import type { MentionTopicRow } from '@/lib/queries/visibility'
@@ -22,7 +22,6 @@ function CountChart({
   subtitle,
   color,
   breakdown,
-  requireSnippet,
   loadingBreakdown,
 }: {
   data: { date: string; count: number }[]
@@ -30,7 +29,6 @@ function CountChart({
   subtitle: string
   color: string
   breakdown: MentionTopicRow[]
-  requireSnippet?: boolean
   loadingBreakdown?: boolean
 }) {
   const total = data.reduce((s, d) => s + d.count, 0)
@@ -48,10 +46,10 @@ function CountChart({
         <p className="text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.45)' }}>{subtitle}</p>
       </div>
 
-      {/* Bar chart */}
+      {/* Line chart */}
       {data.length > 1 ? (
         <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barSize={14}>
+          <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" vertical={false} />
             <XAxis
               dataKey="date"
@@ -78,10 +76,17 @@ function CountChart({
                 border: '1px solid var(--clay-border-dashed)',
                 borderRadius: '8px',
               }}
-              cursor={{ fill: 'rgba(26,25,21,0.04)' }}
+              cursor={{ stroke: 'rgba(26,25,21,0.08)' }}
             />
-            <Bar dataKey="count" fill={color} radius={[3, 3, 0, 0]} />
-          </BarChart>
+            <Line
+              type="monotone"
+              dataKey="count"
+              stroke={color}
+              strokeWidth={2.5}
+              dot={{ r: 4, strokeWidth: 0, fill: color }}
+              activeDot={{ r: 6, strokeWidth: 0, fill: color }}
+            />
+          </LineChart>
         </ResponsiveContainer>
       ) : data.length === 1 ? (
         <div className="py-3 text-center">
@@ -107,7 +112,7 @@ function CountChart({
             ))}
           </div>
         ) : (
-          <MentionBreakdownTable data={breakdown} accentColor={color} requireSnippet={requireSnippet} />
+          <MentionBreakdownTable data={breakdown} accentColor={color} />
         )}
       </div>
     </div>
@@ -123,7 +128,6 @@ export default function ClaygentSection({ claygentData, followupData, claygentBr
         subtitle="Times ClayMCP or Clay Agent was mentioned per day"
         color="#4A5AFF"
         breakdown={claygentBreakdown}
-        requireSnippet
         loadingBreakdown={loadingBreakdown}
       />
       <CountChart
