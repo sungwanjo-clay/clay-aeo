@@ -387,7 +387,9 @@ export async function getTopCitedDomainsEnhanced(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<TopDomainRow[]> {
-  // Fetch citation rows and total response count in parallel
+  // Fetch citation rows and the canonical denominator (total_with_citations from cache) in parallel.
+  // Using aeo_cache_daily.total_with_citations as denominator ensures "Response %" matches
+  // the Citation Rate KPI and the line chart — all three use the same denominator.
   let query = sb
     .from('citation_domains')
     .select('domain, url, title, citation_type, url_type, response_id, responses(topic)')
@@ -396,17 +398,29 @@ export async function getTopCitedDomainsEnhanced(
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
-  const data = await fetchAllPages(query)
+  let cacheQuery = sb
+    .from('aeo_cache_daily')
+    .select('total_with_citations')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+  if (f.platforms?.length) cacheQuery = cacheQuery.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') cacheQuery = cacheQuery.ilike('prompt_type', f.promptType)
+
+  const [data, cacheRes] = await Promise.all([
+    fetchAllPages(query),
+    fetchAllPages(cacheQuery),
+  ])
 
   if (!data.length) return []
 
-  // Denominator = unique response_ids that appear in citation_domains (responses with any citation)
-  // This matches the Citation Rate KPI denominator
+  // Denominator: sum of total_with_citations from cache (same source as Citation Rate KPI and line chart)
+  const cacheDenominator = (cacheRes as any[]).reduce((s, r) => s + Number(r.total_with_citations ?? 0), 0)
+  // Fallback to COUNT DISTINCT if cache is empty
   const allCitedResponseIds = new Set<string>()
   for (const row of data as any[]) {
     if (row.response_id) allCitedResponseIds.add(String(row.response_id))
   }
-  const totalResponses = allCitedResponseIds.size || data.length
+  const totalResponses = cacheDenominator || allCitedResponseIds.size || data.length
 
   type DomainAcc = {
     responseIds: Set<string>; is_clay: boolean; typeCounts: Map<string, number>
