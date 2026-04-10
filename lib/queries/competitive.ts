@@ -72,13 +72,27 @@ function domainSlug(competitor: string): string {
 // ── list ────────────────────────────────────────────────────────────────────
 
 export async function getCompetitorList(sb: SupabaseClient): Promise<string[]> {
-  const { data } = await sb
-    .from('response_competitors')
-    .select('competitor_name')
-    .not('competitor_name', 'is', null)
-  if (!data) return ['Clay']
-  const list = [...new Set(data.map(r => r.competitor_name))].sort() as string[]
-  return ['Clay', ...list.filter(c => c.toLowerCase() !== 'clay')]
+  // Use aeo_cache_competitors: already deduplicated, no 1000-row PostgREST cap issue.
+  // Sort by total mention_count DESC so most relevant competitors appear first in the dropdown.
+  const data = await fetchAllPages(
+    sb.from('aeo_cache_competitors')
+      .select('competitor_name, mention_count')
+      .not('competitor_name', 'is', null)
+  )
+  if (!data.length) return ['Clay']
+
+  // Sum mention_count per competitor name across all days/platforms
+  const totals = new Map<string, number>()
+  for (const r of data) {
+    const name = r.competitor_name as string
+    totals.set(name, (totals.get(name) ?? 0) + Number(r.mention_count))
+  }
+
+  const sorted = Array.from(totals.keys())
+    .filter(c => c.toLowerCase() !== 'clay')
+    .sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0))
+
+  return ['Clay', ...sorted]
 }
 
 // ── Clay-specific KPIs ──────────────────────────────────────────────────────
