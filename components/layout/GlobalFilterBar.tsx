@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getDistinctTags, getDistinctPromptTypes, getLastRunDate, getDistinctBrandedValues } from '@/lib/queries/visibility'
+import { getDistinctTags, getDistinctPromptTypes, getLastRunDate } from '@/lib/queries/visibility'
 import { formatDate } from '@/lib/utils/formatters'
 
 const PLATFORMS = ['all', 'ChatGPT', 'Claude']
@@ -50,7 +50,6 @@ export default function GlobalFilterBar() {
   const [tags, setTags] = useState<string[]>([])
   const [promptTypes, setPromptTypes] = useState<string[]>([])
   const [lastRunDate, setLastRunDate] = useState<string | null>(null)
-  const [brandedValues, setBrandedValues] = useState<string[]>([])
 
   const startISO = filters.dateRange.start.toISOString()
   const endISO = filters.dateRange.end.toISOString()
@@ -60,50 +59,27 @@ export default function GlobalFilterBar() {
       getDistinctTags(supabase, startISO, endISO),
       getDistinctPromptTypes(supabase),
       getLastRunDate(supabase),
-      getDistinctBrandedValues(supabase),
-    ]).then(([tg, pt, lr, bv]) => {
+    ]).then(([tg, pt, lr]) => {
       setTags(tg)
       setPromptTypes(pt)
       setLastRunDate(lr)
-      setBrandedValues(bv)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startISO, endISO])
 
   const isStale = lastRunDate ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000 : false
 
-  // Synthetic keyword type value that also encodes the brandedFilter state
-  const keywordTypeValue = filters.brandedFilter === 'branded'
-    ? '__branded__'
-    : filters.brandedFilter === 'non-branded'
-      ? '__non-branded__'
-      : filters.promptType
+  // Keyword type maps directly to prompt_type values from the DB
+  const keywordTypeValue = filters.promptType
 
   const handleKeywordTypeChange = (v: string) => {
-    if (v === '__branded__') {
-      setFilters({ promptType: 'all', brandedFilter: 'branded' })
-    } else if (v === '__non-branded__') {
-      setFilters({ promptType: 'all', brandedFilter: 'non-branded' })
-    } else {
-      setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all', brandedFilter: 'all' })
-    }
+    setFilters({ promptType: v as 'benchmark' | 'campaign' | 'all', brandedFilter: 'all' })
   }
 
-  // Normalize for comparison — DB has 'Branded' and 'Non Branded' (space, not hyphen)
-  const norm = (s: string) => s.toLowerCase().replace(/[-\s]/g, '')
-
-  // Exclude any DB-returned prompt types that clash with our synthetic branded options
-  // promptTypes are already lowercased; use norm() to handle 'non branded' (space) vs 'non-branded' (hyphen)
-  const filteredPromptTypes = promptTypes.filter(t => {
-    const n = norm(t)
-    return n !== 'branded' && n !== 'nonbranded'
-  })
-  const hasBranded = brandedValues.some(v => norm(v) === 'branded')
-  const hasNonBranded = brandedValues.some(v => norm(v) === 'nonbranded')
+  // Show only actual prompt_type values from the DB — no synthetic options
   const keywordOptions = [
     { value: 'all', label: 'All' },
-    ...filteredPromptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
-    ...(hasNonBranded ? [{ value: '__non-branded__', label: 'Non-Branded' }] : []),
+    ...promptTypes.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
   ]
 
   const tagOptions = [

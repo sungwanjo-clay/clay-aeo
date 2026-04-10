@@ -382,22 +382,26 @@ export async function getShareOfVoice(
 ): Promise<CompetitorRow[]> {
   const responses = await fetchFiltered(sb.from('responses').select('id'), f)
   if (!responses?.length) return []
-  const idSet = new Set(responses.map((r: any) => r.id))
+  const validIds = responses.map((r: any) => String(r.id))
 
-  const { data } = await sb
-    .from('response_competitors')
-    .select('competitor_name, response_id')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .limit(20000)
+  // Fetch response_competitors via IN() batches — avoids run_date type mismatch
+  const BATCH = 500
+  const rc = (await Promise.all(
+    Array.from({ length: Math.ceil(validIds.length / BATCH) }, (_, i) =>
+      sb.from('response_competitors')
+        .select('competitor_name, response_id')
+        .in('response_id', validIds.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat() as any[]
 
-  if (!data?.length) return []
+  if (!rc.length) return []
 
   const counts = new Map<string, number>()
   let total = 0
-  for (const row of data) {
-    if (!idSet.has(row.response_id)) continue
+  for (const row of rc) {
     const name = row.competitor_name ?? ''
+    if (!name) continue
     counts.set(name, (counts.get(name) ?? 0) + 1)
     total++
   }
@@ -569,11 +573,12 @@ export async function getMentionBreakdown(
   f: FilterParams,
   column: 'claygent_or_mcp_mentioned' | 'clay_recommended_followup'
 ): Promise<MentionTopicRow[]> {
+  // NOTE: claygent_or_mcp_snippet does not yet exist in the DB.
+  // Run `ALTER TABLE responses ADD COLUMN IF NOT EXISTS claygent_or_mcp_snippet TEXT;`
+  // in the Supabase SQL editor, then change this line to use that column.
   const snippetCol = column === 'clay_recommended_followup'
     ? 'clay_followup_snippet'
-    : column === 'claygent_or_mcp_mentioned'
-      ? 'claygent_or_mcp_snippet'
-      : 'clay_mention_snippet'
+    : 'clay_mention_snippet'
 
   const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(

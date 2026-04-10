@@ -5,12 +5,14 @@ import type { FilterParams, CompetitorRow } from './types'
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function applyFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  // Use run_day (DATE) not run_date (TIMESTAMPTZ) for reliable date matching
+  query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
-  if (f.brandedFilter !== 'all') {
-    const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-    query = query.eq('branded_or_non_branded', val)
+  if (f.brandedFilter === 'branded') {
+    query = query.ilike('branded_or_non_branded', 'branded')
+  } else if (f.brandedFilter === 'non-branded') {
+    query = query.not('branded_or_non_branded', 'ilike', 'branded')
   }
   if (f.promptType === 'benchmark') {
     query = query.filter('prompt_type', 'ilike', 'benchmark')
@@ -19,6 +21,31 @@ function applyFilters(query: any, f: FilterParams): any {
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
+}
+
+/** Get all valid response IDs matching the filter (with pagination). */
+async function getValidResponseIds(sb: SupabaseClient, f: FilterParams): Promise<string[]> {
+  const rows = await fetchAllPages(applyFilters(sb.from('responses').select('id'), f))
+  return rows.map((r: any) => String(r.id))
+}
+
+/** Fetch response_competitors for a set of response IDs via batched IN() queries. */
+async function fetchCompetitorsByIds(
+  sb: SupabaseClient,
+  ids: string[],
+  extraFilter?: (q: any) => any
+): Promise<any[]> {
+  if (!ids.length) return []
+  const BATCH = 500
+  return (await Promise.all(
+    Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) => {
+      let q = sb.from('response_competitors')
+        .select('competitor_name, response_id, platform, topic, run_date')
+        .in('response_id', ids.slice(i * BATCH, (i + 1) * BATCH))
+      if (extraFilter) q = extraFilter(q)
+      return q.then(({ data }) => data ?? [])
+    })
+  )).flat()
 }
 
 async function fetchAllPages(query: any): Promise<any[]> {
@@ -74,8 +101,8 @@ export async function getClayKPIs(
   ])
 
   // Visibility
-  const mentionedCur = cur.filter(r => r.clay_mentioned === 'Yes')
-  const mentionedPrev = prev.filter(r => r.clay_mentioned === 'Yes')
+  const mentionedCur = cur.filter(r => (r.clay_mentioned ?? '').toLowerCase() === 'yes')
+  const mentionedPrev = prev.filter(r => (r.clay_mentioned ?? '').toLowerCase() === 'yes')
   const visScore = cur.length > 0 ? (mentionedCur.length / cur.length) * 100 : null
   const visPrev = prev.length > 0 ? (mentionedPrev.length / prev.length) * 100 : null
   const deltaVis = visScore !== null && visPrev !== null ? visScore - visPrev : null
@@ -142,7 +169,7 @@ export async function getClayVisibilityTimeseries(
     if (!d) continue
     const cur = map.get(d) ?? { total: 0, yes: 0 }
     cur.total++
-    if (r.clay_mentioned === 'Yes') cur.yes++
+    if ((r.clay_mentioned ?? '').toLowerCase() === 'yes') cur.yes++
     map.set(d, cur)
   }
   return Array.from(map.entries())
@@ -225,19 +252,17 @@ export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }[]> {
-  const [rcCurData, rcPrevData, totalCur, totalPrev] = await Promise.all([
-    fetchAllPages(sb.from('response_competitors')
-      .select('competitor_name, response_id')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate)),
-    fetchAllPages(sb.from('response_competitors')
-      .select('competitor_name, response_id')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)),
-    fetchAllPages(applyFilters(sb.from('responses').select('id'), f)),
-    fetchAllPages(applyFilters(sb.from('responses').select('id'), { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate })),
+  const [curIds, prevIds] = await Promise.all([
+    getValidResponseIds(sb, f),
+    getValidResponseIds(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+  ])
+  const [rcCurData, rcPrevData] = await Promise.all([
+    fetchCompetitorsByIds(sb, curIds),
+    fetchCompetitorsByIds(sb, prevIds),
   ])
 
-  const totalNow = totalCur.length
-  const totalPrevCount = totalPrev.length
+  const totalNow = curIds.length
+  const totalPrevCount = prevIds.length
 
   const curCounts = new Map<string, Set<string>>()
   for (const r of rcCurData) {
@@ -271,20 +296,20 @@ export async function getCompetitorByPMMTopic(
   f: FilterParams,
   competitor: string
 ): Promise<{ pmm_use_case: string; visibility_score: number; mention_count: number }[]> {
-  // For Clay, compute from responses.clay_mentioned = 'Yes'
-  if (competitor === 'Clay') {
-    const { data } = await sb.from('responses')
-      .select('pmm_use_case, clay_mentioned')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate)
-      .not('pmm_use_case', 'is', null)
-    if (!data?.length) return []
+  // Fetch all valid responses with filter applied
+  const allResponses = await fetchAllPages(applyFilters(
+    sb.from('responses').select('id, pmm_use_case, clay_mentioned').not('pmm_use_case', 'is', null),
+    f
+  ))
 
+  // For Clay, compute from responses.clay_mentioned
+  if (competitor === 'Clay') {
     const totalsMap = new Map<string, number>()
     const mentionsMap = new Map<string, number>()
-    for (const r of data) {
+    for (const r of allResponses) {
       if (!r.pmm_use_case) continue
       totalsMap.set(r.pmm_use_case, (totalsMap.get(r.pmm_use_case) ?? 0) + 1)
-      if (r.clay_mentioned === 'Yes') {
+      if ((r.clay_mentioned ?? '').toLowerCase() === 'yes') {
         mentionsMap.set(r.pmm_use_case, (mentionsMap.get(r.pmm_use_case) ?? 0) + 1)
       }
     }
@@ -294,22 +319,10 @@ export async function getCompetitorByPMMTopic(
     }).sort((a, b) => b.visibility_score - a.visibility_score)
   }
 
-  // For a real competitor, look at response_competitors
-  const { data: rcData } = await sb
-    .from('response_competitors')
-    .select('response_id')
-    .eq('competitor_name', competitor)
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-
-  const competitorResponseIds = new Set((rcData ?? []).map(r => r.response_id))
-
-  const { data: allResponses } = await sb
-    .from('responses')
-    .select('id, pmm_use_case')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .not('pmm_use_case', 'is', null)
+  // For a real competitor, fetch response_competitors via IN() batching
+  const validIds = allResponses.map((r: any) => String(r.id))
+  const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
+  const competitorResponseIds = new Set(rcData.map((r: any) => String(r.response_id)))
 
   if (!allResponses?.length) return []
 
@@ -319,7 +332,7 @@ export async function getCompetitorByPMMTopic(
     const uc = r.pmm_use_case
     if (!uc) continue
     totalsMap.set(uc, (totalsMap.get(uc) ?? 0) + 1)
-    if (competitorResponseIds.has(r.id)) {
+    if (competitorResponseIds.has(String(r.id))) {
       mentionsMap.set(uc, (mentionsMap.get(uc) ?? 0) + 1)
     }
   }
@@ -394,19 +407,13 @@ export async function getCompetitorKPIs(
   f: FilterParams,
   competitor: string
 ): Promise<{ visibilityScore: number | null; mentionCount: number; avgPosition: number | null; topTopic: string | null; topPlatform: string | null; deltaVisibility: number | null }> {
-  const [rcData, total, prevRcData, prevTotal] = await Promise.all([
-    fetchAllPages(sb.from('response_competitors')
-      .select('response_id, platform, topic')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)),
-    fetchAllPages(sb.from('responses').select('id').gte('run_date', f.startDate).lte('run_date', f.endDate)),
-    fetchAllPages(sb.from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.prevStartDate)
-      .lte('run_date', f.prevEndDate)),
-    fetchAllPages(sb.from('responses').select('id').gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)),
+  const [curIds, prevIds] = await Promise.all([
+    getValidResponseIds(sb, f),
+    getValidResponseIds(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+  ])
+  const [rcData, prevRcData] = await Promise.all([
+    fetchCompetitorsByIds(sb, curIds, q => q.eq('competitor_name', competitor)),
+    fetchCompetitorsByIds(sb, prevIds, q => q.eq('competitor_name', competitor)),
   ])
 
   if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
@@ -421,8 +428,8 @@ export async function getCompetitorKPIs(
   const topTopic = [...topicMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-  const currentVis = total.length ? (rcData.length / total.length) * 100 : null
-  const prevVis = prevTotal.length ? (prevRcData.length / prevTotal.length) * 100 : null
+  const currentVis = curIds.length ? (rcData.length / curIds.length) * 100 : null
+  const prevVis = prevIds.length ? (prevRcData.length / prevIds.length) * 100 : null
   const deltaVisibility = currentVis !== null && prevVis !== null ? currentVis - prevVis : null
 
   return {
@@ -441,16 +448,11 @@ export async function getPlatformHeatmap(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor: string; platform: string; visibility_score: number }[]> {
-  const [rc, totalData] = await Promise.all([
-    fetchAllPages(sb.from('response_competitors')
-      .select('competitor_name, platform')
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)),
-    fetchAllPages(sb.from('responses')
-      .select('platform')
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)),
+  const [validIds, totalData] = await Promise.all([
+    getValidResponseIds(sb, f),
+    fetchAllPages(applyFilters(sb.from('responses').select('platform'), f)),
   ])
+  const rc = await fetchCompetitorsByIds(sb, validIds)
 
   const totals = new Map<string, number>()
   for (const r of totalData) {
@@ -480,22 +482,19 @@ export async function getCompetitorVsClayTimeseries(
   f: FilterParams,
   competitor: string
 ): Promise<{ date: string; clay: number; competitor: number }[]> {
-  const [rcData, clayData] = await Promise.all([
-    fetchAllPages(sb.from('response_competitors')
-      .select('run_date, response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)),
-    fetchAllPages(sb.from('responses')
-      .select('run_date, clay_mentioned')
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)),
+  const [validIds, clayData] = await Promise.all([
+    getValidResponseIds(sb, f),
+    fetchAllPages(applyFilters(sb.from('responses').select('id, run_date, clay_mentioned'), f)),
   ])
+  const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
+
+  // Map response_id → date for competitor side
+  const responseIdToDate = new Map(clayData.map((r: any) => [String(r.id), (r.run_date ?? '').substring(0, 10)]))
 
   const compByDate = new Map<string, number>()
   for (const r of rcData) {
-    const d = r.run_date?.split('T')[0] ?? ''
-    compByDate.set(d, (compByDate.get(d) ?? 0) + 1)
+    const d = responseIdToDate.get(String(r.response_id)) ?? ''
+    if (d) compByDate.set(d, (compByDate.get(d) ?? 0) + 1)
   }
 
   const clayByDate = new Map<string, { total: number; yes: number }>()
@@ -503,7 +502,7 @@ export async function getCompetitorVsClayTimeseries(
     const d = r.run_date?.split('T')[0] ?? ''
     const cur = clayByDate.get(d) ?? { total: 0, yes: 0 }
     cur.total++
-    if (r.clay_mentioned === 'Yes') cur.yes++
+    if ((r.clay_mentioned ?? '').toLowerCase() === 'yes') cur.yes++
     clayByDate.set(d, cur)
   }
 
@@ -701,25 +700,19 @@ export async function getCompetitorPMMComparison(
 ): Promise<PMMCompRow[]> {
   const isClay = competitor === 'Clay'
 
-  const responses = await fetchAllPages(sb
-    .from('responses')
-    .select('id, pmm_use_case, clay_mentioned')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .not('pmm_use_case', 'is', null))
+  const responses = await fetchAllPages(applyFilters(
+    sb.from('responses').select('id, pmm_use_case, clay_mentioned').not('pmm_use_case', 'is', null),
+    f
+  ))
 
   if (!responses.length) return []
 
   let compIds = new Set<string>()
 
   if (!isClay) {
-    const rcData = await fetchAllPages(sb
-      .from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate))
-    compIds = new Set(rcData.map(r => r.response_id))
+    const validIds = responses.map((r: any) => String(r.id))
+    const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
+    compIds = new Set(rcData.map((r: any) => String(r.response_id)))
   }
 
   const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
@@ -727,8 +720,9 @@ export async function getCompetitorPMMComparison(
     if (!r.pmm_use_case) continue
     const cur = topicMap.get(r.pmm_use_case) ?? { total: 0, clay: 0, comp: 0 }
     cur.total++
-    if (r.clay_mentioned === 'Yes') cur.clay++
-    if (isClay ? r.clay_mentioned === 'Yes' : compIds.has(r.id)) cur.comp++
+    const clayMentioned = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
+    if (clayMentioned) cur.clay++
+    if (isClay ? clayMentioned : compIds.has(String(r.id))) cur.comp++
     topicMap.set(r.pmm_use_case, cur)
   }
 
@@ -771,24 +765,20 @@ export async function getCompetitorPMMPromptDrilldown(
 ): Promise<PMMCompPromptRow[]> {
   const isClay = competitor === 'Clay'
 
-  const { data: responses } = await sb
-    .from('responses')
-    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .eq('pmm_use_case', pmmUseCase)
+  const responses = await fetchAllPages(applyFilters(
+    sb.from('responses')
+      .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
+      .eq('pmm_use_case', pmmUseCase),
+    f
+  ))
 
   if (!responses?.length) return []
 
   let compIds = new Set<string>()
   if (!isClay) {
-    const { data: rcData } = await sb
-      .from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)
-    compIds = new Set((rcData ?? []).map(r => r.response_id))
+    const validIds = responses.map((r: any) => String(r.id))
+    const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
+    compIds = new Set(rcData.map((r: any) => String(r.response_id)))
   }
 
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
@@ -807,8 +797,9 @@ export async function getCompetitorPMMPromptDrilldown(
       total: 0, clay: 0, comp: 0, responses: [],
     }
     cur.total++
-    if (r.clay_mentioned === 'Yes') cur.clay++
-    const compMentioned = isClay ? r.clay_mentioned === 'Yes' : compIds.has(r.id)
+    const clayMentioned2 = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
+    if (clayMentioned2) cur.clay++
+    const compMentioned = isClay ? clayMentioned2 : compIds.has(String(r.id))
     if (compMentioned) cur.comp++
     cur.responses.push({
       id: r.id,
@@ -844,15 +835,14 @@ export async function getClaygentMcpStats(
   byTopic: { topic: string; rate: number }[]
   snippets: { platform: string; topic: string; snippet: string; prompt_text: string; run_date: string }[]
 }> {
-  const { data } = await sb
-    .from('responses')
-    .select('claygent_or_mcp_mentioned, clay_followup_snippet, platform, topic, run_date')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+  const data = await fetchAllPages(applyFilters(
+    sb.from('responses').select('claygent_or_mcp_mentioned, clay_followup_snippet, platform, topic, run_date'),
+    f
+  ))
 
   if (!data?.length) return { rate: null, byPlatform: [], byTopic: [], snippets: [] }
 
-  const overall = data.filter(r => r.claygent_or_mcp_mentioned === 'Yes').length
+  const overall = data.filter((r: any) => (r.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes').length
   const rate = (overall / data.length) * 100
 
   const platformMap = new Map<string, { yes: number; total: number }>()
@@ -864,7 +854,7 @@ export async function getClaygentMcpStats(
     const pc = platformMap.get(p) ?? { yes: 0, total: 0 }
     const tc = topicMap.get(t) ?? { yes: 0, total: 0 }
     pc.total++; tc.total++
-    if (r.claygent_or_mcp_mentioned === 'Yes') { pc.yes++; tc.yes++ }
+    if ((r.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes') { pc.yes++; tc.yes++ }
     platformMap.set(p, pc)
     topicMap.set(t, tc)
   }
@@ -878,7 +868,7 @@ export async function getClaygentMcpStats(
       topic, rate: total > 0 ? (yes / total) * 100 : 0,
     })),
     snippets: data
-      .filter(r => r.claygent_or_mcp_mentioned === 'Yes' && r.clay_followup_snippet)
+      .filter((r: any) => (r.claygent_or_mcp_mentioned ?? '').toLowerCase() === 'yes' && r.clay_followup_snippet)
       .slice(0, 20)
       .map(r => ({
         platform: r.platform,
@@ -934,34 +924,27 @@ export async function getCompetitorSentimentVsClay(
 ): Promise<SentimentVsClayData | null> {
   const isClay = competitor === 'Clay'
 
-  // Get competitor's response_ids for co-mention filtering
+  // Pull Clay-mentioned responses using applyFilters (respects promptType + brandedFilter)
+  const allData = await fetchAllPages(applyFilters(
+    sb.from('responses')
+      .select('id, prompt_id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes, clay_mentioned'),
+    f
+  ))
+  const clayData = allData.filter((r: any) => (r.clay_mentioned ?? '').toLowerCase() === 'yes')
+  if (!clayData.length) return null
+
+  // Get competitor's response_ids for co-mention filtering (using IN() batching)
   let compResponseIds: Set<string> | null = null
   if (!isClay) {
-    const { data: rcData } = await sb
-      .from('response_competitors')
-      .select('response_id')
-      .eq('competitor_name', competitor)
-      .gte('run_date', f.startDate)
-      .lte('run_date', f.endDate)
-    if (!rcData?.length) return null
-    compResponseIds = new Set(rcData.map(r => r.response_id))
+    const validIds = allData.map((r: any) => String(r.id))
+    const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
+    if (!rcData.length) return null
+    compResponseIds = new Set(rcData.map((r: any) => String(r.response_id)))
   }
 
-  // Pull Clay-mentioned responses with sentiment + themes fields
-  let query = sb
-    .from('responses')
-    .select('id, prompt_id, platform, run_date, brand_sentiment, brand_sentiment_score, positioning_vs_competitors, clay_mention_snippet, response_text, themes')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
-    .eq('clay_mentioned', 'Yes')
-
-  if (f.platforms?.length) query = query.in('platform', f.platforms)
-
-  const { data } = await query
-  if (!data?.length) return null
-
+  const data = clayData
   // For competitor view, filter to co-mentioned responses only
-  const relevant = isClay ? data : data.filter(r => compResponseIds!.has(r.id))
+  const relevant = isClay ? data : data.filter((r: any) => compResponseIds!.has(String(r.id)))
   if (!relevant.length) return null
 
   // Resolve prompt texts
