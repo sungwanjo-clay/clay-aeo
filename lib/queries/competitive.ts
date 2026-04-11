@@ -805,20 +805,26 @@ export async function getCompetitorPMMPromptDrilldown(
 ): Promise<PMMCompPromptRow[]> {
   const isClay = competitor === 'Clay'
 
+  // Include competitors_mentioned (JSONB array) so we can check per-response without
+  // a separate join to response_competitors (which can lag behind ingestion)
   const responses = await fetchAllPages(applyFilters(
     sb.from('responses')
-      .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
+      .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text, competitors_mentioned')
       .eq('pmm_use_case', pmmUseCase),
     f
   ))
 
   if (!responses?.length) return []
 
-  let compIds = new Set<string>()
-  if (!isClay) {
-    const validIds = responses.map((r: any) => String(r.id))
-    const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
-    compIds = new Set(rcData.map((r: any) => String(r.response_id)))
+  // Helper: check if a response's competitors_mentioned JSONB array includes the competitor name
+  const compSlug = competitor.toLowerCase()
+  function isCompMentioned(r: any): boolean {
+    if (isClay) return (r.clay_mentioned ?? '').toLowerCase() === 'yes'
+    const arr: string[] = Array.isArray(r.competitors_mentioned)
+      ? r.competitors_mentioned
+      : []
+    // Match on exact name or slug (e.g., "Apollo.io" matches "apollo" slug)
+    return arr.some((c: string) => c.toLowerCase() === compSlug || c.toLowerCase().replace(/[^a-z0-9]/g, '').includes(compSlug.replace(/[^a-z0-9]/g, '')))
   }
 
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
@@ -835,7 +841,7 @@ export async function getCompetitorPMMPromptDrilldown(
     cur.total++
     const clayMentioned2 = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
     if (clayMentioned2) cur.clay++
-    const compMentioned = isClay ? clayMentioned2 : compIds.has(String(r.id))
+    const compMentioned = isCompMentioned(r)
     if (compMentioned) cur.comp++
     cur.responses.push({
       id: r.id,

@@ -178,15 +178,25 @@ function KpiCompTable({ kpisMap, competitors }: { kpisMap: Record<string, AnyKPI
                 {m.label}
               </td>
               {competitors.map(c => {
+                const isClay = c === 'Clay'
                 const kpi = kpisMap[c] as unknown as Record<string, unknown> | undefined
                 const val = kpi ? kpi[m.key] : null
                 const delta = m.deltaKey && kpi ? kpi[m.deltaKey] as number | null : null
+                // Avg Position is only tracked for Clay — show a note for competitors
+                const isAvgPos = m.key === 'avgPosition'
+                const notTracked = isAvgPos && !isClay
                 return (
                   <td key={c} className="py-2.5 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
-                        {m.fmt(val)}
-                      </span>
+                      {notTracked ? (
+                        <span className="text-[11px]" style={{ color: 'rgba(26,25,21,0.3)' }} title="Position tracking is only available for Clay">
+                          Not tracked
+                        </span>
+                      ) : (
+                        <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+                          {m.fmt(val)}
+                        </span>
+                      )}
                       {delta != null && <DeltaBadge delta={delta} />}
                     </div>
                   </td>
