@@ -194,76 +194,44 @@ export async function getSentimentNarratives(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<NarrativeGroup[]> {
-  const data = await fetchFiltered(
-    sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'),
-    f
-  )
-  if (!data.length) return []
-
-  const map = new Map<string, {
-    sentiment: 'Positive' | 'Neutral' | 'Negative'
-    occurrences: number
-    snippets: Array<{ text: string; platform: string; topic: string; date: string }>
-  }>()
-
-  for (const row of data) {
-    if ((row.clay_mentioned ?? '').toLowerCase() !== 'yes') continue
-
-    const themes = parseThemes(row.themes)
-
-    // If response has no themes array, fall back to brand_sentiment as a single entry
-    if (!themes.length) {
-      const sentiment = normalizeSentiment(row.brand_sentiment)
-      const key = `(Overall)|||${sentiment}`
-      if (!map.has(key)) map.set(key, { sentiment, occurrences: 0, snippets: [] })
-      map.get(key)!.occurrences++
-      continue
-    }
-
-    for (const t of themes) {
-      if (!t?.theme) continue
-      // Normalize sentiment — Clay may send 'positive', 'Positive', etc.
-      const sentiment = normalizeSentiment(t.sentiment ?? row.brand_sentiment)
-      const key = `${t.theme}|||${sentiment}`
-      if (!map.has(key)) map.set(key, { sentiment, occurrences: 0, snippets: [] })
-      const cur = map.get(key)!
-      cur.occurrences++
-      if (t.snippet) {
-        cur.snippets.push({
-          text: t.snippet,
-          platform: row.platform ?? '',
-          topic: row.topic ?? '',
-          date: (row.run_date ?? '').split('T')[0],
-        })
-      }
-    }
+  const params = sentimentRpcParams(f)
+  const { data, error } = await sb.rpc('get_sentiment_narratives_rpc', params)
+  if (error) {
+    console.error('[getSentimentNarratives] RPC error:', error)
+    return []
   }
+  if (!data?.length) return []
 
-  const ORDER: Record<string, number> = { Negative: 0, Neutral: 1, Positive: 2 }
-  return Array.from(map.entries())
-    .map(([key, val]) => {
-      const [theme] = key.split('|||')
-      return { theme, sentiment: val.sentiment, occurrences: val.occurrences, snippets: val.snippets }
-    })
-    .sort((a, b) => {
-      const so = (ORDER[a.sentiment] ?? 1) - (ORDER[b.sentiment] ?? 1)
-      return so !== 0 ? so : b.occurrences - a.occurrences
-    })
+  return (data as any[]).map(row => ({
+    theme: row.theme as string,
+    sentiment: normalizeSentiment(row.sentiment),
+    occurrences: Number(row.occurrence_count),
+    snippets: (Array.isArray(row.snippets) ? row.snippets : parseThemes(row.snippets))
+      .filter((s: any) => s?.text)
+      .map((s: any) => ({
+        text:     s.text     ?? '',
+        platform: s.platform ?? '',
+        topic:    s.topic    ?? '',
+        date:     s.date     ?? '',
+      })),
+  }))
 }
 
 export async function getCompetitivePositioningEntries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<PositioningEntry[]> {
-  const data = await fetchFiltered(sb.from('responses').select('positioning_vs_competitors, topic, platform, run_date, clay_mentioned'), f)
-  if (!data.length) return []
-  return data
-    .filter((r: any) => r.clay_mentioned === 'Yes' && r.positioning_vs_competitors)
-    .map((r: any) => ({
-      topic: r.topic ?? 'General',
-      platform: r.platform ?? '',
-      snippet: r.positioning_vs_competitors,
-      date: r.run_date?.split('T')[0] ?? '',
-    }))
-    .sort((a: any, b: any) => b.date.localeCompare(a.date))
+  const params = sentimentRpcParams(f)
+  const { data, error } = await sb.rpc('get_competitive_positioning_rpc', params)
+  if (error) {
+    console.error('[getCompetitivePositioningEntries] RPC error:', error)
+    return []
+  }
+  if (!data?.length) return []
+  return (data as any[]).map(r => ({
+    topic:    r.topic    ?? 'General',
+    platform: r.platform ?? '',
+    snippet:  r.snippet  ?? '',
+    date:     r.run_day  ?? '',
+  }))
 }
