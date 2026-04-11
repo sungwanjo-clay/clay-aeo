@@ -193,26 +193,45 @@ export async function getCompetitorCitationRate(
   competitor: string
 ): Promise<{ rate: number | null; count: number; deltaRate: number | null }> {
   const slug = domainSlug(competitor)
+  const curStart  = f.startDate.split('T')[0]
+  const curEnd    = f.endDate.split('T')[0]
+  const prevStart = f.prevStartDate.split('T')[0]
+  const prevEnd   = f.prevEndDate.split('T')[0]
 
-  const [citCur, citPrev, totalCur, totalPrev] = await Promise.all([
-    sb.from('citation_domains').select('domain')
-      .gte('run_date', f.startDate).lte('run_date', f.endDate)
-      .ilike('domain', `%${slug}%`),
-    sb.from('citation_domains').select('domain')
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate)
-      .ilike('domain', `%${slug}%`),
-    sb.from('responses').select('id', { count: 'exact', head: true })
-      .gte('run_date', f.startDate).lte('run_date', f.endDate),
-    sb.from('responses').select('id', { count: 'exact', head: true })
-      .gte('run_date', f.prevStartDate).lte('run_date', f.prevEndDate),
+  // Use pre-aggregated cache tables — avoids full scan of citation_domains
+  // with a leading-% ilike which causes timeouts on large tables.
+  function cacheFilter(q: any, start: string, end: string) {
+    q = q.gte('run_day', start).lte('run_day', end)
+    if (f.platforms?.length) q = q.in('platform', f.platforms)
+    if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+    return q
+  }
+
+  const [citCurRows, citPrevRows, dailyCurRows, dailyPrevRows] = await Promise.all([
+    fetchAllPages(cacheFilter(
+      sb.from('aeo_cache_domains').select('response_count').ilike('domain', `%${slug}%`),
+      curStart, curEnd
+    )),
+    fetchAllPages(cacheFilter(
+      sb.from('aeo_cache_domains').select('response_count').ilike('domain', `%${slug}%`),
+      prevStart, prevEnd
+    )),
+    fetchAllPages(cacheFilter(
+      sb.from('aeo_cache_daily').select('total_responses'),
+      curStart, curEnd
+    )),
+    fetchAllPages(cacheFilter(
+      sb.from('aeo_cache_daily').select('total_responses'),
+      prevStart, prevEnd
+    )),
   ])
 
-  const curCitations = citCur.data?.length ?? 0
-  const prevCitations = citPrev.data?.length ?? 0
-  const curTotal = totalCur.count ?? 0
-  const prevTotal = totalPrev.count ?? 0
+  const curCitations  = citCurRows.reduce((s, r) => s + Number(r.response_count), 0)
+  const prevCitations = citPrevRows.reduce((s, r) => s + Number(r.response_count), 0)
+  const curTotal      = dailyCurRows.reduce((s, r) => s + Number(r.total_responses), 0)
+  const prevTotal     = dailyPrevRows.reduce((s, r) => s + Number(r.total_responses), 0)
 
-  const rate = curTotal > 0 ? (curCitations / curTotal) * 100 : null
+  const rate     = curTotal  > 0 ? (curCitations  / curTotal)  * 100 : null
   const prevRate = prevTotal > 0 ? (prevCitations / prevTotal) * 100 : null
   const deltaRate = rate !== null && prevRate !== null ? rate - prevRate : null
 
@@ -739,20 +758,23 @@ export async function getCompetitorPMMComparison(
   competitor: string
 ): Promise<PMMCompRow[]> {
   const isClay = competitor === 'Clay'
+  const compSlug = competitor.toLowerCase()
 
+  // Fetch competitors_mentioned alongside pmm_use_case so we don't need a
+  // separate join to response_competitors (which can lag behind ingestion)
   const responses = await fetchAllPages(applyFilters(
-    sb.from('responses').select('id, pmm_use_case, clay_mentioned').not('pmm_use_case', 'is', null),
+    sb.from('responses')
+      .select('pmm_use_case, clay_mentioned, competitors_mentioned')
+      .not('pmm_use_case', 'is', null),
     f
   ))
 
   if (!responses.length) return []
 
-  let compIds = new Set<string>()
-
-  if (!isClay) {
-    const validIds = responses.map((r: any) => String(r.id))
-    const rcData = await fetchCompetitorsByIds(sb, validIds, q => q.eq('competitor_name', competitor))
-    compIds = new Set(rcData.map((r: any) => String(r.response_id)))
+  function parseCompArr(raw: any): string[] {
+    if (Array.isArray(raw)) return raw
+    if (typeof raw === 'string' && raw) { try { return JSON.parse(raw) } catch { return [] } }
+    return []
   }
 
   const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
@@ -762,7 +784,10 @@ export async function getCompetitorPMMComparison(
     cur.total++
     const clayMentioned = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
     if (clayMentioned) cur.clay++
-    if (isClay ? clayMentioned : compIds.has(String(r.id))) cur.comp++
+    const compMentioned = isClay ? clayMentioned : parseCompArr(r.competitors_mentioned)
+      .some((c: string) => c.toLowerCase() === compSlug ||
+        c.toLowerCase().replace(/[^a-z0-9]/g, '').includes(compSlug.replace(/[^a-z0-9]/g, '')))
+    if (compMentioned) cur.comp++
     topicMap.set(r.pmm_use_case, cur)
   }
 
@@ -816,15 +841,23 @@ export async function getCompetitorPMMPromptDrilldown(
 
   if (!responses?.length) return []
 
-  // Helper: check if a response's competitors_mentioned JSONB array includes the competitor name
+  // Helper: check if a response's competitors_mentioned field includes the competitor.
+  // Supabase can return JSONB columns as either a parsed array OR a JSON string —
+  // handle both. Falls back to false if null/empty.
   const compSlug = competitor.toLowerCase()
+  const compSlugAlpha = compSlug.replace(/[^a-z0-9]/g, '')
+  function parseCompArr(raw: any): string[] {
+    if (Array.isArray(raw)) return raw
+    if (typeof raw === 'string' && raw) { try { return JSON.parse(raw) } catch { return [] } }
+    return []
+  }
   function isCompMentioned(r: any): boolean {
     if (isClay) return (r.clay_mentioned ?? '').toLowerCase() === 'yes'
-    const arr: string[] = Array.isArray(r.competitors_mentioned)
-      ? r.competitors_mentioned
-      : []
-    // Match on exact name or slug (e.g., "Apollo.io" matches "apollo" slug)
-    return arr.some((c: string) => c.toLowerCase() === compSlug || c.toLowerCase().replace(/[^a-z0-9]/g, '').includes(compSlug.replace(/[^a-z0-9]/g, '')))
+    return parseCompArr(r.competitors_mentioned)
+      .some((c: string) => {
+        const cl = c.toLowerCase()
+        return cl === compSlug || cl.replace(/[^a-z0-9]/g, '').includes(compSlugAlpha)
+      })
   }
 
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
