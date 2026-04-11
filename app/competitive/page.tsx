@@ -415,11 +415,16 @@ export default function CompetitivePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citPromptCache])
 
-  // PMM drill-down
+  // PMM drill-down — always use the first non-Clay competitor so that
+  // competitor_mentioned is computed for the opponent, not for Clay itself.
+  // (When activeComp='Clay' the old code set competitor='Clay' making every
+  //  badge show Clay's own mention status instead of Apollo/ZoomInfo/etc.)
   const handlePMMDrilldown = useCallback(async (pmmUseCase: string): Promise<PMMCompPromptRow[]> => {
-    return getCompetitorPMMPromptDrilldown(supabase, f, activeComp, pmmUseCase) as Promise<PMMCompPromptRow[]>
+    const nonClay = selectedComps.find(c => c !== 'Clay')
+    const compForDrilldown = nonClay ?? activeComp
+    return getCompetitorPMMPromptDrilldown(supabase, f, compForDrilldown, pmmUseCase) as Promise<PMMCompPromptRow[]>
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeComp, f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join()])
+  }, [selectedComps.join(), activeComp, f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join()])
 
   // Derived
   const isMulti = selectedComps.length > 1

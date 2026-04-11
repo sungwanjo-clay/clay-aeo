@@ -50,12 +50,13 @@ function FullResponseBlock({ text }: { text: string }) {
 }
 
 // ── Response row ───────────────────────────────────────────────────────────────
-function CompResponseRow({ r, selected, defaultOpen = false }: { r: PMMCompPromptRow['responses'][0]; selected: string; defaultOpen?: boolean }) {
+function CompResponseRow({ r, compName, defaultOpen = false }: { r: PMMCompPromptRow['responses'][0]; compName: string | null; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   const hasDetail = !!(r.clay_mention_snippet || r.response_text)
   const clayYes = r.clay_mentioned === 'Yes'
   const compYes = r.competitor_mentioned
-  const showComp = selected !== 'Clay'
+  // Show the competitor badge whenever we have a real competitor to display
+  const showComp = !!compName
 
   return (
     <div style={{ borderBottom: '1px solid rgba(26,25,21,0.05)' }}>
@@ -86,7 +87,7 @@ function CompResponseRow({ r, selected, defaultOpen = false }: { r: PMMCompPromp
                 border: `1px solid ${compYes ? 'rgba(74,90,255,0.25)' : 'rgba(26,25,21,0.1)'}`,
               }}>
               <span>{compYes ? '✓' : '✗'}</span>
-              <span className="text-[9px] font-bold uppercase tracking-wide truncate" style={{ maxWidth: '64px' }}>{selected}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wide truncate" style={{ maxWidth: '64px' }}>{compName}</span>
             </div>
           )}
         </div>
@@ -122,8 +123,12 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
   const [open, setOpen] = useState(false)
   const [showAllResponses, setShowAllResponses] = useState(false)
 
+  // The competitor to display in response badges — always the first non-Clay comp
+  // regardless of which tab is active (selected can be 'Clay' when viewing Clay's perspective)
+  const compName = nonClayComps.length > 0 ? nonClayComps[0] : (selected !== 'Clay' ? selected : null)
+
   const compColor = nonClayComps.length > 0
-    ? COMP_COLORS[nonClayComps.indexOf(selected) % COMP_COLORS.length]
+    ? COMP_COLORS[nonClayComps.indexOf(selected) !== -1 ? nonClayComps.indexOf(selected) : 0]
     : COMP_COLORS[0]
 
   const visibleResponses = showAllResponses ? p.responses : p.responses.slice(0, RESPONSE_LIMIT)
@@ -184,10 +189,12 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
               style={{ background: 'rgba(26,25,21,0.03)', borderBottom: '1px solid rgba(26,25,21,0.07)' }}>
               <span style={{ ...LABEL, fontSize: '9px', width: '52px' }}>Platform</span>
               <span style={{ ...LABEL, fontSize: '9px', width: '80px' }}>Date</span>
-              <span style={{ ...LABEL, fontSize: '9px' }}>Clay mentioned · Competitor mentioned</span>
+              <span style={{ ...LABEL, fontSize: '9px' }}>
+                Clay mentioned{compName ? ` · ${compName} mentioned` : ''}
+              </span>
             </div>
             {visibleResponses.map((r, idx) => (
-              <CompResponseRow key={r.id} r={r} selected={selected} defaultOpen={idx < 4} />
+              <CompResponseRow key={r.id} r={r} compName={compName} defaultOpen={idx < 4} />
             ))}
             {p.responses.length > RESPONSE_LIMIT && (
               <button
