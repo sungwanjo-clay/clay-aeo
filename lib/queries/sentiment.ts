@@ -22,7 +22,9 @@ async function fetchFiltered(query: any, f: FilterParams): Promise<any[]> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFilters(query: any, f: FilterParams): any {
-  query = query.gte('run_date', f.startDate).lte('run_date', f.endDate)
+  // Use run_day (DATE) not run_date (TIMESTAMPTZ) — consistent with all other query files
+  // and avoids timezone mismatch when comparing bare date strings
+  query = query.gte('run_day', f.startDate.split('T')[0]).lte('run_day', f.endDate.split('T')[0])
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
   if (f.brandedFilter !== 'all') {
@@ -36,6 +38,25 @@ function applyFilters(query: any, f: FilterParams): any {
   }
   if (f.tags && f.tags !== 'all') query = query.eq('tags', f.tags)
   return query
+}
+
+/** Normalize sentiment strings to exactly 'Positive' | 'Neutral' | 'Negative'.
+ *  Handles lowercase variants, spaces, and unknown values gracefully. */
+function normalizeSentiment(raw: string | null | undefined): 'Positive' | 'Neutral' | 'Negative' {
+  const s = (raw ?? '').trim().toLowerCase()
+  if (s === 'positive') return 'Positive'
+  if (s === 'negative') return 'Negative'
+  return 'Neutral'
+}
+
+/** Parse a themes field that may be a JS array, a JSON string, or null. */
+function parseThemes(raw: any): any[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string' && raw) {
+    try { return JSON.parse(raw) } catch { return [] }
+  }
+  return []
 }
 
 function sentimentRpcParams(f: FilterParams) {
@@ -97,11 +118,13 @@ export async function getThemes(
 
   const map = new Map<string, { sentiment: string; occurrences: number; snippets: string[] }>()
   for (const row of data) {
-    if (row.clay_mentioned !== 'Yes') continue
-    const themes = Array.isArray(row.themes) ? row.themes : []
+    if ((row.clay_mentioned ?? '').toLowerCase() !== 'yes') continue
+    const themes = parseThemes(row.themes)
     for (const t of themes) {
-      const key = `${t.theme}|||${t.sentiment}`
-      const cur = map.get(key) ?? { sentiment: t.sentiment, occurrences: 0, snippets: [] }
+      if (!t?.theme) continue
+      const sentiment = normalizeSentiment(t.sentiment ?? row.brand_sentiment)
+      const key = `${t.theme}|||${sentiment}`
+      const cur = map.get(key) ?? { sentiment, occurrences: 0, snippets: [] }
       cur.occurrences++
       if (t.snippet) cur.snippets.push(t.snippet)
       map.set(key, cur)
@@ -171,16 +194,36 @@ export async function getSentimentNarratives(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<NarrativeGroup[]> {
-  const data = await fetchFiltered(sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'), f)
+  const data = await fetchFiltered(
+    sb.from('responses').select('brand_sentiment, themes, topic, platform, run_date, clay_mentioned'),
+    f
+  )
   if (!data.length) return []
 
-  const map = new Map<string, { sentiment: string; occurrences: number; snippets: Array<{ text: string; platform: string; topic: string; date: string }> }>()
+  const map = new Map<string, {
+    sentiment: 'Positive' | 'Neutral' | 'Negative'
+    occurrences: number
+    snippets: Array<{ text: string; platform: string; topic: string; date: string }>
+  }>()
 
-  for (const row of data.filter((r: any) => r.clay_mentioned === 'Yes')) {
-    const themes = Array.isArray(row.themes) ? row.themes : []
+  for (const row of data) {
+    if ((row.clay_mentioned ?? '').toLowerCase() !== 'yes') continue
+
+    const themes = parseThemes(row.themes)
+
+    // If response has no themes array, fall back to brand_sentiment as a single entry
+    if (!themes.length) {
+      const sentiment = normalizeSentiment(row.brand_sentiment)
+      const key = `(Overall)|||${sentiment}`
+      if (!map.has(key)) map.set(key, { sentiment, occurrences: 0, snippets: [] })
+      map.get(key)!.occurrences++
+      continue
+    }
+
     for (const t of themes) {
-      if (!t.theme) continue
-      const sentiment = (t.sentiment ?? row.brand_sentiment ?? 'Neutral') as string
+      if (!t?.theme) continue
+      // Normalize sentiment — Clay may send 'positive', 'Positive', etc.
+      const sentiment = normalizeSentiment(t.sentiment ?? row.brand_sentiment)
       const key = `${t.theme}|||${sentiment}`
       if (!map.has(key)) map.set(key, { sentiment, occurrences: 0, snippets: [] })
       const cur = map.get(key)!
@@ -190,7 +233,7 @@ export async function getSentimentNarratives(
           text: t.snippet,
           platform: row.platform ?? '',
           topic: row.topic ?? '',
-          date: row.run_date?.split('T')[0] ?? '',
+          date: (row.run_date ?? '').split('T')[0],
         })
       }
     }
@@ -200,7 +243,7 @@ export async function getSentimentNarratives(
   return Array.from(map.entries())
     .map(([key, val]) => {
       const [theme] = key.split('|||')
-      return { theme, sentiment: val.sentiment as 'Positive' | 'Neutral' | 'Negative', occurrences: val.occurrences, snippets: val.snippets }
+      return { theme, sentiment: val.sentiment, occurrences: val.occurrences, snippets: val.snippets }
     })
     .sort((a, b) => {
       const so = (ORDER[a.sentiment] ?? 1) - (ORDER[b.sentiment] ?? 1)
