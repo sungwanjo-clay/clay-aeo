@@ -490,15 +490,19 @@ export async function getCitationURLContext(
       .filter(Boolean)
   )]
 
+  // Batch in groups of 100 to stay under PostgREST URL length limit
   const promptMap = new Map<string, string>()
   if (promptIds.length > 0) {
-    const { data: prompts } = await sb
-      .from('prompts')
-      .select('prompt_id, prompt_text')
-      .in('prompt_id', promptIds)
-    for (const p of prompts ?? []) {
-      promptMap.set(p.prompt_id, p.prompt_text)
-    }
+    const BATCH = 100
+    const allPrompts = (await Promise.all(
+      Array.from({ length: Math.ceil(promptIds.length / BATCH) }, (_, i) =>
+        sb.from('prompts')
+          .select('prompt_id, prompt_text')
+          .in('prompt_id', promptIds.slice(i * BATCH, (i + 1) * BATCH))
+          .then(({ data: d }) => d ?? [])
+      )
+    )).flat()
+    for (const p of allPrompts) promptMap.set(p.prompt_id, p.prompt_text)
   }
 
   return (data as any[]).map((row: any) => {

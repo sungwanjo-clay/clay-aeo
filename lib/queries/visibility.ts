@@ -592,10 +592,18 @@ export async function getPMMPromptDrilldown(
     map.set(row.prompt_id, cur)
   }
 
-  // Fetch prompt texts
+  // Fetch prompt texts (batched to avoid PostgREST URL length limit)
   const ids = Array.from(map.keys())
-  const { data: prompts } = await sb.from('prompts').select('prompt_id, prompt_text').in('prompt_id', ids)
-  const textMap = new Map((prompts ?? []).map((p: any) => [p.prompt_id, p.prompt_text]))
+  const BATCH = 100
+  const allPrompts = (await Promise.all(
+    Array.from({ length: Math.ceil(ids.length / BATCH) }, (_, i) =>
+      sb.from('prompts')
+        .select('prompt_id, prompt_text')
+        .in('prompt_id', ids.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data: d }) => d ?? [])
+    )
+  )).flat()
+  const textMap = new Map(allPrompts.map((p: any) => [p.prompt_id, p.prompt_text]))
 
   return Array.from(map.entries()).map(([prompt_id, { mentioned, total, positions, rows }]) => ({
     prompt_id,

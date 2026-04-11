@@ -212,6 +212,7 @@ export default function CompetitivePage() {
   const [competitors, setCompetitors] = useState<string[]>([])
   const [selectedComps, setSelectedComps] = useState<string[]>([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [dropdownSearch, setDropdownSearch] = useState('')
   const dropdownRef = useRef(null)
   // activeComp: which competitor is shown in drill-down sections (Citation, PMM, Sentiment)
   const [activeComp, setActiveComp] = useState<string>('')
@@ -268,6 +269,7 @@ export default function CompetitivePage() {
     function handleOutside(e: MouseEvent) {
       if (dropdownRef.current && !(dropdownRef.current as HTMLElement).contains(e.target as Node)) {
         setDropdownOpen(false)
+        setDropdownSearch('')
       }
     }
     document.addEventListener('mousedown', handleOutside)
@@ -432,10 +434,16 @@ export default function CompetitivePage() {
   const limitedComps = showAllHeatmap ? heatmapComps : heatmapComps.slice(0, 50)
   const filteredHeatmap = heatmap.filter(d => limitedComps.includes(d.competitor))
 
-  // Dropdown trigger label
-  const triggerLabel = selectedComps.length === 1
-    ? selectedComps[0]
-    : `${selectedComps[0]} + ${selectedComps.length - 1} more`
+  // Dropdown trigger label — clearly shows who is being compared
+  const triggerLabel = (() => {
+    if (selectedComps.length === 1) return selectedComps[0]
+    const hasClay = selectedComps.includes('Clay')
+    const others = selectedComps.filter(c => c !== 'Clay')
+    if (hasClay && others.length === 1) return `Clay vs ${others[0]}`
+    if (hasClay && others.length > 1) return `Clay vs ${others.length} competitors`
+    if (selectedComps.length === 2) return `${selectedComps[0]} vs ${selectedComps[1]}`
+    return `${selectedComps[0]} + ${selectedComps.length - 1} more`
+  })()
 
   // Tab strip for drill-down sections
   const drillTabs = isMulti ? (
@@ -465,13 +473,18 @@ export default function CompetitivePage() {
           {/* Excel-style dropdown */}
           <div ref={dropdownRef} className="relative inline-block">
             <button
-              onClick={() => setDropdownOpen(v => !v)}
+              onClick={() => {
+                setDropdownOpen(v => {
+                  if (v) setDropdownSearch('')
+                  return !v
+                })
+              }}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold transition-colors"
               style={{
                 background: '#FFFFFF',
                 border: '1px solid rgba(26,25,21,0.18)',
                 color: 'var(--clay-black)',
-                minWidth: '220px',
+                minWidth: '240px',
                 cursor: 'pointer',
                 boxShadow: dropdownOpen ? '0 0 0 2px rgba(26,25,21,0.1)' : 'none',
               }}
@@ -482,78 +495,113 @@ export default function CompetitivePage() {
 
             {dropdownOpen && (
               <div
-                className="absolute top-full left-0 mt-1 z-50 rounded-lg overflow-hidden"
+                className="absolute top-full left-0 mt-1 z-50 rounded-lg"
                 style={{
                   background: '#FFFFFF',
                   border: '1px solid var(--clay-border)',
-                  minWidth: '260px',
-                  maxHeight: '340px',
-                  overflowY: 'auto',
+                  minWidth: '280px',
+                  maxHeight: '380px',
+                  display: 'flex',
+                  flexDirection: 'column',
                   boxShadow: '0 8px 24px rgba(26,25,21,0.12)',
                 }}
               >
-                {/* Clay always at top */}
-                {competitors.filter(c => c === 'Clay').map(comp => {
-                  const checked = selectedComps.includes(comp)
-                  const disabled = checked && selectedComps.length === 1
-                  const mover = movers.find(m => m.competitor_name === comp)
-                  const kpi = kpisMap[comp]
-                  return (
-                    <label key={comp}
-                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.04)] transition-colors"
-                      style={{ borderBottom: '1px solid rgba(26,25,21,0.08)' }}
-                    >
-                      <input type="checkbox" checked={checked} disabled={disabled}
-                        onChange={() => !disabled && toggleComp(comp)}
-                        style={{ width: '14px', height: '14px', accentColor: '#C8F040', cursor: disabled ? 'not-allowed' : 'pointer' }}
-                        onClick={e => e.stopPropagation()}
-                      />
-                      <span className="flex-1 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
-                        {comp}
-                        <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)' }}>You</span>
-                      </span>
-                      {kpi?.visibilityScore != null && (
-                        <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
-                      )}
-                      {mover?.delta != null && (
-                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
-                          {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
-                        </span>
-                      )}
-                    </label>
-                  )
-                })}
+                {/* Search input */}
+                <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(26,25,21,0.08)', flexShrink: 0 }}>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Search competitors…"
+                    value={dropdownSearch}
+                    onChange={e => setDropdownSearch(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      width: '100%',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(26,25,21,0.15)',
+                      fontSize: '12px',
+                      color: 'var(--clay-black)',
+                      background: 'rgba(26,25,21,0.03)',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
 
-                {/* Alphabetical non-Clay competitors */}
-                {competitors.filter(c => c !== 'Clay').map(comp => {
-                  const checked = selectedComps.includes(comp)
-                  const disabled = checked && selectedComps.length === 1
-                  const maxed = !checked && selectedComps.length >= MAX_SELECT
-                  const mover = movers.find(m => m.competitor_name === comp)
-                  const kpi = kpisMap[comp]
-                  return (
-                    <label key={comp}
-                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.04)] transition-colors"
-                      style={{ opacity: maxed ? 0.4 : 1, borderBottom: '1px solid rgba(26,25,21,0.04)' }}
-                    >
-                      <input type="checkbox" checked={checked}
-                        disabled={disabled || (maxed && !checked)}
-                        onChange={() => !disabled && !maxed && toggleComp(comp)}
-                        style={{ width: '14px', height: '14px', accentColor: 'var(--clay-black)', cursor: disabled || maxed ? 'not-allowed' : 'pointer' }}
-                        onClick={e => e.stopPropagation()}
-                      />
-                      <span className="flex-1 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{comp}</span>
-                      {kpi?.visibilityScore != null && (
-                        <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
-                      )}
-                      {mover?.delta != null && (
-                        <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
-                          {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
+                {/* Scrollable list */}
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {/* Clay always at top (hide if search doesn't match) */}
+                  {competitors.filter(c => c === 'Clay' && c.toLowerCase().includes(dropdownSearch.toLowerCase())).map(comp => {
+                    const checked = selectedComps.includes(comp)
+                    const disabled = checked && selectedComps.length === 1
+                    const mover = movers.find(m => m.competitor_name === comp)
+                    const kpi = kpisMap[comp]
+                    return (
+                      <label key={comp}
+                        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.04)] transition-colors"
+                        style={{ borderBottom: '1px solid rgba(26,25,21,0.08)' }}
+                      >
+                        <input type="checkbox" checked={checked} disabled={disabled}
+                          onChange={() => !disabled && toggleComp(comp)}
+                          style={{ width: '14px', height: '14px', accentColor: '#C8F040', cursor: disabled ? 'not-allowed' : 'pointer' }}
+                          onClick={e => e.stopPropagation()}
+                        />
+                        <span className="flex-1 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>
+                          {comp}
+                          <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: 'var(--clay-lime)', color: 'var(--clay-black)' }}>You</span>
                         </span>
-                      )}
-                    </label>
-                  )
-                })}
+                        {kpi?.visibilityScore != null && (
+                          <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
+                        )}
+                        {mover?.delta != null && (
+                          <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
+                            {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
+                          </span>
+                        )}
+                      </label>
+                    )
+                  })}
+
+                  {/* Filtered non-Clay competitors */}
+                  {competitors
+                    .filter(c => c !== 'Clay' && c.toLowerCase().includes(dropdownSearch.toLowerCase()))
+                    .map(comp => {
+                    const checked = selectedComps.includes(comp)
+                    const disabled = checked && selectedComps.length === 1
+                    const maxed = !checked && selectedComps.length >= MAX_SELECT
+                    const mover = movers.find(m => m.competitor_name === comp)
+                    const kpi = kpisMap[comp]
+                    return (
+                      <label key={comp}
+                        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[rgba(26,25,21,0.04)] transition-colors"
+                        style={{ opacity: maxed ? 0.4 : 1, borderBottom: '1px solid rgba(26,25,21,0.04)' }}
+                      >
+                        <input type="checkbox" checked={checked}
+                          disabled={disabled || (maxed && !checked)}
+                          onChange={() => !disabled && !maxed && toggleComp(comp)}
+                          style={{ width: '14px', height: '14px', accentColor: 'var(--clay-black)', cursor: disabled || maxed ? 'not-allowed' : 'pointer' }}
+                          onClick={e => e.stopPropagation()}
+                        />
+                        <span className="flex-1 text-[13px] font-semibold" style={{ color: 'var(--clay-black)' }}>{comp}</span>
+                        {kpi?.visibilityScore != null && (
+                          <span className="text-[12px] font-bold tabular-nums" style={{ color: 'rgba(26,25,21,0.5)' }}>{kpi.visibilityScore.toFixed(1)}%</span>
+                        )}
+                        {mover?.delta != null && (
+                          <span className="text-[10px] font-bold" style={{ color: mover.delta >= 0 ? 'var(--clay-positive-text)' : 'var(--clay-pomegranate)', minWidth: '36px', textAlign: 'right' }}>
+                            {mover.delta >= 0 ? '↑' : '↓'}{Math.abs(mover.delta).toFixed(1)}%
+                          </span>
+                        )}
+                      </label>
+                    )
+                  })}
+
+                  {/* Empty state */}
+                  {dropdownSearch && competitors.filter(c => c.toLowerCase().includes(dropdownSearch.toLowerCase())).length === 0 && (
+                    <div className="px-4 py-4 text-center text-[12px]" style={{ color: 'rgba(26,25,21,0.4)' }}>
+                      No competitors match "{dropdownSearch}"
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

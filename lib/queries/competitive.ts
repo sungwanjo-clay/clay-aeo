@@ -49,6 +49,22 @@ async function fetchCompetitorsByIds(
   )).flat()
 }
 
+/** Fetch prompt texts for a set of prompt IDs via batched IN() queries.
+ *  Avoids PostgREST URL length limits when there are hundreds of IDs. */
+async function fetchPromptTexts(sb: SupabaseClient, promptIds: string[]): Promise<Map<string, string>> {
+  if (!promptIds.length) return new Map()
+  const BATCH = 100
+  const all = (await Promise.all(
+    Array.from({ length: Math.ceil(promptIds.length / BATCH) }, (_, i) =>
+      sb.from('prompts')
+        .select('prompt_id, prompt_text')
+        .in('prompt_id', promptIds.slice(i * BATCH, (i + 1) * BATCH))
+        .then(({ data }) => data ?? [])
+    )
+  )).flat()
+  return new Map(all.map((p: any) => [p.prompt_id, p.prompt_text]))
+}
+
 async function fetchAllPages(query: any): Promise<any[]> {
   const PAGE = 1000
   const all: any[] = []
@@ -418,7 +434,25 @@ export async function getCompetitorKPIs(
     if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
   }
 
-  const topTopic = null // topic is on responses table, not response_competitors — omitted for perf
+  // Compute top topic by sampling up to 200 response IDs (2 batches of 100)
+  // — enough to determine the dominant topic without full table scan
+  let topTopic: string | null = null
+  const sampleIds = [...new Set(rcData.map((r: any) => String(r.response_id)))].slice(0, 200)
+  const topicResults = (await Promise.all(
+    Array.from({ length: Math.ceil(sampleIds.length / 100) }, (_, i) =>
+      sb.from('responses')
+        .select('topic')
+        .in('id', sampleIds.slice(i * 100, (i + 1) * 100))
+        .not('topic', 'is', null)
+        .then(({ data }) => data ?? [])
+    )
+  )).flat()
+  const topicCounts = new Map<string, number>()
+  for (const r of topicResults) {
+    if (r.topic) topicCounts.set(r.topic, (topicCounts.get(r.topic) ?? 0) + 1)
+  }
+  topTopic = [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
   const currentVis = curIds.length ? (rcData.length / curIds.length) * 100 : null
@@ -668,12 +702,7 @@ export async function getPromptsForCitation(
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
   if (!promptIds.length) return []
 
-  const { data: prompts } = await sb
-    .from('prompts')
-    .select('prompt_id, prompt_text')
-    .in('prompt_id', promptIds)
-
-  const textMap = new Map((prompts ?? []).map(p => [p.prompt_id, p.prompt_text]))
+  const textMap = await fetchPromptTexts(sb, promptIds)
 
   const promptMap = new Map<string, CitationPromptRow>()
   for (const r of responses) {
@@ -793,11 +822,7 @@ export async function getCompetitorPMMPromptDrilldown(
   }
 
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
-  const { data: prompts } = await sb
-    .from('prompts')
-    .select('prompt_id, prompt_text')
-    .in('prompt_id', promptIds)
-  const textMap = new Map((prompts ?? []).map(p => [p.prompt_id, p.prompt_text]))
+  const textMap = await fetchPromptTexts(sb, promptIds)
 
   const promptMap = new Map<string, { prompt_text: string; total: number; clay: number; comp: number; responses: PMMCompResponseRow[] }>()
   for (const r of responses) {
@@ -958,16 +983,9 @@ export async function getCompetitorSentimentVsClay(
   const relevant = isClay ? data : data.filter((r: any) => compResponseIds!.has(String(r.id)))
   if (!relevant.length) return null
 
-  // Resolve prompt texts
+  // Resolve prompt texts (batched to avoid PostgREST URL length limit)
   const promptIds = [...new Set(relevant.map(r => r.prompt_id).filter(Boolean))]
-  const promptTextMap = new Map<string, string>()
-  if (promptIds.length) {
-    const { data: prompts } = await sb
-      .from('prompts')
-      .select('prompt_id, prompt_text')
-      .in('prompt_id', promptIds)
-    for (const p of prompts ?? []) promptTextMap.set(p.prompt_id, p.prompt_text)
-  }
+  const promptTextMap = await fetchPromptTexts(sb, promptIds)
 
   // Overall sentiment aggregates
   const pos = relevant.filter(r => r.brand_sentiment === 'Positive').length
