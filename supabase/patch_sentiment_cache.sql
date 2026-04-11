@@ -179,22 +179,27 @@ BEGIN
 
 
   -- ── 4. Domain citations ────────────────────────────────────
+  -- NOTE: aeo_cache_domains PRIMARY KEY is (run_day, platform, prompt_type, domain)
+  -- with NO citation_type — aggregate across all citation types per domain to avoid
+  -- "ON CONFLICT cannot affect row a second time" when same domain has multiple types.
   INSERT INTO aeo_cache_domains (
     run_day, platform, prompt_type, domain, citation_type, response_count
   )
   SELECT
-    cd.run_date::date                   AS run_day,
+    cd.run_date::date                          AS run_day,
     cd.platform,
-    COALESCE(r.prompt_type, '__none__') AS prompt_type,
+    COALESCE(r.prompt_type, '__none__')        AS prompt_type,
     cd.domain,
-    cd.citation_type,
-    COUNT(DISTINCT cd.response_id)      AS response_count
+    MAX(cd.citation_type)                      AS citation_type,   -- most common type
+    COUNT(DISTINCT cd.response_id)             AS response_count
   FROM citation_domains cd
   JOIN responses r ON r.id = cd.response_id
   WHERE cd.domain IS NOT NULL
-  GROUP BY cd.run_date::date, cd.platform, COALESCE(r.prompt_type, '__none__'), cd.domain, cd.citation_type
+  GROUP BY cd.run_date::date, cd.platform, COALESCE(r.prompt_type, '__none__'), cd.domain
   ON CONFLICT (run_day, platform, prompt_type, domain)
-  DO UPDATE SET response_count = EXCLUDED.response_count;
+  DO UPDATE SET
+    response_count = EXCLUDED.response_count,
+    citation_type  = EXCLUDED.citation_type;
 
 
   -- ── 5. Domain URLs ─────────────────────────────────────────
