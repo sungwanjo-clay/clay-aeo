@@ -56,6 +56,8 @@ CREATE INDEX IF NOT EXISTS idx_aeo_cache_positioning_day
 
 -- ── Step 3: Extend refresh_dashboard_cache() ─────────────────
 
+DROP FUNCTION IF EXISTS refresh_dashboard_cache();
+
 CREATE OR REPLACE FUNCTION refresh_dashboard_cache()
 RETURNS TEXT
 LANGUAGE plpgsql
