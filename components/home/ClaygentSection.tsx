@@ -2,15 +2,10 @@
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatShortDate } from '@/lib/utils/formatters'
-import MentionBreakdownTable from './MentionBreakdownTable'
-import type { MentionTopicRow } from '@/lib/queries/visibility'
 
 interface Props {
   claygentData: { date: string; count: number }[]
   followupData: { date: string; count: number }[]
-  claygentBreakdown: MentionTopicRow[]
-  followupBreakdown: MentionTopicRow[]
-  loadingBreakdown?: boolean
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -21,15 +16,11 @@ function CountChart({
   title,
   subtitle,
   color,
-  breakdown,
-  loadingBreakdown,
 }: {
   data: { date: string; count: number }[]
   title: string
   subtitle: string
   color: string
-  breakdown: MentionTopicRow[]
-  loadingBreakdown?: boolean
 }) {
   const total = data.reduce((s, d) => s + d.count, 0)
 
@@ -96,30 +87,11 @@ function CountChart({
       ) : (
         <p className="py-3 text-center text-[12px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>No data yet</p>
       )}
-
-      {/* Divider */}
-      <div style={{ borderTop: '1px solid var(--clay-border-dashed)' }} />
-
-      {/* Breakdown table */}
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
-          By topic & prompt — click to expand
-        </p>
-        {loadingBreakdown ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-8 rounded animate-pulse" style={{ background: 'rgba(26,25,21,0.06)' }} />
-            ))}
-          </div>
-        ) : (
-          <MentionBreakdownTable data={breakdown} accentColor={color} />
-        )}
-      </div>
     </div>
   )
 }
 
-export default function ClaygentSection({ claygentData, followupData, claygentBreakdown, followupBreakdown, loadingBreakdown }: Props) {
+export default function ClaygentSection({ claygentData, followupData }: Props) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
       <CountChart
@@ -127,16 +99,12 @@ export default function ClaygentSection({ claygentData, followupData, claygentBr
         title="ClayMCP & Agent Mentions"
         subtitle="Times ClayMCP or Clay Agent was mentioned per day"
         color="#4A5AFF"
-        breakdown={claygentBreakdown}
-        loadingBreakdown={loadingBreakdown}
       />
       <CountChart
         data={followupData}
         title="Clay Recommended as Follow-up"
         subtitle="Times Clay was recommended as a follow-up action per day"
         color="#3DAA6A"
-        breakdown={followupBreakdown}
-        loadingBreakdown={loadingBreakdown}
       />
     </div>
   )

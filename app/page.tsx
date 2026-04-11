@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getFollowupTimeseries, getMentionBreakdown, getPMMPromptDrilldown } from '@/lib/queries/visibility'
-import type { MentionTopicRow } from '@/lib/queries/visibility'
+import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getFollowupTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
@@ -65,10 +64,6 @@ export default function HomePage() {
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
   const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
-  // ── Tier 3b: Breakdown tables (heavy full-table scans, load after) ──
-  const [loadingBreakdown, setLoadingBreakdown] = useState(true)
-  const [claygentBreakdown, setClaygentBreakdown] = useState<MentionTopicRow[]>([])
-  const [followupBreakdown, setFollowupBreakdown] = useState<MentionTopicRow[]>([])
 
   // Tier 1: KPI numbers — one RPC call covers visibility + avg pos + claygent
   useEffect(() => {
@@ -140,21 +135,6 @@ export default function HomePage() {
     })
   }, [f])
 
-  // Tier 3b: Heavy breakdown tables — full response table scans, deferred
-  useEffect(() => {
-    setLoadingBreakdown(true)
-    Promise.all([
-      getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned'),
-      getMentionBreakdown(supabase, f, 'clay_recommended_followup'),
-    ]).then(([claygentBd, followupBd]) => {
-      setClaygentBreakdown(claygentBd)
-      setFollowupBreakdown(followupBd)
-      setLoadingBreakdown(false)
-    }).catch(err => {
-      console.error('[page] Tier3b breakdown failed:', err)
-      setLoadingBreakdown(false)
-    })
-  }, [f])
 
   const handlePMMDrilldown = useCallback(async (pmmUseCase: string, pmmClassification: string | null) => {
     return getPMMPromptDrilldown(supabase, f, pmmUseCase, pmmClassification)
@@ -423,9 +403,6 @@ export default function HomePage() {
           <ClaygentSection
             claygentData={claygentTimeseries}
             followupData={followupTimeseries}
-            claygentBreakdown={claygentBreakdown}
-            followupBreakdown={followupBreakdown}
-            loadingBreakdown={loadingBreakdown}
           />
         )}
       </div>
