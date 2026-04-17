@@ -75,15 +75,26 @@ export default function HomePage() {
       getLatestInsight(supabase),
       getActiveAnomalies(supabase),
       getDataFreshnessStats(supabase),
-    ]).then(([kpis, citRate, sent, ins, ano, fresh]) => {
+    ]).then(async ([kpis, citRate, sent, ins, ano, fresh]) => {
       setVisibility(kpis.visibility)
       setAvgPos(kpis.avgPosition)
       setClaygentCount(kpis.claygentCount)
       setCitationRate(citRate)
       setSentiment({ positive: sent.positive })
-      setInsight(ins)
       setAnomalies(ano)
       setFreshness(fresh)
+
+      // Auto-generate today's insight if not yet available
+      const today = new Date().toISOString().split('T')[0]
+      let resolvedInsight = ins as InsightRow | null
+      if (!resolvedInsight || resolvedInsight.run_date?.substring(0, 10) !== today) {
+        try {
+          const res = await fetch('/api/generate-insight', { method: 'POST' })
+          const json = await res.json()
+          if (json.ok && json.insight) resolvedInsight = json.insight
+        } catch { /* silent */ }
+      }
+      setInsight(resolvedInsight)
       setLoading(false)
     }).catch(err => {
       console.error('[page] KPI Promise.all failed:', err)
