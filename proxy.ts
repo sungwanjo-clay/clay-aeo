@@ -24,10 +24,11 @@ export async function proxy(req: NextRequest) {
 
   const { pathname } = req.nextUrl
 
-  // Always allow: login page, auth API, Next.js internals, static files
+  // Always allow: login page, auth API, internal API routes, Next.js internals, static files
   if (
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/generate-insight') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {
