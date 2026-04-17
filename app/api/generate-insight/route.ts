@@ -133,21 +133,23 @@ async function generateInsight() {
 
   const dailyRows = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map(rates)
 
-  const platformTotals = new Map<string, { vis: number; cit: number; mcp: number; rec: number; days: number }>()
+  const platformTotals = new Map<string, { vis: number; cit: number; mcp: number; rec: number; days: number; total_prompts: number }>()
   for (const [, dm] of byDatePlatform) {
     for (const [plat, m] of dm) {
       if (m.total === 0) continue
-      const cur = platformTotals.get(plat) ?? { vis: 0, cit: 0, mcp: 0, rec: 0, days: 0 }
+      const cur = platformTotals.get(plat) ?? { vis: 0, cit: 0, mcp: 0, rec: 0, days: 0, total_prompts: 0 }
       cur.vis += (m.clay / m.total) * 100
       cur.cit += (m.cited / m.total) * 100
       cur.mcp += (m.claymcp / m.total) * 100
       cur.rec += (m.recommended / m.total) * 100
       cur.days++
+      cur.total_prompts += m.total
       platformTotals.set(plat, cur)
     }
   }
   const platformRows = [...platformTotals.entries()].map(([platform, s]) => ({
     platform,
+    total_prompts: s.total_prompts,
     avg_visibility_rate: s.days > 0 ? +(s.vis / s.days).toFixed(2) : 0,
     avg_citation_rate: s.days > 0 ? +(s.cit / s.days).toFixed(2) : 0,
     avg_claymcp_rate: s.days > 0 ? +(s.mcp / s.days).toFixed(2) : 0,
