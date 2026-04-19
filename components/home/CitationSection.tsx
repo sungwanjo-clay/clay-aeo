@@ -49,10 +49,6 @@ function InfoTooltip({ text }: { text: string }) {
   )
 }
 
-// Build chart data using competitorTs for ALL lines (Clay + competitors).
-// All values share the same denominator (aeo_cache_domains SUM per day),
-// so the lines are directly comparable. Falls back to timeseries for Clay
-// only if clay.com is absent from competitorTs.
 function buildChartData(
   timeseries: { date: string; value: number }[],
   competitorTs: { date: string; domain: string; value: number }[],
@@ -60,11 +56,8 @@ function buildChartData(
   startDate: string,
   endDate: string,
 ) {
-  const clayFromComp = competitorTs.filter(r => r.domain === 'clay.com')
-  const nonClayTs    = competitorTs.filter(r => r.domain !== 'clay.com')
-
   const domainTotals = new Map<string, number>()
-  for (const r of nonClayTs) {
+  for (const r of competitorTs) {
     domainTotals.set(r.domain, (domainTotals.get(r.domain) ?? 0) + r.value)
   }
   const topDomains = [...domainTotals.entries()]
@@ -74,17 +67,16 @@ function buildChartData(
 
   const allDates = generateDateRange(startDate, endDate)
 
-  // Prefer clay from competitorTs (same denominator); fall back to timeseries
-  const clayLookup = clayFromComp.length > 0
-    ? new Map(clayFromComp.map(r => [r.date, r.value]))
-    : new Map(timeseries.map(r => [r.date, r.value]))
-  const compLookup = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
+  // Clay always uses timeseries (clay_cited_responses / total_with_citations from aeo_cache_daily)
+  const clayLookup = new Map(timeseries.map(r => [r.date, r.value]))
+  const compLookup = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const data = allDates.map(date => {
     const row: Record<string, string | number> = { date }
     if (clayLookup.has(date)) row['Clay'] = clayLookup.get(date)!
     for (const d of topDomains) {
-      if (compLookup.has(`${date}|||${d}`)) row[d] = compLookup.get(`${date}|||${d}`)!
+      const key = `${date}|||${d}`
+      if (compLookup.has(key)) row[d] = compLookup.get(key)!
     }
     return row
   })

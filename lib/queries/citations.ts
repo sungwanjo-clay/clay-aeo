@@ -234,35 +234,48 @@ export async function getCompetitorCitationTimeseries(
   const startDay = f.startDate.split('T')[0]
   const endDay   = f.endDate.split('T')[0]
 
-  let q = sb.from('aeo_cache_domains')
+  // Fetch domain counts + daily totals in parallel
+  let domainsQ = sb.from('aeo_cache_domains')
     .select('run_day,domain,citation_type,response_count')
     .gte('run_day', startDay).lte('run_day', endDay)
-  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+  if (f.platforms && f.platforms.length > 0) domainsQ = domainsQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') domainsQ = domainsQ.ilike('prompt_type', f.promptType)
 
-  const { data, error } = await q.limit(10000)
+  let dailyQ = sb.from('aeo_cache_daily')
+    .select('run_day,platform,total_with_citations')
+    .gte('run_day', startDay).lte('run_day', endDay)
+    .eq('prompt_type', 'Benchmark')
+  if (f.platforms && f.platforms.length > 0) dailyQ = dailyQ.in('platform', f.platforms)
+
+  const [{ data, error }, { data: dailyData }] = await Promise.all([
+    domainsQ.limit(10000),
+    dailyQ.limit(2000),
+  ])
+
   if (error) { console.error('[getCompetitorCitationTimeseries] cache error:', error); return [] }
   if (!data?.length) return []
 
-  // Use aeo_cache_domains for BOTH numerator and denominator — same table,
-  // same population, so percentages are meaningful and on the same scale.
-  const dailyTotals = new Map<string, number>()  // SUM(all domains) per day
-  const compTotals  = new Map<string, number>()  // SUM per competitor over period
-  const domainDay   = new Map<string, Map<string, number>>()
+  // Build daily total_with_citations denominator (same as Clay's citation rate metric)
+  const dailyTotals = new Map<string, number>()
+  for (const r of dailyData ?? []) {
+    const day = String(r.run_day).substring(0, 10)
+    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + (r.total_with_citations ?? 0))
+  }
+
+  const compTotals = new Map<string, number>()
+  const domainDay  = new Map<string, Map<string, number>>()
 
   for (const r of data) {
-    const day     = String(r.run_day).substring(0, 10)
-    const cnt     = r.response_count ?? 0
-    const normDom = (r.domain ?? '').toLowerCase().includes('clay.com') ? 'clay.com' : (r.domain ?? '').toLowerCase()
+    const day    = String(r.run_day).substring(0, 10)
+    const cnt    = r.response_count ?? 0
+    const dom    = (r.domain ?? '').toLowerCase()
 
-    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
-
-    if (r.citation_type === 'Competition' && !normDom.includes('clay')) {
-      compTotals.set(normDom, (compTotals.get(normDom) ?? 0) + cnt)
+    if (r.citation_type === 'Competition' && !dom.includes('clay')) {
+      compTotals.set(dom, (compTotals.get(dom) ?? 0) + cnt)
     }
 
-    if (!domainDay.has(normDom)) domainDay.set(normDom, new Map())
-    domainDay.get(normDom)!.set(day, (domainDay.get(normDom)!.get(day) ?? 0) + cnt)
+    if (!domainDay.has(dom)) domainDay.set(dom, new Map())
+    domainDay.get(dom)!.set(day, (domainDay.get(dom)!.get(day) ?? 0) + cnt)
   }
 
   const topCompetitors = [...compTotals.entries()]
@@ -270,12 +283,11 @@ export async function getCompetitorCitationTimeseries(
     .slice(0, topN)
     .map(([d]) => d)
 
-  // Include clay.com so buildChartData can use the same scale for Clay's line
-  const relevant = new Set([...topCompetitors, 'clay.com'])
   const result: { date: string; domain: string; value: number }[] = []
 
-  for (const [domain, byDay] of domainDay) {
-    if (!relevant.has(domain)) continue
+  for (const domain of topCompetitors) {
+    const byDay = domainDay.get(domain)
+    if (!byDay) continue
     for (const [day, cnt] of byDay) {
       const total = dailyTotals.get(day) ?? 0
       result.push({ date: day, domain, value: total > 0 ? (cnt / total) * 100 : 0 })
