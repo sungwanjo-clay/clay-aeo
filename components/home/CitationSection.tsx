@@ -90,17 +90,14 @@ function buildChartData(
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 // ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ domains, citationRateKPI }: {
+function TopCitedSidebar({ domains }: {
   domains: DomainRow[]
   competitorTimeseries?: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
 }) {
-  const clay = domains.find(d => d.is_clay) ?? { domain: 'clay.com', share_pct: citationRateKPI ?? 0, is_clay: true, citation_type: 'Owned', citation_count: 0, top_urls: [] }
-  const nonClay = domains
-    .filter(d => !d.is_clay && d.citation_type?.toLowerCase() === 'competition')
-    .slice(0, 5)
-  const clayDisplay = { ...clay, share_pct: citationRateKPI ?? clay.share_pct }
-  const rows = [...nonClay, clayDisplay].sort((a, b) => b.share_pct - a.share_pct)
+  const clay = domains.find(d => d.is_clay)
+  const nonClay = domains.filter(d => !d.is_clay).slice(0, 5)
+  const rows = clay ? [...nonClay, clay].sort((a, b) => b.share_pct - a.share_pct) : nonClay
 
   if (!rows.length) {
     return (
