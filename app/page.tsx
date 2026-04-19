@@ -136,21 +136,25 @@ export default function HomePage() {
       getCitationOverallTimeseries(supabase, f),
       getTopCitedDomainsWithURLs(supabase, f),
       getCompetitorCitationTimeseries(supabase, f),
+    ]).then(([citTs, citDom, compCitTs]) => {
+      setCitationTimeseries(citTs)
+      setCitedDomains(citDom)
+      setCompetitorCitTimeseries(compCitTs)
+    }).catch(err => console.error('[page] Tier3a-A failed:', err))
+
+    Promise.all([
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
       getFollowupTimeseries(supabase, f),
-    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs]) => {
-      setCitationTimeseries(citTs)
-      setCitedDomains(citDom)
-      setCompetitorCitTimeseries(compCitTs)
+    ]).then(([pmmTs, pmmTbl, claygentTs, followupTs]) => {
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
       setClaygentTimeseries(claygentTs)
       setFollowupTimeseries(followupTs)
       setLoadingExtra(false)
     }).catch(err => {
-      console.error('[page] Tier3a Promise.all failed:', err)
+      console.error('[page] Tier3a-B failed:', err)
       setLoadingExtra(false)
     })
   }, [f])
