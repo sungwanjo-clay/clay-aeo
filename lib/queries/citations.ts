@@ -231,38 +231,96 @@ export async function getCompetitorCitationTimeseries(
   f: FilterParams,
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
-  // Single RPC call replaces paginated responses + hundreds of batched citation_domains requests.
-  const { data, error } = await sb.rpc('get_competitor_citation_timeseries_rpc', {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
-    p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
-    p_branded_filter: f.brandedFilter || 'all',
-    p_tags:           f.tags          || 'all',
-    p_top_n:          topN,
-  })
-  if (error) console.error('[getCompetitorCitationTimeseries] RPC error:', error)
-  return (data ?? []).map((r: any) => ({
-    date:   String(r.date),
-    domain: r.domain,
-    value:  r.value ?? 0,
-  }))
+  const startDay = f.startDate.split('T')[0]
+  const endDay   = f.endDate.split('T')[0]
+
+  // Fast path: query aeo_cache_domains directly
+  let q = sb.from('aeo_cache_domains')
+    .select('run_day,domain,citation_type,response_count')
+    .gte('run_day', startDay)
+    .lte('run_day', endDay)
+  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+
+  const { data, error } = await q.limit(10000)
+  if (error) { console.error('[getCompetitorCitationTimeseries] cache error:', error); return [] }
+  if (!data?.length) return []
+
+  // Find top N competitors by total response_count
+  const compTotals = new Map<string, number>()
+  const dailyTotals = new Map<string, number>()
+  const domainDay = new Map<string, Map<string, number>>()
+
+  for (const r of data) {
+    const day = String(r.run_day).substring(0, 10)
+    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + (r.response_count ?? 0))
+
+    const dom = r.domain?.toLowerCase() ?? ''
+    const normDom = dom.includes('clay.com') ? 'clay.com' : dom
+
+    if (r.citation_type === 'Competition' && !normDom.includes('clay')) {
+      compTotals.set(normDom, (compTotals.get(normDom) ?? 0) + (r.response_count ?? 0))
+    }
+
+    if (!domainDay.has(normDom)) domainDay.set(normDom, new Map())
+    const dd = domainDay.get(normDom)!
+    dd.set(day, (dd.get(day) ?? 0) + (r.response_count ?? 0))
+  }
+
+  const topCompetitors = [...compTotals.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, topN)
+    .map(([d]) => d)
+
+  const relevant = new Set([...topCompetitors, 'clay.com'])
+  const result: { date: string; domain: string; value: number }[] = []
+
+  for (const [domain, byDay] of domainDay) {
+    if (!relevant.has(domain)) continue
+    for (const [day, cnt] of byDay) {
+      const total = dailyTotals.get(day) ?? 0
+      result.push({ date: day, domain, value: total > 0 ? (cnt / total) * 100 : 0 })
+    }
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date) || a.domain.localeCompare(b.domain))
 }
 
 export async function getCitationOverallTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; value: number }[]> {
-  const { data, error } = await sb.rpc('get_citation_timeseries_rpc', {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
-    p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
-    p_branded_filter: f.brandedFilter || 'all',
-    p_tags:           f.tags          || 'all',
-  })
-  if (error) console.error('[getCitationOverallTimeseries] RPC error:', error)
-  return (data ?? []).map((r: any) => ({ date: String(r.date), value: r.value ?? 0 }))
+  const startDay = f.startDate.split('T')[0]
+  const endDay   = f.endDate.split('T')[0]
+
+  // Fast path: query aeo_cache_daily directly
+  let q = sb.from('aeo_cache_daily')
+    .select('run_day,clay_cited_responses,total_with_citations')
+    .gte('run_day', startDay)
+    .lte('run_day', endDay)
+    .eq('prompt_type', 'Benchmark')
+  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
+
+  const { data, error } = await q.limit(2000)
+  if (error) { console.error('[getCitationOverallTimeseries] cache error:', error); return [] }
+  if (!data?.length) return []
+
+  // Aggregate across platforms per day
+  const byDay = new Map<string, { cited: number; withCit: number }>()
+  for (const r of data) {
+    const day = String(r.run_day).substring(0, 10)
+    const cur = byDay.get(day) ?? { cited: 0, withCit: 0 }
+    cur.cited  += r.clay_cited_responses ?? 0
+    cur.withCit += r.total_with_citations ?? 0
+    byDay.set(day, cur)
+  }
+
+  return [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, { cited, withCit }]) => ({
+      date,
+      value: withCit > 0 ? (cited / withCit) * 100 : 0,
+    }))
 }
 
 // Fast cache-only read for the home-page sidebar.
