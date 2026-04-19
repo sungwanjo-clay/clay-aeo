@@ -49,6 +49,8 @@ function InfoTooltip({ text }: { text: string }) {
   )
 }
 
+// All lines (Clay + competitors) come from the same source with the same formula,
+// so they're directly comparable on one scale. competitorTs already includes clay.com.
 function buildChartData(
   timeseries: { date: string; value: number }[],
   competitorTs: { date: string; domain: string; value: number }[],
@@ -56,20 +58,29 @@ function buildChartData(
   startDate: string,
   endDate: string,
 ) {
-  const domainTotals = new Map<string, number>()
-  for (const r of competitorTs) {
-    domainTotals.set(r.domain, (domainTotals.get(r.domain) ?? 0) + r.value)
+  // Separate clay.com from competitors
+  const clayRows  = competitorTs.filter(r => r.domain === 'clay.com')
+  const compRows  = competitorTs.filter(r => r.domain !== 'clay.com')
+
+  // Rank competitors by total value to pick top 5
+  const compTotals = new Map<string, number>()
+  for (const r of compRows) {
+    compTotals.set(r.domain, (compTotals.get(r.domain) ?? 0) + r.value)
   }
-  const topDomains = [...domainTotals.entries()]
+  const topDomains = [...compTotals.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([d]) => d)
 
   const allDates = generateDateRange(startDate, endDate)
 
-  // Clay always uses timeseries (clay_cited_responses / total_with_citations from aeo_cache_daily)
-  const clayLookup = new Map(timeseries.map(r => [r.date, r.value]))
-  const compLookup = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
+  // Use clay.com from competitorTs if available (same formula as competitors);
+  // fall back to timeseries only if aeo_cache_domains has no clay.com rows
+  const clayLookup = clayRows.length > 0
+    ? new Map(clayRows.map(r => [r.date, r.value]))
+    : new Map(timeseries.map(r => [r.date, r.value]))
+
+  const compLookup = new Map(compRows.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const data = allDates.map(date => {
     const row: Record<string, string | number> = { date }
