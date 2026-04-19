@@ -199,7 +199,7 @@ export default function ExplorerPage() {
             description="Try adjusting the dimension, metric, or date range"
           />
         ) : (
-          <VisibilityLineChart data={chartData} groupKey="platform" height={300} />
+          <VisibilityLineChart data={chartData} groupKey="platform" height={300} startDate={startDate} endDate={endDate} />
         )}
       </div>
 

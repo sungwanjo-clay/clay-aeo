@@ -2,10 +2,13 @@
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatShortDate } from '@/lib/utils/formatters'
+import { generateDateRange } from '@/lib/utils/dateRange'
 
 interface Props {
   claygentData: { date: string; count: number }[]
   followupData: { date: string; count: number }[]
+  startDate: string
+  endDate: string
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -16,13 +19,26 @@ function CountChart({
   title,
   subtitle,
   color,
+  startDate,
+  endDate,
 }: {
   data: { date: string; count: number }[]
   title: string
   subtitle: string
   color: string
+  startDate: string
+  endDate: string
 }) {
   const total = data.reduce((s, d) => s + d.count, 0)
+
+  // Build full-range chart data — dates without data omit the key (renders as gap)
+  const dataLookup = new Map(data.map(r => [r.date, r.count]))
+  const allDates = generateDateRange(startDate, endDate)
+  const chartData = allDates.map(date => {
+    const row: Record<string, string | number> = { date }
+    if (dataLookup.has(date)) row['count'] = dataLookup.get(date)!
+    return row
+  })
 
   return (
     <div className="p-5 space-y-5" style={cardStyle}>
@@ -40,7 +56,7 @@ function CountChart({
       {/* Line chart */}
       {data.length > 1 ? (
         <ResponsiveContainer width="100%" height={130}>
-          <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" vertical={false} />
             <XAxis
               dataKey="date"
@@ -76,6 +92,7 @@ function CountChart({
               strokeWidth={2.5}
               dot={{ r: 4, strokeWidth: 0, fill: color }}
               activeDot={{ r: 6, strokeWidth: 0, fill: color }}
+              connectNulls={false}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -91,7 +108,7 @@ function CountChart({
   )
 }
 
-export default function ClaygentSection({ claygentData, followupData }: Props) {
+export default function ClaygentSection({ claygentData, followupData, startDate, endDate }: Props) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
       <CountChart
@@ -99,12 +116,16 @@ export default function ClaygentSection({ claygentData, followupData }: Props) {
         title="ClayMCP & Agent Mentions"
         subtitle="Times ClayMCP or Clay Agent was mentioned per day"
         color="#4A5AFF"
+        startDate={startDate}
+        endDate={endDate}
       />
       <CountChart
         data={followupData}
         title="Clay Recommended as Follow-up"
         subtitle="Times Clay was recommended as a follow-up action per day"
         color="#3DAA6A"
+        startDate={startDate}
+        endDate={endDate}
       />
     </div>
   )

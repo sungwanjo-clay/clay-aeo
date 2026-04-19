@@ -6,6 +6,7 @@ import {
 import type { TimeseriesRow } from '@/lib/queries/types'
 import { PLATFORM_COLORS, CHART_COLORS } from '@/lib/utils/colors'
 import { formatShortDate } from '@/lib/utils/formatters'
+import { generateDateRange } from '@/lib/utils/dateRange'
 
 interface VisibilityLineChartProps {
   data: TimeseriesRow[]
@@ -13,24 +14,32 @@ interface VisibilityLineChartProps {
   height?: number
   yLabel?: string
   compareData?: TimeseriesRow[]  // optional prior period data (rendered dashed)
+  startDate?: string
+  endDate?: string
 }
 
-function pivot(data: TimeseriesRow[], groupKey: string) {
-  const map = new Map<string, Record<string, number>>()
+function pivot(data: TimeseriesRow[], groupKey: string, startDate?: string, endDate?: string) {
+  const valueMap = new Map<string, Record<string, number>>()
   const keys = new Set<string>()
 
   for (const row of data) {
     const group = (row as any)[groupKey] as string | undefined ?? 'Unknown'
-    const entry = map.get(row.date) ?? {}
+    const entry = valueMap.get(row.date) ?? {}
     entry[group] = row.value
-    map.set(row.date, entry)
+    valueMap.set(row.date, entry)
     keys.add(group)
   }
 
+  // Use full date range if provided, otherwise fall back to dates from data
+  const dates = (startDate && endDate)
+    ? generateDateRange(startDate, endDate)
+    : Array.from(valueMap.keys()).sort()
+
   return {
-    chartData: Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, vals]) => ({ date, ...vals })),
+    chartData: dates.map(date => {
+      const vals = valueMap.get(date) ?? {}
+      return { date, ...vals }
+    }),
     keys: Array.from(keys),
   }
 }
@@ -44,8 +53,10 @@ export default function VisibilityLineChart({
   height = 280,
   yLabel,
   compareData,
+  startDate,
+  endDate,
 }: VisibilityLineChartProps) {
-  const { chartData, keys } = pivot(data, groupKey)
+  const { chartData, keys } = pivot(data, groupKey, startDate, endDate)
 
   // Dynamic Y-axis max: 20% headroom above max value, rounded to nearest 5, capped at 100
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
@@ -115,6 +126,7 @@ export default function VisibilityLineChart({
             strokeWidth={2}
             dot={{ r: 3, strokeWidth: 0 }}
             activeDot={{ r: 5 }}
+            connectNulls={false}
           />
         ))}
         {compareKeys.map((k, i) => {

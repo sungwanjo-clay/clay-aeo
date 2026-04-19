@@ -153,6 +153,8 @@ export default function VisibilityPage() {
             clayData={clayTimeseries}
             competitorData={chartCompetitorData}
             height={280}
+            startDate={f.startDate.split('T')[0]}
+            endDate={f.endDate.split('T')[0]}
           />
         )}
       </div>
@@ -169,7 +171,7 @@ export default function VisibilityPage() {
       <div className="p-5" style={cardStyle}>
         <h2 className={sectionLabel} style={sectionLabelColor}>Visibility by Topic</h2>
         {loading ? <SkeletonChart /> : (
-          <VisibilityLineChart data={topicSeries} groupKey="topic" height={240} />
+          <VisibilityLineChart data={topicSeries} groupKey="topic" height={240} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>
 
@@ -182,7 +184,7 @@ export default function VisibilityPage() {
         <div className="lg:col-span-2 p-5" style={cardStyle}>
           <h2 className={sectionLabel} style={sectionLabelColor}>By Platform & Topic</h2>
           {loading ? <SkeletonChart /> : (
-            <VisibilityLineChart data={topicSeries} groupKey="topic" height={200} />
+            <VisibilityLineChart data={topicSeries} groupKey="topic" height={200} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
           )}
         </div>
       </div>
@@ -212,7 +214,7 @@ export default function VisibilityPage() {
 
         {loading ? <SkeletonChart /> : pmmView === 'chart' ? (
           pmmSeries.length > 0 ? (
-            <VisibilityLineChart data={pmmSeries} groupKey="pmm_use_case" height={280} />
+            <VisibilityLineChart data={pmmSeries} groupKey="pmm_use_case" height={280} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
           ) : (
             <p className="text-[12px] font-semibold py-8 text-center" style={{ color: 'rgba(26,25,21,0.35)' }}>No PMM use case data</p>
           )

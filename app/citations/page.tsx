@@ -25,6 +25,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from 'recharts'
+import { generateDateRange } from '@/lib/utils/dateRange'
 
 const LABEL = {
   color: 'rgba(26,25,21,0.45)',
@@ -543,16 +544,18 @@ function ContentTypeRow({ urlType, total, grandTotal, urls }: {
 // ── Citation activity chart ────────────────────────────────────────────────────
 // clay.com line uses citationRateKPI (period-aggregate from responses table) so it
 // always matches the KPI card. Competitor lines use per-day rates from competitorTs.
-function CitationActivityChart({ competitorTs }: {
+function CitationActivityChart({ competitorTs, startDate, endDate }: {
   competitorTs: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
+  startDate: string
+  endDate: string
 }) {
   const COMP_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
   // RPC already includes clay.com — use actual daily values, not a flat period average
   const clayTs = competitorTs.filter(r => r.domain.includes('clay.com'))
   const nonClayTs = competitorTs.filter(r => !r.domain.includes('clay.com'))
-  const allDates = [...new Set(competitorTs.map(r => r.date))].sort()
+  const allDates = generateDateRange(startDate, endDate)
   const compMap = new Map(competitorTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const totals = new Map<string, number>()
@@ -564,8 +567,10 @@ function CitationActivityChart({ competitorTs }: {
 
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
-    if (hasClayData) row['clay.com'] = compMap.get(`${date}|||clay.com`) ?? 0
-    for (const d of top5) row[d] = compMap.get(`${date}|||${d}`) ?? 0
+    if (hasClayData && compMap.has(`${date}|||clay.com`)) row['clay.com'] = compMap.get(`${date}|||clay.com`)!
+    for (const d of top5) {
+      if (compMap.has(`${date}|||${d}`)) row[d] = compMap.get(`${date}|||${d}`)!
+    }
     return row
   })
 
@@ -631,11 +636,13 @@ function CitationActivityChart({ competitorTs }: {
           {top5.map((d, i) => (
             <Line key={d} type="monotone" dataKey={d}
               stroke={COMP_COLORS[i % COMP_COLORS.length]}
-              strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d} />
+              strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d}
+              connectNulls={false} />
           ))}
           {hasClayData && (
             <Line type="monotone" dataKey="clay.com" stroke="var(--clay-black)" strokeWidth={2.5}
-              dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="clay.com" />
+              dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="clay.com"
+              connectNulls={false} />
           )}
         </LineChart>
       </ResponsiveContainer>
@@ -644,7 +651,7 @@ function CitationActivityChart({ competitorTs }: {
 }
 
 // ── Citation rate by prompt topic (line chart) ─────────────────────────────────
-function CitationRateByTopicChart({ data }: { data: TopicCitationRow[] }) {
+function CitationRateByTopicChart({ data, startDate, endDate }: { data: TopicCitationRow[]; startDate: string; endDate: string }) {
   if (!data.length) {
     return (
       <div className="flex items-center justify-center py-10 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
@@ -652,7 +659,7 @@ function CitationRateByTopicChart({ data }: { data: TopicCitationRow[] }) {
       </div>
     )
   }
-  return <VisibilityLineChart data={data} groupKey="topic" height={300} yLabel="Clay cited %" />
+  return <VisibilityLineChart data={data} groupKey="topic" height={300} yLabel="Clay cited %" startDate={startDate} endDate={endDate} />
 }
 
 // ── Platform split tile ────────────────────────────────────────────────────────
@@ -879,7 +886,7 @@ export default function CitationsPage() {
       {/* Citation Activity Chart */}
       <div style={CARD} className="p-4">
         {(loading || loadingExtra) ? <SkeletonChart /> : (
-          <CitationActivityChart competitorTs={competitorTs} citationRateKPI={citShare?.current} />
+          <CitationActivityChart competitorTs={competitorTs} citationRateKPI={citShare?.current} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>
 
@@ -989,7 +996,7 @@ export default function CitationsPage() {
           Which prompt topics trigger Clay citations — and how that changes over time.
         </p>
         {loadingExtra ? <SkeletonChart /> : (
-          <CitationRateByTopicChart data={topicCitationData} />
+          <CitationRateByTopicChart data={topicCitationData} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>
 

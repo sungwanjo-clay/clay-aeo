@@ -4,6 +4,7 @@
 // @ts-nocheck
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { generateDateRange } from '@/lib/utils/dateRange'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import {
@@ -341,7 +342,6 @@ export default function CompetitivePage() {
 
       // Build merged timeseries: Clay + determined competitors
       const clayTs = await getClayVisibilityTimeseries(supabase, f).catch(() => [])
-      const dateSet = new Set<string>(clayTs.map(r => r.date))
       const compMap: Record<string, Record<string, number>> = {}
 
       await Promise.all(compsForChart.map(async comp => {
@@ -349,16 +349,16 @@ export default function CompetitivePage() {
         compMap[comp] = {}
         for (const r of rows) {
           compMap[comp][r.date] = r.competitor
-          dateSet.add(r.date)
         }
       }))
 
-      const allDates = [...dateSet].sort()
+      const allDates = generateDateRange(f.startDate.split('T')[0], f.endDate.split('T')[0])
       const clayDateMap = new Map(clayTs.map(r => [r.date, r.value]))
       const ts = allDates.map(date => {
-        const row: { date: string; [k: string]: string | number } = { date, Clay: clayDateMap.get(date) ?? 0 }
+        const row: { date: string; [k: string]: string | number } = { date }
+        if (clayDateMap.has(date)) row['Clay'] = clayDateMap.get(date)!
         for (const comp of compsForChart) {
-          row[comp] = compMap[comp]?.[date] ?? 0
+          if (compMap[comp]?.[date] !== undefined) row[comp] = compMap[comp][date]
         }
         return row
       })
@@ -697,11 +697,13 @@ export default function CompetitivePage() {
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                 )}
                 <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay"
+                  connectNulls={false} />
                 {chartCompLines.map((comp, i) => (
                   <Line key={comp} type="monotone" dataKey={comp}
                     stroke={COMP_COLORS[i % COMP_COLORS.length]}
-                    strokeWidth={2} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={comp} />
+                    strokeWidth={2} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={comp}
+                    connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>

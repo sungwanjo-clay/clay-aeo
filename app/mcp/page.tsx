@@ -3,6 +3,7 @@
 // @ts-nocheck
 
 import React, { useState, useEffect, useMemo } from 'react'
+import { generateDateRange } from '@/lib/utils/dateRange'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import {
@@ -288,13 +289,13 @@ export default function McpPage() {
 
   // Chart data
   const platforms = [...new Set(mcpTs.map(r => r.platform))].filter(Boolean)
-  const allDates = [...new Set(mcpTs.map(r => r.date))].sort()
+  const allDates = generateDateRange(f.startDate.split('T')[0], f.endDate.split('T')[0])
 
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
     for (const p of platforms) {
       const found = mcpTs.find(r => r.date === date && r.platform === p)
-      row[p] = found?.count ?? 0
+      if (found) row[p] = found.count
     }
     return row
   })
@@ -404,7 +405,7 @@ export default function McpPage() {
                 <Line key={p} type="monotone" dataKey={p}
                   stroke={getPlatformColor(p)} strokeWidth={2}
                   dot={{ r: 2.5, strokeWidth: 0, fill: getPlatformColor(p) }}
-                  activeDot={{ r: 4 }} name={p} />
+                  activeDot={{ r: 4 }} name={p} connectNulls={false} />
               ))}
             </LineChart>
           </ResponsiveContainer>

@@ -7,6 +7,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { formatShortDate } from '@/lib/utils/formatters'
 import { CHART_COLORS } from '@/lib/utils/colors'
 import type { PMMPromptDrillRow, PMMPromptResponseRow } from '@/lib/queries/visibility'
+import { generateDateRange } from '@/lib/utils/dateRange'
 
 interface TimeseriesRow { date: string; value: number; pmm_use_case?: string }
 interface PMMRow {
@@ -25,6 +26,8 @@ interface Props {
   table: PMMRow[]
   compareEnabled: boolean
   onDrilldown: (pmmUseCase: string, pmmClassification: string | null) => Promise<PMMPromptDrillRow[]>
+  startDate: string
+  endDate: string
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -44,13 +47,15 @@ function stripMarkdown(text: string): string {
     .trim()
 }
 
-function buildChartData(series: TimeseriesRow[]) {
+function buildChartData(series: TimeseriesRow[], startDate: string, endDate: string) {
   const groups = [...new Set(series.map(r => r.pmm_use_case).filter(Boolean))]
-  const dates = [...new Set(series.map(r => r.date))].sort()
+  const dates = generateDateRange(startDate, endDate)
   const lookup = new Map(series.map(r => [`${r.date}|||${r.pmm_use_case}`, r.value]))
   return { groups, chartData: dates.map(date => {
     const row: Record<string, string | number> = { date }
-    for (const g of groups) row[g!] = lookup.get(`${date}|||${g}`) ?? 0
+    for (const g of groups) {
+      if (lookup.has(`${date}|||${g}`)) row[g!] = lookup.get(`${date}|||${g}`)!
+    }
     return row
   })}
 }
@@ -276,7 +281,7 @@ function computeRollup(rows: PMMRow[]) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-export default function PMMTopicsSection({ series, table, compareEnabled, onDrilldown }: Props) {
+export default function PMMTopicsSection({ series, table, compareEnabled, onDrilldown, startDate, endDate }: Props) {
   // Level 1: which pmm_classification is expanded (Clay for Marketing, etc.)
   const [expandedClassification, setExpandedClassification] = useState<string | null>(null)
   // Level 2: which pmm_use_case within a classification is drilled into (PLG Assist, etc.)
@@ -285,7 +290,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
   const [loadingDrill, setLoadingDrill] = useState<string | null>(null)
   const [showAllPrompts, setShowAllPrompts] = useState<Record<string, boolean>>({})
 
-  const { groups, chartData } = buildChartData(series)
+  const { groups, chartData } = buildChartData(series, startDate, endDate)
 
   function drillKey(useCase: string, classification: string | null) {
     return `${useCase}|||${classification ?? ''}`
@@ -351,7 +356,7 @@ export default function PMMTopicsSection({ series, table, compareEnabled, onDril
               {groups.map((g, i) => (
                 <Line key={g} type="monotone" dataKey={g!}
                   stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.8}
-                  dot={{ r: 2.5, strokeWidth: 0 }} activeDot={{ r: 4 }} />
+                  dot={{ r: 2.5, strokeWidth: 0 }} activeDot={{ r: 4 }} connectNulls={false} />
               ))}
             </LineChart>
           </ResponsiveContainer>

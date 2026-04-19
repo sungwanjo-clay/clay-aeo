@@ -6,11 +6,14 @@ import {
 } from 'recharts'
 import { formatShortDate } from '@/lib/utils/formatters'
 import { CHART_COLORS } from '@/lib/utils/colors'
+import { generateDateRange } from '@/lib/utils/dateRange'
 
 interface CompetitorComparisonChartProps {
   clayData: { date: string; value: number }[]
   competitorData: { date: string; competitor: string; value: number }[]
   height?: number
+  startDate: string
+  endDate: string
 }
 
 const CLAY_COLOR = '#1A1915'
@@ -24,15 +27,14 @@ export default function CompetitorComparisonChart({
   clayData,
   competitorData,
   height = 280,
+  startDate,
+  endDate,
 }: CompetitorComparisonChartProps) {
   // Get all unique competitor names
   const competitors = [...new Set(competitorData.map(d => d.competitor))].sort()
 
-  // Get all unique dates across both datasets
-  const allDates = [...new Set([
-    ...clayData.map(d => d.date),
-    ...competitorData.map(d => d.date),
-  ])].sort()
+  // Span the full filter date range — dates without data are gaps, not zeros
+  const allDates = generateDateRange(startDate, endDate)
 
   // Build competitor lookup: date+competitor → value
   const compLookup = new Map<string, number>()
@@ -49,9 +51,9 @@ export default function CompetitorComparisonChart({
   // Pivot into flat chart data
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
-    row['Clay'] = clayLookup.get(date) ?? 0
+    if (clayLookup.has(date)) row['Clay'] = clayLookup.get(date)!
     for (const comp of competitors) {
-      row[comp] = compLookup.get(`${date}|||${comp}`) ?? 0
+      if (compLookup.has(`${date}|||${comp}`)) row[comp] = compLookup.get(`${date}|||${comp}`)!
     }
     return row
   })
@@ -104,6 +106,7 @@ export default function CompetitorComparisonChart({
             strokeWidth={key === 'Clay' ? 2.5 : 1.5}
             dot={{ r: key === 'Clay' ? 3.5 : 2.5, strokeWidth: 0 }}
             activeDot={{ r: 5 }}
+            connectNulls={false}
           />
         ))}
       </LineChart>
