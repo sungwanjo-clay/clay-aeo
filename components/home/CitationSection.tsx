@@ -201,7 +201,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                   dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay"
                   connectNulls={false} />
                 {showCompetitors && competitorDomains.map((d, i) => (
-                  <Line key={d} type="monotone" dataKey={d}
+                  <Line key={d} type="monotone" dataKey={(row: Record<string, string | number>) => row[d] as number}
                     stroke={COMPETITOR_COLORS[i % COMPETITOR_COLORS.length]}
                     strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d}
                     connectNulls={false} />
