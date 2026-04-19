@@ -89,7 +89,7 @@ function buildChartData(
 
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
-// ── Top Cited Competitors sidebar ──────────────────────────────────────────────
+// ── Top Cited Domains sidebar ──────────────────────────────────────────────────
 function TopCitedSidebar({ domains }: {
   domains: DomainRow[]
   competitorTimeseries?: { date: string; domain: string; value: number }[]
@@ -97,7 +97,7 @@ function TopCitedSidebar({ domains }: {
 }) {
   const clay = domains.find(d => d.is_clay)
   const nonClay = domains.filter(d => !d.is_clay).slice(0, 5)
-  const rows = clay ? [...nonClay, clay].sort((a, b) => b.share_pct - a.share_pct) : nonClay
+  const rows = [...nonClay, ...(clay ? [clay] : [])].sort((a, b) => b.share_pct - a.share_pct)
 
   if (!rows.length) {
     return (
@@ -220,10 +220,10 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
           )}
         </div>
 
-        {/* Top Cited Competitors (1/3 width) */}
+        {/* Top Cited Domains (1/3 width) */}
         <div className="p-4" style={cardStyle}>
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
-            Top Cited Competitors
+            Top Cited Domains
           </h3>
           <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
         </div>

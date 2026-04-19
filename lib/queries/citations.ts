@@ -234,27 +234,37 @@ export async function getCompetitorCitationTimeseries(
   const startDay = f.startDate.split('T')[0]
   const endDay   = f.endDate.split('T')[0]
 
-  // Fast path: query aeo_cache_domains directly
-  let q = sb.from('aeo_cache_domains')
+  let domQ = sb.from('aeo_cache_domains')
     .select('run_day,domain,citation_type,response_count')
-    .gte('run_day', startDay)
-    .lte('run_day', endDay)
-  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+    .gte('run_day', startDay).lte('run_day', endDay)
+  if (f.platforms && f.platforms.length > 0) domQ = domQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') domQ = domQ.ilike('prompt_type', f.promptType)
 
-  const { data, error } = await q.limit(10000)
+  let dailyQ = sb.from('aeo_cache_daily')
+    .select('run_day,total_with_citations')
+    .gte('run_day', startDay).lte('run_day', endDay)
+    .eq('prompt_type', 'Benchmark')
+  if (f.platforms && f.platforms.length > 0) dailyQ = dailyQ.in('platform', f.platforms)
+
+  const [{ data: domData, error }, { data: dailyData }] = await Promise.all([
+    domQ.limit(10000),
+    dailyQ.limit(2000),
+  ])
   if (error) { console.error('[getCompetitorCitationTimeseries] cache error:', error); return [] }
-  if (!data?.length) return []
+  if (!domData?.length) return []
 
-  // Find top N competitors by total response_count
-  const compTotals = new Map<string, number>()
+  // Daily total_with_citations from aeo_cache_daily (same denominator as getCitationOverallTimeseries)
   const dailyTotals = new Map<string, number>()
+  for (const r of dailyData ?? []) {
+    const day = String(r.run_day).substring(0, 10)
+    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + (r.total_with_citations ?? 0))
+  }
+
+  const compTotals = new Map<string, number>()
   const domainDay = new Map<string, Map<string, number>>()
 
-  for (const r of data) {
+  for (const r of domData) {
     const day = String(r.run_day).substring(0, 10)
-    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + (r.response_count ?? 0))
-
     const dom = r.domain?.toLowerCase() ?? ''
     const normDom = dom.includes('clay.com') ? 'clay.com' : dom
 
@@ -382,25 +392,57 @@ export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]> {
-  // Single RPC call replaces paginated responses + hundreds of batched citation_domains requests.
-  // top_urls is returned as JSONB [{url, title, count}] from the RPC.
+  const startDay = f.startDate.split('T')[0]
+  const endDay   = f.endDate.split('T')[0]
+
   const { data, error } = await sb.rpc('get_top_cited_domains_rpc', {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
+    p_start_day:      startDay,
+    p_end_day:        endDay,
     p_prompt_type:    f.promptType    || 'all',
     p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
   })
   if (error) console.error('[getTopCitedDomainsWithURLs] RPC error:', error)
-  return (data ?? []).map((r: any) => ({
-    domain:         r.domain,
-    citation_count: r.citation_count,
-    share_pct:      r.share_pct ?? 0,
-    is_clay:        r.is_clay ?? false,
-    citation_type:  r.citation_type ?? null,
-    top_urls:       Array.isArray(r.top_urls) ? r.top_urls : [],
-  }))
+
+  const result: { domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[] =
+    (data ?? []).map((r: any) => ({
+      domain:         r.domain,
+      citation_count: r.citation_count,
+      share_pct:      r.share_pct ?? 0,
+      is_clay:        r.is_clay ?? false,
+      citation_type:  r.citation_type ?? null,
+      top_urls:       Array.isArray(r.top_urls) ? r.top_urls : [],
+    }))
+
+  // If clay.com not in top 20, inject it from aeo_cache_daily
+  if (!result.some(r => r.is_clay)) {
+    let dq = sb.from('aeo_cache_daily')
+      .select('run_day,clay_cited_responses,total_with_citations')
+      .gte('run_day', startDay).lte('run_day', endDay)
+      .eq('prompt_type', 'Benchmark')
+    if (f.platforms && f.platforms.length > 0) dq = dq.in('platform', f.platforms)
+    const { data: daily } = await dq.limit(2000)
+    if (daily?.length) {
+      const clayCnt = daily.reduce((s: number, r: any) => s + (r.clay_cited_responses ?? 0), 0)
+      const existingTotal = result.reduce((s, r) => s + r.citation_count, 0)
+      const total = existingTotal + clayCnt
+      result.push({
+        domain: 'clay.com',
+        citation_count: clayCnt,
+        share_pct: total > 0 ? (clayCnt / total) * 100 : 0,
+        is_clay: true,
+        citation_type: 'Clay',
+        top_urls: [],
+      })
+      // Rescale share_pct for other domains relative to the new total
+      for (const r of result) {
+        if (!r.is_clay) r.share_pct = total > 0 ? (r.citation_count / total) * 100 : r.share_pct
+      }
+    }
+  }
+
+  return result
 }
 
 // ── Clay citations grouped by URL type ───────────────────────────────────────
