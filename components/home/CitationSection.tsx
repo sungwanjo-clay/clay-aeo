@@ -6,6 +6,7 @@ import { formatShortDate } from '@/lib/utils/formatters'
 import { ChevronDown, ChevronRight, ExternalLink, Info } from 'lucide-react'
 import { getCitationTypeColor } from '@/lib/utils/colors'
 import DomainIcon from '@/components/shared/DomainIcon'
+import { generateDateRange } from '@/lib/utils/dateRange'
 
 interface CitationTimepoint { date: string; value: number }
 interface DomainRow {
@@ -17,11 +18,21 @@ interface DomainRow {
   top_urls: { url: string; title: string | null; count: number }[]
 }
 
+interface SidebarDomainRow {
+  domain: string
+  share_pct: number
+  is_clay: boolean
+  citation_type: string | null
+}
+
 interface Props {
   timeseries: CitationTimepoint[]
   domains: DomainRow[]
+  sidebarDomains?: SidebarDomainRow[]
   competitorTimeseries?: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null  // period-aggregate KPI value — used as Clay's line so chart matches KPI exactly
+  startDate: string
+  endDate: string
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -47,11 +58,13 @@ function InfoTooltip({ text }: { text: string }) {
 }
 
 // Build chart data using Clay per-day timeseries + competitor lines.
-// Dates = union of Clay timeseries dates and competitor dates.
+// Dates = full filter date range; missing dates render as gaps.
 function buildChartData(
   timeseries: { date: string; value: number }[],
   competitorTs: { date: string; domain: string; value: number }[],
-  clayKPI: number | null | undefined
+  clayKPI: number | null | undefined,
+  startDate: string,
+  endDate: string,
 ) {
   const nonClayTs = competitorTs.filter(r => r.domain !== 'clay.com')
 
@@ -64,22 +77,18 @@ function buildChartData(
     .slice(0, 5)
     .map(([d]) => d)
 
-  // Dates = union of Clay timeseries dates and competitor dates
-  const allDates = [...new Set([
-    ...timeseries.map(r => r.date),
-    ...nonClayTs.map(r => r.date),
-  ])].sort()
+  // Span the full filter date range — dates without data are gaps, not zeros
+  const allDates = generateDateRange(startDate, endDate)
 
   const clayLookup = new Map(timeseries.map(r => [r.date, r.value]))
   const compLookup = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
-  const fallbackClay = clayKPI ?? 0
 
   const data = allDates.map(date => {
-    const row: Record<string, string | number> = {
-      date,
-      Clay: clayLookup.has(date) ? clayLookup.get(date)! : fallbackClay,
+    const row: Record<string, string | number> = { date }
+    if (clayLookup.has(date)) row['Clay'] = clayLookup.get(date)!
+    for (const d of topDomains) {
+      if (compLookup.has(`${date}|||${d}`)) row[d] = compLookup.get(`${date}|||${d}`)!
     }
-    for (const d of topDomains) row[d] = compLookup.get(`${date}|||${d}`) ?? 0
     return row
   })
 
@@ -89,22 +98,19 @@ function buildChartData(
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 // ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
+function TopCitedSidebar({ sidebarDomains, domains, citationRateKPI }: {
+  sidebarDomains?: SidebarDomainRow[]
   domains: DomainRow[]
   competitorTimeseries: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
 }) {
-  // Find Clay in domains; if not present derive a placeholder
-  let clay: DomainRow | undefined = domains.find(d => d.is_clay || d.domain.toLowerCase().includes('clay.com'))
-  if (!clay) {
-    clay = { domain: 'clay.com', citation_count: 0, share_pct: 0, is_clay: true, citation_type: 'Owned', top_urls: [] }
-  }
+  // Prefer the fast cache-backed sidebarDomains; fall back to full domains list
+  const source: SidebarDomainRow[] = sidebarDomains && sidebarDomains.length > 0
+    ? sidebarDomains
+    : domains.map(d => ({ domain: d.domain, share_pct: d.share_pct, is_clay: d.is_clay, citation_type: d.citation_type }))
 
-  // Top 5 non-Clay competitor domains only (citation_type === 'Competition'), then always add Clay
-  const nonClay = [...domains]
-    .filter(d => !d.is_clay && !d.domain.toLowerCase().includes('clay') && d.citation_type?.toLowerCase() === 'competition')
-    .sort((a, b) => b.share_pct - a.share_pct)
-    .slice(0, 5)
+  const clay = source.find(d => d.is_clay) ?? { domain: 'clay.com', share_pct: 0, is_clay: true, citation_type: 'Owned' }
+  const nonClay = source.filter(d => !d.is_clay).slice(0, 5)
 
   // Use KPI value for Clay so it matches the chart and KPI card exactly
   const clayDisplay = { ...clay, share_pct: citationRateKPI ?? clay.share_pct }
@@ -148,13 +154,13 @@ function TopCitedSidebar({ domains, competitorTimeseries, citationRateKPI }: {
   )
 }
 
-export default function CitationSection({ timeseries, domains, competitorTimeseries = [], citationRateKPI }: Props) {
+export default function CitationSection({ timeseries, domains, sidebarDomains, competitorTimeseries = [], citationRateKPI, startDate, endDate }: Props) {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [showCompetitors, setShowCompetitors] = useState(true)   // default ON
   const [search, setSearch] = useState('')
 
-  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries, citationRateKPI)
+  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries, citationRateKPI, startDate, endDate)
 
   // Dynamic Y-axis max
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
@@ -209,11 +215,13 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                 />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
                 <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay"
+                  connectNulls={false} />
                 {showCompetitors && competitorDomains.map((d, i) => (
                   <Line key={d} type="monotone" dataKey={d}
                     stroke={COMPETITOR_COLORS[i % COMPETITOR_COLORS.length]}
-                    strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d} />
+                    strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d}
+                    connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -234,7 +242,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
             Top Cited Competitors
           </h3>
-          <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
+          <TopCitedSidebar sidebarDomains={sidebarDomains} domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
         </div>
       </div>
 

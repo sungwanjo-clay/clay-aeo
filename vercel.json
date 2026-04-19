@@ -1,8 +1,16 @@
 {
   "crons": [
     {
+      "path": "/api/refresh-cache",
+      "schedule": "45 23 * * *"
+    },
+    {
+      "path": "/api/detect-anomalies",
+      "schedule": "0 0 * * *"
+    },
+    {
       "path": "/api/generate-insight",
-      "schedule": "0 9 * * *"
+      "schedule": "15 0 * * *"
     }
   ]
 }

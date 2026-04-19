@@ -265,6 +265,61 @@ export async function getCitationOverallTimeseries(
   return (data ?? []).map((r: any) => ({ date: String(r.date), value: r.value ?? 0 }))
 }
 
+// Fast cache-only read for the home-page sidebar.
+// Queries aeo_cache_domains directly — no top-20 RPC cutoff — so Competition domains
+// that are outranked overall by Other/Earned domains still appear correctly.
+// Returns top 5 Competition domains + clay.com, sorted by share_pct descending.
+export async function getSidebarCitedDomains(
+  sb: SupabaseClient,
+  f: FilterParams
+): Promise<{ domain: string; share_pct: number; is_clay: boolean; citation_type: string | null }[]> {
+  // Fetch all domains (for share denominator) and competition domains in parallel
+  let allQ = sb
+    .from('aeo_cache_domains')
+    .select('domain,citation_type,response_count')
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
+  if (f.platforms && f.platforms.length > 0) allQ = allQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') allQ = allQ.ilike('prompt_type', f.promptType)
+
+  const data = await fetchAllPages(allQ)
+  if (!data.length) return []
+
+  // Aggregate totals per domain
+  const totals = new Map<string, { count: number; citation_type: string | null }>()
+  for (const r of data) {
+    const d = (r.domain ?? '').toLowerCase()
+    if (!d) continue
+    const cur = totals.get(d) ?? { count: 0, citation_type: r.citation_type ?? null }
+    cur.count += Number(r.response_count ?? 0)
+    // Keep the citation_type from the highest-count row (first occurrence wins since we process in response_count order)
+    totals.set(d, cur)
+  }
+
+  const grandTotal = [...totals.values()].reduce((s, v) => s + v.count, 0)
+
+  const competition = [...totals.entries()]
+    .filter(([, v]) => v.citation_type?.toLowerCase() === 'competition')
+    .map(([domain, { count, citation_type }]) => ({
+      domain,
+      share_pct: grandTotal > 0 ? (count / grandTotal) * 100 : 0,
+      is_clay: false,
+      citation_type,
+    }))
+    .sort((a, b) => b.share_pct - a.share_pct)
+    .slice(0, 5)
+
+  const clayEntry = totals.get('clay.com')
+  const clay = {
+    domain: 'clay.com',
+    share_pct: grandTotal > 0 ? ((clayEntry?.count ?? 0) / grandTotal) * 100 : 0,
+    is_clay: true,
+    citation_type: 'Owned',
+  }
+
+  return [...competition, clay].sort((a, b) => b.share_pct - a.share_pct)
+}
+
 export async function getTopCitedDomainsWithURLs(
   sb: SupabaseClient,
   f: FilterParams

@@ -6,13 +6,14 @@ import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
 import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getFollowupTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
-import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
+import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries, getSidebarCitedDomains } from '@/lib/queries/citations'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
 import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
 import { formatDate, formatShortDate } from '@/lib/utils/formatters'
+import { generateDateRange } from '@/lib/utils/dateRange'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { Info } from 'lucide-react'
@@ -39,6 +40,7 @@ export default function HomePage() {
 
   // ── Tier 1: KPI cards (fast RPCs, renders first) ─────────
   const [loading, setLoading] = useState(true)
+  const [loadingInsight, setLoadingInsight] = useState(true)
   const [insight, setInsight] = useState<InsightRow | null>(null)
   const [anomalies, setAnomalies] = useState<AnomalyRow[]>([])
   const [visibility, setVisibility] = useState<{ current: number | null; previous: number | null; total: number } | null>(null)
@@ -60,6 +62,7 @@ export default function HomePage() {
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
+  const [sidebarDomains, setSidebarDomains] = useState<{ domain: string; share_pct: number; is_clay: boolean; citation_type: string | null }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
@@ -68,6 +71,7 @@ export default function HomePage() {
   // Tier 1: KPI numbers — one RPC call covers visibility + avg pos + claygent
   useEffect(() => {
     setLoading(true)
+    setLoadingInsight(true)
     Promise.all([
       getVisibilityKpis(supabase, f),   // single RPC → all 3 KPIs
       getCitationShare(supabase, f),
@@ -83,22 +87,25 @@ export default function HomePage() {
       setSentiment({ positive: sent.positive })
       setAnomalies(ano)
       setFreshness(fresh)
+      // KPIs are ready — unblock the page immediately
+      setLoading(false)
 
-      // Auto-generate today's insight if not yet available
+      // Insight: show cached value right away, then generate in background if stale
       const today = new Date().toISOString().split('T')[0]
-      let resolvedInsight = ins as InsightRow | null
-      if (!resolvedInsight || resolvedInsight.run_date?.substring(0, 10) !== today) {
+      const cached = ins as InsightRow | null
+      if (cached) setInsight(cached)
+      if (!cached || cached.run_date?.substring(0, 10) !== today) {
         try {
           const res = await fetch('/api/generate-insight', { method: 'POST' })
           const json = await res.json()
-          if (json.ok && json.insight) resolvedInsight = json.insight
+          if (json.ok && json.insight) setInsight(json.insight)
         } catch { /* silent */ }
       }
-      setInsight(resolvedInsight)
-      setLoading(false)
+      setLoadingInsight(false)
     }).catch(err => {
       console.error('[page] KPI Promise.all failed:', err)
       setLoading(false)
+      setLoadingInsight(false)
     })
   }, [f])
 
@@ -131,9 +138,11 @@ export default function HomePage() {
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
       getFollowupTimeseries(supabase, f),  // now RPC-backed (cache)
-    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs]) => {
+      getSidebarCitedDomains(supabase, f),
+    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs, sidebarDom]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
+      setSidebarDomains(sidebarDom)
       setCompetitorCitTimeseries(compCitTs)
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
@@ -169,13 +178,17 @@ export default function HomePage() {
     .map(c => c.competitor_name)
   const sparkLookup = new Map(sparkData.map(r => [r.date, r.value]))
   const visCompLookup = new Map(competitorVisTimeseries.map(r => [`${r.date}|||${r.competitor}`, r.value]))
-  const visChartDates = [...new Set([
-    ...sparkData.map(r => r.date),
-    ...competitorVisTimeseries.map(r => r.date),
-  ])].sort()
+
+  // Span the full filter date range — dates without data simply omit the key,
+  // which Recharts renders as a gap rather than a flat zero.
+  const visChartDates = generateDateRange(f.startDate.split('T')[0], f.endDate.split('T')[0])
   const visChartData = visChartDates.map(date => {
-    const row: Record<string, string | number> = { date, Clay: sparkLookup.get(date) ?? 0 }
-    for (const c of topVisComps) row[c] = visCompLookup.get(`${date}|||${c}`) ?? 0
+    const row: Record<string, string | number> = { date }
+    if (sparkLookup.has(date)) row['Clay'] = sparkLookup.get(date)!
+    for (const c of topVisComps) {
+      const key = `${date}|||${c}`
+      if (visCompLookup.has(key)) row[c] = visCompLookup.get(key)!
+    }
     return row
   })
   // Dynamic Y-axis max: headroom above actual data, capped at 100
@@ -212,7 +225,7 @@ export default function HomePage() {
       </div>
 
       {/* Insight */}
-      <InsightCard insight={insight} />
+      <InsightCard insight={insight} loading={loadingInsight} />
 
       {/* Anomaly alerts */}
       <div>
@@ -303,7 +316,7 @@ export default function HomePage() {
           </div>
           {loadingCharts ? (
             <SkeletonChart />
-          ) : visChartData.length > 1 ? (
+          ) : visAllVals.length > 0 ? (
             <ResponsiveContainer width="100%" height={showVisCompetitors ? 180 : 110}>
               <LineChart data={visChartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
@@ -331,19 +344,16 @@ export default function HomePage() {
                 />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
                 <Line type="monotone" dataKey="Clay" stroke="var(--clay-black)" strokeWidth={2.5}
-                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay" />
+                  dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay"
+                  connectNulls={false} />
                 {showVisCompetitors && topVisComps.map((c, i) => (
                   <Line key={c} type="monotone" dataKey={c}
                     stroke={CHART_COLORS[(i + 2) % CHART_COLORS.length]}
-                    strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={c} />
+                    strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={c}
+                    connectNulls={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          ) : visChartData.length === 1 ? (
-            <div className="py-6 text-center">
-              <p className="text-2xl font-bold" style={{ color: 'var(--clay-black)' }}>{(visChartData[0].Clay as number).toFixed(1)}%</p>
-              <p className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: 'rgba(26,25,21,0.4)' }}>Only 1 data point — run again tomorrow to see a trend</p>
-            </div>
           ) : (
             <p className="text-xs font-bold py-6 text-center" style={{ color: 'rgba(26,25,21,0.35)' }}>No trend data yet</p>
           )}
@@ -395,7 +405,7 @@ export default function HomePage() {
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
         {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
-          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} />
+          <CitationSection timeseries={citationTimeseries} domains={citedDomains} sidebarDomains={sidebarDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>
 
@@ -403,7 +413,7 @@ export default function HomePage() {
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Topic Visibility</h2>
         {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
-          <PMMTopicsSection series={pmmSeries} table={pmmTable} compareEnabled={filters.compareEnabled} onDrilldown={handlePMMDrilldown} />
+          <PMMTopicsSection series={pmmSeries} table={pmmTable} compareEnabled={filters.compareEnabled} onDrilldown={handlePMMDrilldown} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>
 
@@ -414,6 +424,8 @@ export default function HomePage() {
           <ClaygentSection
             claygentData={claygentTimeseries}
             followupData={followupTimeseries}
+            startDate={f.startDate.split('T')[0]}
+            endDate={f.endDate.split('T')[0]}
           />
         )}
       </div>

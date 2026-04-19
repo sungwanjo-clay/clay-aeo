@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-function isTruthy(val: unknown): boolean {
-  return val === true || val === 'Yes' || val === 'yes' || val === 1
-}
-
 async function generateInsight() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -28,144 +24,202 @@ async function generateInsight() {
 
   if (existing) return NextResponse.json({ ok: true, insight: existing, cached: true })
 
-  // Check for recent data (last 2 days)
-  const twoDaysAgo = new Date()
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
-  const recentCutoff = twoDaysAgo.toISOString().split('T')[0]
-
-  const { data: recentCheck } = await supabase
-    .from('responses')
-    .select('id')
-    .gte('run_day', recentCutoff)
-    .limit(1)
-
-  if (!recentCheck?.length) {
-    return NextResponse.json({ ok: false, error: 'No data ingested in the last 2 days' }, { status: 404 })
-  }
-
-  // Fetch last 14 days — paginated to bypass Supabase's 1000-row hard cap
   const since = new Date()
-  since.setDate(since.getDate() - 14)
+  since.setDate(since.getDate() - 7)
   const startDate = since.toISOString().split('T')[0]
 
-  const cols = 'run_day, platform, topic, clay_mentioned, brand_sentiment_score, clay_recommended_followup, claygent_or_mcp_mentioned, cited_domains'
-  const PAGE = 1000
-  const responses: any[] = []
-  let from = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from('responses')
-      .select(cols)
+  // Parallel fetch from all data sources
+  const [dailyRes, competitorRes, domainRes, positioningRes, recentInsightsRes] = await Promise.all([
+    supabase
+      .from('aeo_cache_daily')
+      .select('run_day,platform,total_responses,clay_mentioned,clay_cited_responses,total_with_citations,claygent_mentioned,positive_sentiment,negative_sentiment,sum_sentiment_score,count_sentiment_score,clay_followup')
+      .eq('prompt_type', 'Benchmark')
       .gte('run_day', startDate)
       .lte('run_day', today)
-      .range(from, from + PAGE - 1)
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-    if (!data?.length) break
-    responses.push(...data)
-    if (data.length < PAGE) break
-    from += PAGE
-  }
+      .order('run_day', { ascending: true }),
 
-  if (!responses.length) {
-    return NextResponse.json({ ok: false, error: 'No response data found' }, { status: 400 })
-  }
+    supabase
+      .from('aeo_cache_competitors')
+      .select('run_day,platform,competitor_name,mention_count')
+      .eq('prompt_type', 'Benchmark')
+      .gte('run_day', startDate)
+      .lte('run_day', today),
 
-  type DayMetrics = { date: string; total: number; clay: number; cited: number; claymcp: number; recommended: number; sentSum: number; sentCount: number }
+    supabase
+      .from('aeo_cache_domains')
+      .select('run_day,platform,domain,response_count')
+      .eq('prompt_type', 'Benchmark')
+      .gte('run_day', startDate)
+      .lte('run_day', today),
 
-  const byDay = new Map<string, DayMetrics>()
-  const byDatePlatform = new Map<string, Map<string, DayMetrics>>()
-  const byTopic = new Map<string, { total: number; clay: number }>()
+    supabase
+      .from('aeo_cache_positioning')
+      .select('run_day,platform,topic,snippet')
+      .eq('prompt_type', 'Benchmark')
+      .gte('run_day', startDate)
+      .lte('run_day', today)
+      .order('run_day', { ascending: false })
+      .limit(60),
 
-  function dayKey(date: string, platform: string): DayMetrics {
-    if (!byDatePlatform.has(date)) byDatePlatform.set(date, new Map())
-    const dm = byDatePlatform.get(date)!
-    if (!dm.has(platform)) dm.set(platform, { date, total: 0, clay: 0, cited: 0, claymcp: 0, recommended: 0, sentSum: 0, sentCount: 0 })
-    return dm.get(platform)!
-  }
+    supabase
+      .from('insights')
+      .select('run_date,insight_text,supporting_data')
+      .eq('insight_type', 'daily_insight')
+      .neq('run_date', today)
+      .order('run_date', { ascending: false })
+      .limit(7),
+  ])
 
-  for (const r of responses) {
+  if (dailyRes.error) return NextResponse.json({ ok: false, error: dailyRes.error.message }, { status: 500 })
+  if (!dailyRes.data?.length) return NextResponse.json({ ok: false, error: 'No cache data found' }, { status: 404 })
+
+  // --- Daily metrics aggregated across platforms ---
+  type DayTotals = { total: number; clay: number; cited: number; withCit: number; claygent: number; posit: number; neg: number; sentSum: number; sentCount: number; followup: number }
+  const byDay = new Map<string, DayTotals>()
+
+  for (const r of dailyRes.data) {
     const date = (r.run_day ?? '').substring(0, 10)
     if (!date) continue
-    const platform = r.platform ?? 'Unknown'
-    const domains: string[] = Array.isArray(r.cited_domains) ? r.cited_domains : []
-    const clayMentioned = isTruthy(r.clay_mentioned)
-    const clayCited = domains.some((d: string) => typeof d === 'string' && d.toLowerCase().includes('clay.com'))
-    const clayMCP = isTruthy(r.claygent_or_mcp_mentioned)
-    const recommended = isTruthy(r.clay_recommended_followup)
-    const sentScore: number | null = typeof r.brand_sentiment_score === 'number' ? r.brand_sentiment_score : null
-
-    if (!byDay.has(date)) byDay.set(date, { date, total: 0, clay: 0, cited: 0, claymcp: 0, recommended: 0, sentSum: 0, sentCount: 0 })
-    const d = byDay.get(date)!
-    d.total++
-    if (clayMentioned) d.clay++
-    if (clayCited) d.cited++
-    if (clayMCP) d.claymcp++
-    if (recommended) d.recommended++
-    if (sentScore !== null) { d.sentSum += sentScore; d.sentCount++ }
-
-    const p = dayKey(date, platform)
-    p.total++
-    if (clayMentioned) p.clay++
-    if (clayCited) p.cited++
-    if (clayMCP) p.claymcp++
-    if (recommended) p.recommended++
-    if (sentScore !== null) { p.sentSum += sentScore; p.sentCount++ }
-
-    const topic = r.topic ?? 'Unknown'
-    const t = byTopic.get(topic) ?? { total: 0, clay: 0 }
-    t.total++
-    if (clayMentioned) t.clay++
-    byTopic.set(topic, t)
+    const cur = byDay.get(date) ?? { total: 0, clay: 0, cited: 0, withCit: 0, claygent: 0, posit: 0, neg: 0, sentSum: 0, sentCount: 0, followup: 0 }
+    cur.total += r.total_responses ?? 0
+    cur.clay += r.clay_mentioned ?? 0
+    cur.cited += r.clay_cited_responses ?? 0
+    cur.withCit += r.total_with_citations ?? 0
+    cur.claygent += r.claygent_mentioned ?? 0
+    cur.posit += r.positive_sentiment ?? 0
+    cur.neg += r.negative_sentiment ?? 0
+    cur.sentSum += r.sum_sentiment_score ?? 0
+    cur.sentCount += r.count_sentiment_score ?? 0
+    cur.followup += r.clay_followup ?? 0
+    byDay.set(date, cur)
   }
 
-  function rates(m: DayMetrics) {
-    const n = m.total
-    return {
-      date: m.date,
-      total_prompts: n,
-      visibility_rate: n > 0 ? +((m.clay / n) * 100).toFixed(2) : 0,
-      citation_rate: n > 0 ? +((m.cited / n) * 100).toFixed(2) : 0,
-      claymcp_rate: n > 0 ? +((m.claymcp / n) * 100).toFixed(2) : 0,
-      recommendation_rate: n > 0 ? +((m.recommended / n) * 100).toFixed(2) : 0,
-      avg_sentiment: m.sentCount > 0 ? +(m.sentSum / m.sentCount).toFixed(2) : null,
-    }
+  const dailyRows = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, t]) => ({
+      date,
+      total_prompts: t.total,
+      visibility_rate: t.total > 0 ? +((t.clay / t.total) * 100).toFixed(1) : 0,
+      citation_rate: t.withCit > 0 ? +((t.cited / t.withCit) * 100).toFixed(1) : 0,
+      claymcp_rate: t.total > 0 ? +((t.claygent / t.total) * 100).toFixed(1) : 0,
+      recommendation_rate: t.total > 0 ? +((t.followup / t.total) * 100).toFixed(1) : 0,
+      positive_sentiment_rate: t.total > 0 ? +((t.posit / t.total) * 100).toFixed(1) : 0,
+      avg_sentiment_score: t.sentCount > 0 ? +(t.sentSum / t.sentCount).toFixed(2) : null,
+    }))
+
+  // --- Platform breakdown (avg rates across days) ---
+  type PlatTotals = { vis: number; cit: number; mcp: number; rec: number; days: number; total: number }
+  const byPlatform = new Map<string, PlatTotals>()
+  const byDayPlatform = new Map<string, Map<string, DayTotals>>()
+
+  for (const r of dailyRes.data) {
+    const date = (r.run_day ?? '').substring(0, 10)
+    const plat = r.platform ?? 'Unknown'
+    if (!byDayPlatform.has(date)) byDayPlatform.set(date, new Map())
+    const dm = byDayPlatform.get(date)!
+    const cur = dm.get(plat) ?? { total: 0, clay: 0, cited: 0, withCit: 0, claygent: 0, posit: 0, neg: 0, sentSum: 0, sentCount: 0, followup: 0 }
+    cur.total += r.total_responses ?? 0
+    cur.clay += r.clay_mentioned ?? 0
+    cur.cited += r.clay_cited_responses ?? 0
+    cur.withCit += r.total_with_citations ?? 0
+    cur.claygent += r.claygent_mentioned ?? 0
+    cur.followup += r.clay_followup ?? 0
+    dm.set(plat, cur)
   }
 
-  const dailyRows = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map(rates)
-
-  const platformTotals = new Map<string, { vis: number; cit: number; mcp: number; rec: number; days: number; total_prompts: number }>()
-  for (const [, dm] of byDatePlatform) {
+  for (const [, dm] of byDayPlatform) {
     for (const [plat, m] of dm) {
-      if (m.total === 0) continue
-      const cur = platformTotals.get(plat) ?? { vis: 0, cit: 0, mcp: 0, rec: 0, days: 0, total_prompts: 0 }
+      if (!m.total) continue
+      const cur = byPlatform.get(plat) ?? { vis: 0, cit: 0, mcp: 0, rec: 0, days: 0, total: 0 }
       cur.vis += (m.clay / m.total) * 100
-      cur.cit += (m.cited / m.total) * 100
-      cur.mcp += (m.claymcp / m.total) * 100
-      cur.rec += (m.recommended / m.total) * 100
+      cur.cit += m.withCit > 0 ? (m.cited / m.withCit) * 100 : 0
+      cur.mcp += (m.claygent / m.total) * 100
+      cur.rec += (m.followup / m.total) * 100
       cur.days++
-      cur.total_prompts += m.total
-      platformTotals.set(plat, cur)
+      cur.total += m.total
+      byPlatform.set(plat, cur)
     }
   }
-  const platformRows = [...platformTotals.entries()].map(([platform, s]) => ({
+
+  const platformRows = [...byPlatform.entries()].map(([platform, s]) => ({
     platform,
-    total_prompts: s.total_prompts,
-    avg_visibility_rate: s.days > 0 ? +(s.vis / s.days).toFixed(2) : 0,
-    avg_citation_rate: s.days > 0 ? +(s.cit / s.days).toFixed(2) : 0,
-    avg_claymcp_rate: s.days > 0 ? +(s.mcp / s.days).toFixed(2) : 0,
-    avg_recommendation_rate: s.days > 0 ? +(s.rec / s.days).toFixed(2) : 0,
+    avg_visibility_rate: s.days > 0 ? +(s.vis / s.days).toFixed(1) : 0,
+    avg_citation_rate: s.days > 0 ? +(s.cit / s.days).toFixed(1) : 0,
+    avg_claymcp_rate: s.days > 0 ? +(s.mcp / s.days).toFixed(1) : 0,
+    avg_recommendation_rate: s.days > 0 ? +(s.rec / s.days).toFixed(1) : 0,
   }))
 
-  const topicRows = [...byTopic.entries()]
-    .filter(([, m]) => m.total >= 5)
-    .map(([topic, m]) => ({ topic, total: m.total, visibility_rate: +((m.clay / m.total) * 100).toFixed(2) }))
-    .sort((a, b) => b.visibility_rate - a.visibility_rate)
+  // --- Competitor trends ---
+  const compByDay = new Map<string, Map<string, number>>()
+  const compTotals = new Map<string, number>()
+
+  if (competitorRes.data) {
+    for (const r of competitorRes.data) {
+      const date = (r.run_day ?? '').substring(0, 10)
+      const comp = r.competitor_name ?? 'Unknown'
+      const count = r.mention_count ?? 0
+
+      if (!compByDay.has(date)) compByDay.set(date, new Map())
+      const dm = compByDay.get(date)!
+      dm.set(comp, (dm.get(comp) ?? 0) + count)
+
+      compTotals.set(comp, (compTotals.get(comp) ?? 0) + count)
+    }
+  }
+
+  const topComps = [...compTotals.entries()]
+    .sort(([, a], [, b]) => b - a)
     .slice(0, 10)
+    .map(([name]) => name)
+
+  const competitorRows = [...compByDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, dm]) => {
+      const row: Record<string, string | number> = { date }
+      for (const comp of topComps) {
+        row[comp] = dm.get(comp) ?? 0
+      }
+      return row
+    })
+
+  // --- Citation domains ---
+  const domainTotals = new Map<string, number>()
+
+  if (domainRes.data) {
+    for (const r of domainRes.data) {
+      const domain = r.domain ?? 'Unknown'
+      domainTotals.set(domain, (domainTotals.get(domain) ?? 0) + (r.response_count ?? 0))
+    }
+  }
+
+  const topDomains = [...domainTotals.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 10)
+    .map(([domain, total_citations]) => ({ domain, total_citations }))
+
+  // --- Positioning snippets (sample of recent) ---
+  const positioningSnippets = (positioningRes.data ?? [])
+    .map(r => ({
+      date: (r.run_day ?? '').substring(0, 10),
+      platform: r.platform,
+      topic: r.topic,
+      snippet: (r.snippet ?? '').substring(0, 400),
+    }))
+
+  // --- Recent past insights (for context / deduplication) ---
+  const pastInsights = (recentInsightsRes.data ?? []).map(r => ({
+    date: r.run_date,
+    headline: r.insight_text,
+    explanation: (r.supporting_data as { explanation?: string } | null)?.explanation ?? '',
+  }))
 
   const userContent =
-    `DAILY METRICS (one row per day, last 14 days):\n${JSON.stringify(dailyRows, null, 2)}\n\n` +
-    `PLATFORM BREAKDOWN (avg per platform):\n${JSON.stringify(platformRows, null, 2)}\n\n` +
-    `TOP TOPICS BY VISIBILITY:\n${JSON.stringify(topicRows, null, 2)}`
+    `DAILY METRICS (last 7 days, all platforms combined):\n${JSON.stringify(dailyRows, null, 2)}\n\n` +
+    `PLATFORM BREAKDOWN (avg rates per platform over 7 days):\n${JSON.stringify(platformRows, null, 2)}\n\n` +
+    `COMPETITOR MENTION COUNTS BY DAY (top 10 competitors):\n${JSON.stringify(competitorRows, null, 2)}\n\n` +
+    `TOP CITED DOMAINS (7-day total):\n${JSON.stringify(topDomains, null, 2)}\n\n` +
+    `POSITIONING SNIPPETS (sample of recent AI responses where Clay was mentioned — what AI platforms are actually saying):\n${JSON.stringify(positioningSnippets, null, 2)}\n\n` +
+    `RECENT PAST INSIGHTS (last 7 days — do not repeat or contradict these):\n${JSON.stringify(pastInsights, null, 2)}`
 
   const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -176,27 +230,41 @@ async function generateInsight() {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 500,
+      max_tokens: 600,
       system:
-        `You are an analyst reviewing AI visibility data for Clay (clay.com). ` +
-        `You have 14 days of daily metrics showing how often Clay is mentioned, ` +
-        `cited, and recommended across AI platforms.\n\n` +
+        `You are an analyst reviewing AI engine optimization (AEO) data for Clay (clay.com). ` +
+        `You have 7 days of metrics covering Clay's visibility, citations, and competitive positioning across AI platforms.\n\n` +
+        `IMPORTANT CONTEXT: The same prompts are intentionally run on every platform in equal volume. ` +
+        `Platform prompt counts being equal is BY DESIGN — never cite platform volume as an insight. ` +
+        `The only meaningful platform signal is when Clay's RATES (visibility %, citation %, recommendation %) ` +
+        `differ significantly across platforms, suggesting different retrieval or weighting behavior.\n\n` +
+        `You have six data sources to draw from:\n` +
+        `1. DAILY METRICS — Clay's visibility, citation, claymcp, recommendation, and sentiment rates per day\n` +
+        `2. PLATFORM BREAKDOWN — how Clay's rates compare across AI platforms (e.g. Claude vs ChatGPT vs Perplexity)\n` +
+        `3. COMPETITOR MENTIONS — daily mention counts for the top 10 competitors\n` +
+        `4. CITED DOMAINS — which domains AI platforms cite most when Clay is mentioned\n` +
+        `5. POSITIONING SNIPPETS — verbatim excerpts of what AI platforms actually say about Clay when they mention it; use these to understand the narrative, framing, and how Clay is positioned relative to competitors\n` +
+        `6. RECENT PAST INSIGHTS — headlines and explanations from the last 7 days; do not repeat or contradict any of these\n\n` +
         `Find ONE non-obvious insight using this priority order:\n` +
-        `1. Narrative tension — two metrics moving in opposite directions\n` +
-        `2. Ratio shifts — relationships between metrics changing\n` +
-        `3. Pattern breaks — something trending one direction for 5+ days then reversed\n` +
-        `4. Platform divergence — one platform behaving differently from others\n` +
-        `5. Topic concentration — visibility clustering into fewer or more topics\n\n` +
+        `1. Narrative tension — two metrics moving in opposite directions (e.g. visibility up but citations down, Clay visible but competitors surging)\n` +
+        `2. Positioning signal — something surprising in the snippets about how AI platforms frame Clay: a recurring theme, a capability being over- or under-emphasized, or a competitor framing that Clay should own\n` +
+        `3. Competitive shift — a competitor gaining or losing ground relative to Clay's own trend\n` +
+        `4. Citation gap — Clay visible but under-cited, or a domain rising or falling in the citation rankings\n` +
+        `5. Ratio shift — relationship between two metrics changing over the 7 days\n` +
+        `6. Pattern break — something trending one direction for 3+ days then reversing\n` +
+        `7. Platform rate divergence — Clay's visibility or citation RATE differs meaningfully across platforms\n\n` +
         `Rules:\n` +
-        `- No generic observations\n` +
-        `- Never say "it appears" or "it seems" or "interesting"\n` +
-        `- Always end with a strategic question or hypothesis\n` +
-        `- Be specific with numbers\n\n` +
+        `- Never mention prompt volume or query counts between platforms — it is always equal by design\n` +
+        `- No generic observations ("Clay has strong visibility" is not an insight)\n` +
+        `- Never say "it appears", "it seems", or "interesting"\n` +
+        `- Do not repeat or directly reference any headline from RECENT PAST INSIGHTS\n` +
+        `- Always end with a strategic question or actionable hypothesis\n` +
+        `- Be specific with numbers and dates\n\n` +
         `Respond ONLY with valid JSON, no markdown, no preamble:\n` +
         `{\n` +
         `  "headline": "one punchy sentence under 15 words",\n` +
-        `  "explanation": "2 sentences max, include specific numbers",\n` +
-        `  "implication": "one strategic question or hypothesis"\n` +
+        `  "explanation": "2-3 sentences max, specific numbers and dates",\n` +
+        `  "implication": "one strategic question or actionable hypothesis"\n` +
         `}`,
       messages: [{ role: 'user', content: userContent }],
     }),
@@ -229,9 +297,11 @@ async function generateInsight() {
         implication: parsed.implication,
         raw_metrics_snapshot: {
           date_range: `${startDate} to ${today}`,
-          total_responses: responses.length,
           days: dailyRows.length,
           platform_breakdown: platformRows,
+          top_competitors: topComps,
+          top_domains: topDomains.slice(0, 5).map(d => d.domain),
+          positioning_snippets_count: positioningSnippets.length,
         },
       },
     })

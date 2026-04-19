@@ -42,10 +42,10 @@ function localDateStr(d: Date): string {
 
 function defaultFilters(): GlobalFilters {
   const end = new Date()
-  end.setHours(23, 59, 59, 999)   // end of today in local time
+  end.setHours(23, 59, 59, 999)
   const start = new Date()
   start.setHours(0, 0, 0, 0)
-  start.setDate(start.getDate() - 7)
+  start.setDate(start.getDate() - 6)  // 7 days inclusive: today and the 6 days before
   return {
     promptType: 'benchmark',
     tags: 'all',

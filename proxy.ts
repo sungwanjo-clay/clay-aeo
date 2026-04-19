@@ -29,6 +29,8 @@ export async function proxy(req: NextRequest) {
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/generate-insight') ||
+    pathname.startsWith('/api/refresh-cache') ||
+    pathname.startsWith('/api/detect-anomalies') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {

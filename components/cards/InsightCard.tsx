@@ -7,9 +7,10 @@ import { formatDate } from '@/lib/utils/formatters'
 
 interface InsightCardProps {
   insight: InsightRow | null
+  loading?: boolean
 }
 
-export default function InsightCard({ insight }: InsightCardProps) {
+export default function InsightCard({ insight, loading }: InsightCardProps) {
   const [expanded, setExpanded] = useState(false)
 
   const supportingData = insight?.supporting_data as {
@@ -18,6 +19,21 @@ export default function InsightCard({ insight }: InsightCardProps) {
   } | null
 
   const hasDetail = !!(supportingData?.explanation || supportingData?.implication)
+
+  if (loading && !insight) {
+    return (
+      <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 flex gap-3 animate-pulse">
+        <div className="shrink-0 mt-0.5">
+          <Lightbulb size={18} className="text-yellow-300" />
+        </div>
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="h-3 w-32 rounded bg-yellow-200" />
+          <div className="h-4 w-3/4 rounded bg-yellow-200" />
+          <div className="h-4 w-1/2 rounded bg-yellow-200" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 flex gap-3">
@@ -29,6 +45,9 @@ export default function InsightCard({ insight }: InsightCardProps) {
           <span className="text-xs font-semibold text-yellow-700 uppercase tracking-wide">Insight of the Day</span>
           {insight?.run_date && (
             <span className="text-xs text-yellow-600">{formatDate(insight.run_date)}</span>
+          )}
+          {loading && (
+            <span className="text-xs text-yellow-500 italic">Refreshing…</span>
           )}
         </div>
         <p className="text-sm text-yellow-900 leading-relaxed">
