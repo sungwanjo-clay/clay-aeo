@@ -226,32 +226,64 @@ export async function getCitationCount(
   }
 }
 
-// Calls the server-side RPC which computes everything in SQL:
-// - daily denominator = SUM(all domain response_counts) per day (same for all lines)
-// - top N competitors by citation_type = 'Competition'
-// - always includes clay.com on the same scale
+// Returns timeseries for top N non-clay domains + clay.com.
+// Matches the sidebar's ranking logic: top by total response_count regardless of
+// citation_type, so the chart and sidebar always show the same domains.
 export async function getCompetitorCitationTimeseries(
   sb: SupabaseClient,
   f: FilterParams,
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
-  const { data, error } = await sb.rpc('get_competitor_citation_timeseries_rpc', {
-    p_start_day:      f.startDate.split('T')[0],
-    p_end_day:        f.endDate.split('T')[0],
-    p_prompt_type:    f.promptType    || 'all',
-    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
-    p_branded_filter: f.brandedFilter || 'all',
-    p_tags:           f.tags          || 'all',
-    p_top_n:          topN,
-  })
-  if (error) { console.error('[getCompetitorCitationTimeseries] RPC error:', error); return [] }
+  const startDay = f.startDate.split('T')[0]
+  const endDay   = f.endDate.split('T')[0]
+
+  let q = sb.from('aeo_cache_domains')
+    .select('run_day,domain,response_count')
+    .gte('run_day', startDay).lte('run_day', endDay)
+  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+
+  const { data, error } = await q.limit(10000)
+  if (error) { console.error('[getCompetitorCitationTimeseries] error:', error); return [] }
   if (!data?.length) return []
 
-  return (data as { date: string; domain: string; value: number }[]).map(r => ({
-    date:   String(r.date).substring(0, 10),
-    domain: r.domain,
-    value:  r.value ?? 0,
-  }))
+  const dailyTotals  = new Map<string, number>()
+  const domainTotals = new Map<string, number>()
+  const domainDay    = new Map<string, Map<string, number>>()
+
+  for (const r of data) {
+    const day = String(r.run_day).substring(0, 10)
+    const cnt = r.response_count ?? 0
+    const dom = (r.domain ?? '').toLowerCase()
+
+    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
+
+    // Rank all non-clay domains by total volume (no citation_type filter)
+    if (!dom.includes('clay')) {
+      domainTotals.set(dom, (domainTotals.get(dom) ?? 0) + cnt)
+    }
+
+    if (!domainDay.has(dom)) domainDay.set(dom, new Map())
+    domainDay.get(dom)!.set(day, (domainDay.get(dom)!.get(day) ?? 0) + cnt)
+  }
+
+  const topDomains = [...domainTotals.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, topN)
+    .map(([d]) => d)
+
+  const relevant = new Set([...topDomains, 'clay.com'])
+  const result: { date: string; domain: string; value: number }[] = []
+
+  for (const [domain, byDay] of domainDay) {
+    if (!relevant.has(domain)) continue
+    for (const [day, cnt] of byDay) {
+      const total = dailyTotals.get(day) ?? 0
+      result.push({ date: day, domain, value: total > 0 ? (cnt / total) * 100 : 0 })
+    }
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date) || a.domain.localeCompare(b.domain))
 }
 
 export async function getCitationOverallTimeseries(

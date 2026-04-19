@@ -202,6 +202,8 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                   formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   labelFormatter={(l: any) => formatShortDate(String(l))}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  itemSorter={(item: any) => -(item.value as number)}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
