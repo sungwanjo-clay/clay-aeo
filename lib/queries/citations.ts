@@ -282,8 +282,8 @@ export async function getSidebarCitedDomains(
   if (f.platforms && f.platforms.length > 0) allQ = allQ.in('platform', f.platforms)
   if (f.promptType && f.promptType !== 'all') allQ = allQ.ilike('prompt_type', f.promptType)
 
-  const data = await fetchAllPages(allQ)
-  if (!data.length) return []
+  const { data, error } = await allQ.limit(2000)
+  if (error || !data?.length) return []
 
   // Aggregate totals per domain
   const totals = new Map<string, { count: number; citation_type: string | null }>()

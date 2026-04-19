@@ -98,23 +98,17 @@ function buildChartData(
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 // ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ sidebarDomains, domains, citationRateKPI }: {
+function TopCitedSidebar({ sidebarDomains }: {
   sidebarDomains?: SidebarDomainRow[]
   domains: DomainRow[]
   competitorTimeseries: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
 }) {
-  // Prefer the fast cache-backed sidebarDomains; fall back to full domains list
-  const source: SidebarDomainRow[] = sidebarDomains && sidebarDomains.length > 0
-    ? sidebarDomains
-    : domains.map(d => ({ domain: d.domain, share_pct: d.share_pct, is_clay: d.is_clay, citation_type: d.citation_type }))
+  const source = sidebarDomains ?? []
 
   const clay = source.find(d => d.is_clay) ?? { domain: 'clay.com', share_pct: 0, is_clay: true, citation_type: 'Owned' }
   const nonClay = source.filter(d => !d.is_clay).slice(0, 5)
-
-  // Use KPI value for Clay so it matches the chart and KPI card exactly
-  const clayDisplay = { ...clay, share_pct: citationRateKPI ?? clay.share_pct }
-  const rows = [...nonClay, clayDisplay].sort((a, b) => b.share_pct - a.share_pct)
+  const rows = [...nonClay, clay].sort((a, b) => b.share_pct - a.share_pct)
 
   if (!rows.length) {
     return (
