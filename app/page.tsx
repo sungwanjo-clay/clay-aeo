@@ -130,6 +130,8 @@ export default function HomePage() {
   // Tier 3a: Fast RPC-backed sections — renders charts immediately
   useEffect(() => {
     setLoadingExtra(true)
+    getSidebarCitedDomains(supabase, f).then(setSidebarDomains).catch(() => {})
+
     Promise.all([
       getCitationOverallTimeseries(supabase, f),
       getTopCitedDomainsWithURLs(supabase, f),
@@ -137,12 +139,10 @@ export default function HomePage() {
       getVisibilityByPMM(supabase, f),
       getPMMTable(supabase, f),
       getClaygentTimeseries(supabase, f),
-      getFollowupTimeseries(supabase, f),  // now RPC-backed (cache)
-      getSidebarCitedDomains(supabase, f),
-    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs, sidebarDom]) => {
+      getFollowupTimeseries(supabase, f),
+    ]).then(([citTs, citDom, compCitTs, pmmTs, pmmTbl, claygentTs, followupTs]) => {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
-      setSidebarDomains(sidebarDom)
       setCompetitorCitTimeseries(compCitTs)
       setPmmSeries(pmmTs)
       setPmmTable(pmmTbl)
