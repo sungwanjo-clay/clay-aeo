@@ -18,19 +18,11 @@ interface DomainRow {
   top_urls: { url: string; title: string | null; count: number }[]
 }
 
-interface SidebarDomainRow {
-  domain: string
-  share_pct: number
-  is_clay: boolean
-  citation_type: string | null
-}
-
 interface Props {
   timeseries: CitationTimepoint[]
   domains: DomainRow[]
-  sidebarDomains?: SidebarDomainRow[]
   competitorTimeseries?: { date: string; domain: string; value: number }[]
-  citationRateKPI?: number | null  // period-aggregate KPI value — used as Clay's line so chart matches KPI exactly
+  citationRateKPI?: number | null
   startDate: string
   endDate: string
 }
@@ -98,17 +90,17 @@ function buildChartData(
 const COMPETITOR_COLORS = ['#4A5AFF', '#FF6B35', '#CC3D8A', '#3DB8CC', '#3DAA6A']
 
 // ── Top Cited Competitors sidebar ──────────────────────────────────────────────
-function TopCitedSidebar({ sidebarDomains }: {
-  sidebarDomains?: SidebarDomainRow[]
+function TopCitedSidebar({ domains, citationRateKPI }: {
   domains: DomainRow[]
-  competitorTimeseries: { date: string; domain: string; value: number }[]
+  competitorTimeseries?: { date: string; domain: string; value: number }[]
   citationRateKPI?: number | null
 }) {
-  const source = sidebarDomains ?? []
-
-  const clay = source.find(d => d.is_clay) ?? { domain: 'clay.com', share_pct: 0, is_clay: true, citation_type: 'Owned' }
-  const nonClay = source.filter(d => !d.is_clay).slice(0, 5)
-  const rows = [...nonClay, clay].sort((a, b) => b.share_pct - a.share_pct)
+  const clay = domains.find(d => d.is_clay) ?? { domain: 'clay.com', share_pct: citationRateKPI ?? 0, is_clay: true, citation_type: 'Owned', citation_count: 0, top_urls: [] }
+  const nonClay = domains
+    .filter(d => !d.is_clay && d.citation_type?.toLowerCase() === 'competition')
+    .slice(0, 5)
+  const clayDisplay = { ...clay, share_pct: citationRateKPI ?? clay.share_pct }
+  const rows = [...nonClay, clayDisplay].sort((a, b) => b.share_pct - a.share_pct)
 
   if (!rows.length) {
     return (
@@ -148,7 +140,7 @@ function TopCitedSidebar({ sidebarDomains }: {
   )
 }
 
-export default function CitationSection({ timeseries, domains, sidebarDomains, competitorTimeseries = [], citationRateKPI, startDate, endDate }: Props) {
+export default function CitationSection({ timeseries, domains, competitorTimeseries = [], citationRateKPI, startDate, endDate }: Props) {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [showCompetitors, setShowCompetitors] = useState(true)   // default ON
@@ -236,7 +228,7 @@ export default function CitationSection({ timeseries, domains, sidebarDomains, c
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: 'rgba(26,25,21,0.45)' }}>
             Top Cited Competitors
           </h3>
-          <TopCitedSidebar sidebarDomains={sidebarDomains} domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
+          <TopCitedSidebar domains={domains} competitorTimeseries={competitorTimeseries} citationRateKPI={citationRateKPI} />
         </div>
       </div>
 

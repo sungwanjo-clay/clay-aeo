@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
 import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getFollowupTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
-import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries, getSidebarCitedDomains } from '@/lib/queries/citations'
+import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import InsightCard from '@/components/cards/InsightCard'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
@@ -62,7 +62,6 @@ export default function HomePage() {
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
-  const [sidebarDomains, setSidebarDomains] = useState<{ domain: string; share_pct: number; is_clay: boolean; citation_type: string | null }[]>([])
   const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
   const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
@@ -130,8 +129,6 @@ export default function HomePage() {
   // Tier 3a: Fast RPC-backed sections — renders charts immediately
   useEffect(() => {
     setLoadingExtra(true)
-    getSidebarCitedDomains(supabase, f).then(setSidebarDomains).catch(() => {})
-
     Promise.all([
       getCitationOverallTimeseries(supabase, f),
       getTopCitedDomainsWithURLs(supabase, f),
@@ -409,7 +406,7 @@ export default function HomePage() {
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
         {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
-          <CitationSection timeseries={citationTimeseries} domains={citedDomains} sidebarDomains={sidebarDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
+          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>
 
