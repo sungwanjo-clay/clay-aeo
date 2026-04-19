@@ -227,8 +227,8 @@ export async function getCitationCount(
 }
 
 // Returns timeseries for top N non-clay domains + clay.com.
-// Matches the sidebar's ranking logic: top by total response_count regardless of
-// citation_type, so the chart and sidebar always show the same domains.
+// Denominator = SUM(those specific displayed domains only) per day — matches
+// the sidebar's share_pct logic and avoids dilution from long-tail domains.
 export async function getCompetitorCitationTimeseries(
   sb: SupabaseClient,
   f: FilterParams,
@@ -247,7 +247,7 @@ export async function getCompetitorCitationTimeseries(
   if (error) { console.error('[getCompetitorCitationTimeseries] error:', error); return [] }
   if (!data?.length) return []
 
-  const dailyTotals  = new Map<string, number>()
+  // Pass 1: determine top N non-clay domains by total response_count across the period
   const domainTotals = new Map<string, number>()
   const domainDay    = new Map<string, Map<string, number>>()
 
@@ -256,9 +256,6 @@ export async function getCompetitorCitationTimeseries(
     const cnt = r.response_count ?? 0
     const dom = (r.domain ?? '').toLowerCase()
 
-    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
-
-    // Rank all non-clay domains by total volume (no citation_type filter)
     if (!dom.includes('clay')) {
       domainTotals.set(dom, (domainTotals.get(dom) ?? 0) + cnt)
     }
@@ -273,8 +270,19 @@ export async function getCompetitorCitationTimeseries(
     .map(([d]) => d)
 
   const relevant = new Set([...topDomains, 'clay.com'])
-  const result: { date: string; domain: string; value: number }[] = []
 
+  // Pass 2: compute per-day denominator using ONLY the displayed domains
+  // (matches sidebar share_pct — avoids dilution from long-tail domains)
+  const dailyTotals = new Map<string, number>()
+  for (const dom of relevant) {
+    const byDay = domainDay.get(dom)
+    if (!byDay) continue
+    for (const [day, cnt] of byDay) {
+      dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
+    }
+  }
+
+  const result: { date: string; domain: string; value: number }[] = []
   for (const [domain, byDay] of domainDay) {
     if (!relevant.has(domain)) continue
     for (const [day, cnt] of byDay) {
