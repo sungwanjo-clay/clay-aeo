@@ -59,6 +59,7 @@ export default function HomePage() {
 
   // ── Tier 3a: Charts/tables (fast RPCs) ───────────────────
   const [loadingExtra, setLoadingExtra] = useState(true)
+  const [loadingCitation, setLoadingCitation] = useState(true)
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
@@ -129,6 +130,7 @@ export default function HomePage() {
   // Tier 3a: Fast RPC-backed sections — renders charts immediately
   useEffect(() => {
     setLoadingExtra(true)
+    setLoadingCitation(true)
     Promise.all([
       getCitationOverallTimeseries(supabase, f),
       getTopCitedDomainsWithURLs(supabase, f),
@@ -137,7 +139,11 @@ export default function HomePage() {
       setCitationTimeseries(citTs)
       setCitedDomains(citDom)
       setCompetitorCitTimeseries(compCitTs)
-    }).catch(err => console.error('[page] Tier3a-A failed:', err))
+      setLoadingCitation(false)
+    }).catch(err => {
+      console.error('[page] Tier3a-A failed:', err)
+      setLoadingCitation(false)
+    })
 
     Promise.all([
       getVisibilityByPMM(supabase, f),
@@ -405,7 +411,7 @@ export default function HomePage() {
       {/* Citations */}
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
-        {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
+        {loadingCitation ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
           <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
         )}
       </div>

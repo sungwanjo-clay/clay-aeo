@@ -49,8 +49,10 @@ function InfoTooltip({ text }: { text: string }) {
   )
 }
 
-// Build chart data using Clay per-day timeseries + competitor lines.
-// Dates = full filter date range; missing dates render as gaps.
+// Build chart data using competitorTs for ALL lines (Clay + competitors).
+// All values share the same denominator (aeo_cache_domains SUM per day),
+// so the lines are directly comparable. Falls back to timeseries for Clay
+// only if clay.com is absent from competitorTs.
 function buildChartData(
   timeseries: { date: string; value: number }[],
   competitorTs: { date: string; domain: string; value: number }[],
@@ -58,7 +60,8 @@ function buildChartData(
   startDate: string,
   endDate: string,
 ) {
-  const nonClayTs = competitorTs.filter(r => r.domain !== 'clay.com')
+  const clayFromComp = competitorTs.filter(r => r.domain === 'clay.com')
+  const nonClayTs    = competitorTs.filter(r => r.domain !== 'clay.com')
 
   const domainTotals = new Map<string, number>()
   for (const r of nonClayTs) {
@@ -69,10 +72,12 @@ function buildChartData(
     .slice(0, 5)
     .map(([d]) => d)
 
-  // Span the full filter date range — dates without data are gaps, not zeros
   const allDates = generateDateRange(startDate, endDate)
 
-  const clayLookup = new Map(timeseries.map(r => [r.date, r.value]))
+  // Prefer clay from competitorTs (same denominator); fall back to timeseries
+  const clayLookup = clayFromComp.length > 0
+    ? new Map(clayFromComp.map(r => [r.date, r.value]))
+    : new Map(timeseries.map(r => [r.date, r.value]))
   const compLookup = new Map(nonClayTs.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
   const data = allDates.map(date => {
@@ -201,7 +206,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                   dot={{ r: 3, strokeWidth: 0, fill: 'var(--clay-black)' }} activeDot={{ r: 5 }} name="Clay"
                   connectNulls={false} />
                 {showCompetitors && competitorDomains.map((d, i) => (
-                  <Line key={d} type="monotone" dataKey={(row: Record<string, string | number>) => row[d] as number}
+                  <Line key={d} type="monotone" dataKey={d}
                     stroke={COMPETITOR_COLORS[i % COMPETITOR_COLORS.length]}
                     strokeWidth={1.8} dot={{ r: 2, strokeWidth: 0 }} activeDot={{ r: 4 }} name={d}
                     connectNulls={false} />
