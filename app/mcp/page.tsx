@@ -89,14 +89,27 @@ type ResponseRow = MentionTopicRow['prompts'][0]['responses'][0]
 
 function ResponseCard({ r }: { r: ResponseRow }) {
   const [open, setOpen] = useState(false)
-  const hasDetail = !!(r.snippet || r.response_text)
+  const [responseText, setResponseText] = useState<string | null>(null)
+  const [loadingText, setLoadingText] = useState(false)
+  const hasDetail = !!r.snippet
+
+  async function handleExpand() {
+    const next = !open
+    setOpen(next)
+    if (next && responseText === null && !loadingText) {
+      setLoadingText(true)
+      const { data } = await supabase.from('responses').select('response_text').eq('id', r.id).single()
+      setResponseText(data?.response_text ?? '')
+      setLoadingText(false)
+    }
+  }
 
   return (
     <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(26,25,21,0.08)' }}>
       {/* Header row — always visible */}
       <div
-        className={`flex flex-wrap items-center gap-2 px-3 py-2.5 transition-colors ${hasDetail ? 'cursor-pointer hover:bg-[rgba(26,25,21,0.02)]' : ''}`}
-        onClick={() => hasDetail && setOpen(v => !v)}
+        className="flex flex-wrap items-center gap-2 px-3 py-2.5 transition-colors cursor-pointer hover:bg-[rgba(26,25,21,0.02)]"
+        onClick={handleExpand}
       >
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
           style={{ background: getPlatformColor(r.platform) + '20', color: getPlatformColor(r.platform) }}>
@@ -112,11 +125,10 @@ function ResponseCard({ r }: { r: ResponseRow }) {
           </span>
         )}
         <div className="flex-1" />
-        {hasDetail && (
-          open
-            ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
-            : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
-        )}
+        {open
+          ? <ChevronDown size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
+          : <ChevronRight size={10} style={{ color: 'rgba(26,25,21,0.35)', flexShrink: 0 }} />
+        }
       </div>
 
       {/* Expanded detail */}
@@ -158,8 +170,11 @@ function ResponseCard({ r }: { r: ResponseRow }) {
             </div>
           )}
 
-          {/* Full AI response */}
-          {r.response_text && <FullResponseBlock text={r.response_text} />}
+          {/* Full AI response — lazy loaded on expand */}
+          {loadingText && (
+            <div className="h-12 rounded-lg animate-pulse" style={{ background: 'rgba(26,25,21,0.05)' }} />
+          )}
+          {!loadingText && responseText && <FullResponseBlock text={responseText} />}
         </div>
       )}
     </div>
@@ -365,7 +380,7 @@ export default function McpPage() {
         <p className="text-xs mb-4" style={{ color: 'rgba(26,25,21,0.45)' }}>
           Daily mention count per platform.
         </p>
-        {loading ? <SkeletonChart /> : chartData.length === 0 ? (
+        {loading ? <SkeletonChart /> : platforms.length === 0 ? (
           <div className="flex items-center justify-center py-14 text-[13px]" style={{ color: 'rgba(26,25,21,0.35)' }}>
             No mention data for this period
           </div>

@@ -385,7 +385,6 @@ export interface MentionResponseRow {
   platform: string
   run_date: string
   snippet: string | null
-  response_text: string | null
   brand_sentiment: string | null
   other_cited_domains: string[]
 }
@@ -419,9 +418,11 @@ export async function getMentionBreakdown(
       ? 'claygent_or_mcp_snippet'
       : 'clay_mention_snippet'
 
+  // Omit response_text from the bulk fetch — it can be 5-10KB per row.
+  // The full text is lazy-loaded per-row when the user expands a card.
   const allData = await fetchAllPages(applyFilters(
     sb.from('responses').select(
-      `id, prompt_id, platform, run_date, topic, cited_domains, response_text, brand_sentiment, ${column}, ${snippetCol}`
+      `id, prompt_id, platform, run_date, topic, cited_domains, brand_sentiment, ${column}, ${snippetCol}`
     ).eq(column, 'Yes'),  // DB stores 'Yes'/'No' (capitalized)
     f
   ))
@@ -474,7 +475,6 @@ export async function getMentionBreakdown(
       platform: row.platform,
       run_date: (row.run_date ?? '').substring(0, 10),
       snippet: row[snippetCol] ?? null,
-      response_text: row.response_text ?? null,
       brand_sentiment: row.brand_sentiment ?? null,
       other_cited_domains: otherDomains,
     })
