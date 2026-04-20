@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, LayoutDashboard, MessageSquare, Link as LinkIcon, BarChart2, List, Sliders, Bot } from 'lucide-react'
+import { Menu, X, LayoutDashboard, MessageSquare, Link as LinkIcon, BarChart2, List, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 const NAV_ITEMS = [
@@ -13,7 +13,6 @@ const NAV_ITEMS = [
   { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
   { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
   { href: '/prompts',     label: 'Prompts',          icon: List },
-  { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
 ]
 
 function LogoMark() {

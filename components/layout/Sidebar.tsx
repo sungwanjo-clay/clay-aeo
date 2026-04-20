@@ -8,7 +8,6 @@ import {
   Link as LinkIcon,
   BarChart2,
   List,
-  Sliders,
   Bot,
   LogOut,
 } from 'lucide-react'
@@ -21,7 +20,6 @@ const NAV_ITEMS = [
   { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
   { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
   { href: '/prompts',     label: 'Prompts',          icon: List },
-  { href: '/explorer',    label: 'Metric Explorer',  icon: Sliders },
 ]
 
 export default function Sidebar() {
