@@ -54,52 +54,35 @@ function InfoTooltip({ text }: { text: string }) {
 function buildChartData(
   timeseries: { date: string; value: number }[],
   competitorTs: { date: string; domain: string; value: number }[],
-  clayKPI: number | null | undefined,
+  _clayKPI: number | null | undefined,
   startDate: string,
   endDate: string,
 ) {
-  // Separate clay.com from competitors
-  const clayRows  = competitorTs.filter(r => r.domain === 'clay.com')
-  const compRows  = competitorTs.filter(r => r.domain !== 'clay.com')
+  const clayRows = competitorTs.filter(r => r.domain.includes('clay'))
+  const compRows = competitorTs.filter(r => !r.domain.includes('clay'))
 
-  // Rank competitors by total value to pick top 5
   const compTotals = new Map<string, number>()
-  for (const r of compRows) {
-    compTotals.set(r.domain, (compTotals.get(r.domain) ?? 0) + r.value)
-  }
-  const topDomains = [...compTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([d]) => d)
+  for (const r of compRows) compTotals.set(r.domain, (compTotals.get(r.domain) ?? 0) + r.value)
+  const topDomains = [...compTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d)
 
   const allDates = generateDateRange(startDate, endDate)
 
+  // Clay: prefer competitorTs (same formula), fall back to overall timeseries
   const clayLookup = clayRows.length > 0
     ? new Map(clayRows.map(r => [r.date, r.value]))
     : new Map(timeseries.map(r => [r.date, r.value]))
 
   const compLookup = new Map(compRows.map(r => [`${r.date}|||${r.domain}`, r.value]))
 
-  // DEBUG — remove after confirming chart works
-  console.log('[citation chart] allDates', allDates.slice(0, 3), '...', allDates.slice(-1))
-  console.log('[citation chart] clayLookup keys', [...clayLookup.keys()].slice(0, 3))
-  console.log('[citation chart] compLookup keys (first 5)', [...compLookup.keys()].slice(0, 5))
-  console.log('[citation chart] topDomains', topDomains)
-  console.log('[citation chart] timeseries length', timeseries.length, 'sample', timeseries[0])
-  console.log('[citation chart] competitorTs length', competitorTs.length, 'sample', competitorTs[0])
-
   const data = allDates.map(date => {
     const row: Record<string, string | number> = { date }
     if (clayLookup.has(date)) row['Clay'] = clayLookup.get(date)!
     for (const d of topDomains) {
-      const key = `${date}|||${d}`
-      if (compLookup.has(key)) row[d] = compLookup.get(key)!
+      const v = compLookup.get(`${date}|||${d}`)
+      if (v !== undefined) row[d] = v
     }
     return row
   })
-
-  console.log('[citation chart] first chartData row', data[0])
-  console.log('[citation chart] last chartData row', data[data.length - 1])
 
   return { competitorDomains: topDomains, data }
 }

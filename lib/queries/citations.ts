@@ -226,9 +226,9 @@ export async function getCitationCount(
   }
 }
 
-// Returns timeseries for top N non-clay domains + clay.com.
-// Denominator = SUM(those specific displayed domains only) per day — matches
-// the sidebar's share_pct logic and avoids dilution from long-tail domains.
+// Returns timeseries for top N domains by share + clay.com.
+// Uses fetchAllPages to avoid row limits. Top N ranked by total response_count
+// across the period (any citation_type), matching the sidebar's top-5-by-share logic.
 export async function getCompetitorCitationTimeseries(
   sb: SupabaseClient,
   f: FilterParams,
@@ -243,17 +243,15 @@ export async function getCompetitorCitationTimeseries(
   if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
   if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
 
-  const { data, error } = await q.limit(10000)
-  if (error) { console.error('[getCompetitorCitationTimeseries] error:', error); return [] }
+  const data = await fetchAllPages(q)
   if (!data?.length) return []
 
-  // Pass 1: determine top N non-clay domains by total response_count across the period
   const domainTotals = new Map<string, number>()
   const domainDay    = new Map<string, Map<string, number>>()
 
   for (const r of data) {
     const day = String(r.run_day).substring(0, 10)
-    const cnt = r.response_count ?? 0
+    const cnt = Number(r.response_count ?? 0)
     const dom = (r.domain ?? '').toLowerCase()
 
     if (!dom.includes('clay')) {
@@ -269,15 +267,13 @@ export async function getCompetitorCitationTimeseries(
     .slice(0, topN)
     .map(([d]) => d)
 
-  const relevant = new Set([...topDomains, 'clay.com'])
+  const clayDomain = [...domainDay.keys()].find(d => d.includes('clay')) ?? 'clay.com'
+  const relevant = new Set([...topDomains, clayDomain])
 
-  // Pass 2: compute per-day denominator using ONLY the displayed domains
-  // (matches sidebar share_pct — avoids dilution from long-tail domains)
+  // Per-day denominator = sum of only the displayed domains
   const dailyTotals = new Map<string, number>()
   for (const dom of relevant) {
-    const byDay = domainDay.get(dom)
-    if (!byDay) continue
-    for (const [day, cnt] of byDay) {
+    for (const [day, cnt] of domainDay.get(dom) ?? []) {
       dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
     }
   }
