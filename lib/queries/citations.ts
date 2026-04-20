@@ -227,8 +227,8 @@ export async function getCitationCount(
 }
 
 // Returns timeseries for top N domains by share + clay.com.
-// Uses fetchAllPages to avoid row limits. Top N ranked by total response_count
-// across the period (any citation_type), matching the sidebar's top-5-by-share logic.
+// Denominator = total_with_citations from aeo_cache_daily (same as sidebar RPC),
+// so per-day values are directly comparable to sidebar share_pct.
 export async function getCompetitorCitationTimeseries(
   sb: SupabaseClient,
   f: FilterParams,
@@ -237,21 +237,35 @@ export async function getCompetitorCitationTimeseries(
   const startDay = f.startDate.split('T')[0]
   const endDay   = f.endDate.split('T')[0]
 
-  let q = sb.from('aeo_cache_domains')
+  let domQ = sb.from('aeo_cache_domains')
     .select('run_day,domain,response_count')
     .gte('run_day', startDay).lte('run_day', endDay)
-  if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
+  if (f.platforms && f.platforms.length > 0) domQ = domQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') domQ = domQ.ilike('prompt_type', f.promptType)
 
-  const data = await fetchAllPages(q)
-  if (!data?.length) return []
+  let dailyQ = sb.from('aeo_cache_daily')
+    .select('run_day,total_with_citations')
+    .gte('run_day', startDay).lte('run_day', endDay)
+  if (f.platforms && f.platforms.length > 0) dailyQ = dailyQ.in('platform', f.platforms)
+  if (f.promptType && f.promptType !== 'all') dailyQ = dailyQ.ilike('prompt_type', f.promptType)
+
+  const [domData, dailyData] = await Promise.all([
+    fetchAllPages(domQ),
+    fetchAllPages(dailyQ),
+  ])
+  if (!domData?.length) return []
+
+  // Per-day denominator: total_with_citations (same as sidebar RPC)
+  const dailyTotals = new Map<string, number>()
+  for (const r of dailyData) {
+    const day = String(r.run_day).substring(0, 10)
+    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + Number(r.total_with_citations ?? 0))
+  }
 
   const domainTotals = new Map<string, number>()
   const domainDay    = new Map<string, Map<string, number>>()
-  // Grand total per day across ALL domains — same denominator as sidebar share_pct
-  const dailyTotals  = new Map<string, number>()
 
-  for (const r of data) {
+  for (const r of domData) {
     const day = String(r.run_day).substring(0, 10)
     const cnt = Number(r.response_count ?? 0)
     const dom = (r.domain ?? '').toLowerCase()
@@ -259,12 +273,8 @@ export async function getCompetitorCitationTimeseries(
     if (!dom.includes('clay')) {
       domainTotals.set(dom, (domainTotals.get(dom) ?? 0) + cnt)
     }
-
     if (!domainDay.has(dom)) domainDay.set(dom, new Map())
     domainDay.get(dom)!.set(day, (domainDay.get(dom)!.get(day) ?? 0) + cnt)
-
-    // Accumulate all domains into daily denominator
-    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
   }
 
   const topDomains = [...domainTotals.entries()]
