@@ -1,8 +1,43 @@
 'use client'
 
+import { useState } from 'react'
 import { X } from 'lucide-react'
-import type { PromptRow } from '@/lib/queries/prompts'
+import type { PromptRow, ResponseRow } from '@/lib/queries/prompts'
 import { getPlatformColor, getSentimentColor } from '@/lib/utils/colors'
+import { supabase } from '@/lib/supabase/client'
+
+function FullResponseToggle({ responseId }: { responseId: string }) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function toggle() {
+    const next = !open
+    setOpen(next)
+    if (next && text === null && !loading) {
+      setLoading(true)
+      const { data } = await supabase.from('responses').select('response_text').eq('id', responseId).single()
+      setText(data?.response_text ?? '')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={toggle}
+        className="text-[10px] text-gray-400 font-medium hover:text-gray-600 transition-colors"
+      >
+        {open ? 'Hide full response ↑' : 'Full response ↓'}
+      </button>
+      {open && (
+        loading
+          ? <div className="mt-1 h-8 rounded animate-pulse bg-gray-100" />
+          : <p className="text-xs text-gray-600 mt-1 leading-relaxed max-h-40 overflow-y-auto">{text}</p>
+      )}
+    </div>
+  )
+}
 
 interface PromptDrilldownProps {
   prompt: PromptRow
@@ -92,13 +127,8 @@ export default function PromptDrilldown({ prompt, onClose }: PromptDrilldownProp
                       </div>
                     )}
 
-                    {/* Response text */}
-                    {r.response_text && (
-                      <details>
-                        <summary className="text-[10px] text-gray-400 font-medium cursor-pointer hover:text-gray-600">Full response</summary>
-                        <p className="text-xs text-gray-600 mt-1 leading-relaxed max-h-40 overflow-y-auto">{r.response_text}</p>
-                      </details>
-                    )}
+                    {/* Response text — lazy loaded on demand */}
+                    <FullResponseToggle responseId={r.id} />
 
                     {/* Pills row */}
                     <div className="flex flex-wrap gap-2">

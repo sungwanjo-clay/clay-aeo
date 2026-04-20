@@ -1,6 +1,20 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams } from './types'
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1)
+    if (error || !data?.length) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  return all
+}
+
 export interface PromptRow {
   prompt_id: string
   prompt_text: string
@@ -29,7 +43,7 @@ export interface ResponseRow {
   themes: { theme: string; sentiment: string; snippet: string }[] | null
   primary_use_case_attributed: string | null
   positioning_vs_competitors: string | null
-  response_text: string | null
+  // response_text is NOT fetched in bulk — lazy-loaded per row in PromptDrilldown
   clay_mention_position: number | null
   claygent_or_mcp_mentioned: string | null
 }
@@ -39,41 +53,48 @@ export async function getPromptsWithResponses(
   f: FilterParams,
   showInactive = false
 ): Promise<PromptRow[]> {
+  // Select all response columns except response_text (can be 5-10KB per row).
+  // response_text is lazy-loaded in PromptDrilldown when the user expands a row.
+  const SELECT_COLS = [
+    'id', 'prompt_id', 'platform', 'run_date',
+    'clay_mentioned', 'clay_mention_snippet',
+    'brand_sentiment', 'brand_sentiment_score',
+    'competitors_mentioned', 'cited_domains', 'themes',
+    'primary_use_case_attributed', 'positioning_vs_competitors',
+    'clay_mention_position', 'claygent_or_mcp_mentioned',
+  ].join(', ')
+
   let rQuery = sb
     .from('responses')
-    .select('*')
-    .gte('run_date', f.startDate)
-    .lte('run_date', f.endDate)
+    .select(SELECT_COLS)
+    .gte('run_day', f.startDate.split('T')[0])
+    .lte('run_day', f.endDate.split('T')[0])
 
   if (f.platforms.length > 0) rQuery = rQuery.in('platform', f.platforms)
   if (f.topics.length > 0) rQuery = rQuery.in('topic', f.topics)
   if (f.promptType === 'benchmark') {
-    rQuery = rQuery.eq('prompt_type', 'benchmark')
+    rQuery = rQuery.filter('prompt_type', 'ilike', 'benchmark')
   } else if (f.promptType === 'campaign') {
-    rQuery = rQuery.not('prompt_type', 'is', null).neq('prompt_type', 'benchmark')
+    rQuery = rQuery.not('prompt_type', 'is', null).filter('prompt_type', 'not.ilike', 'benchmark')
   }
   if (f.tags && f.tags !== 'all') rQuery = rQuery.eq('tags', f.tags)
   if (f.brandedFilter !== 'all') {
-    const val = f.brandedFilter === 'branded' ? 'Branded' : 'Non-Branded'
-    rQuery = rQuery.eq('branded_or_non_branded', val)
+    if (f.brandedFilter === 'branded') {
+      rQuery = rQuery.ilike('branded_or_non_branded', 'branded')
+    } else {
+      rQuery = rQuery.not('branded_or_non_branded', 'ilike', 'branded')
+    }
   }
 
-  const { data: responses } = await rQuery
-  if (!responses?.length) return []
+  const responses = await fetchAllPages(rQuery)
+  if (!responses.length) return []
 
-  const promptIds = [...new Set(responses.map(r => r.prompt_id))]
-  let promptQuery = sb
-    .from('prompts')
-    .select('*')
-    .in('prompt_id', promptIds)
+  const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
+  let promptQuery = sb.from('prompts').select('*').in('prompt_id', promptIds)
+  if (!showInactive) promptQuery = promptQuery.eq('is_active', true)
 
-  // By default, only return active prompts unless explicitly showing inactive
-  if (!showInactive) {
-    promptQuery = promptQuery.eq('is_active', true)
-  }
-
-  const { data: prompts } = await promptQuery
-  if (!prompts) return []
+  const prompts = await fetchAllPages(promptQuery)
+  if (!prompts.length) return []
 
   const responsesByPrompt = new Map<string, ResponseRow[]>()
   for (const r of responses) {
@@ -95,7 +116,6 @@ export async function getPromptsWithResponses(
       themes: Array.isArray(r.themes) ? r.themes : tryParse(r.themes),
       primary_use_case_attributed: r.primary_use_case_attributed,
       positioning_vs_competitors: r.positioning_vs_competitors,
-      response_text: r.response_text,
       clay_mention_position: r.clay_mention_position,
       claygent_or_mcp_mentioned: r.claygent_or_mcp_mentioned,
     })
@@ -127,13 +147,13 @@ function tryParse<T>(val: unknown): T | null {
 export async function getPromptStats(
   sb: SupabaseClient
 ): Promise<{ total: number; benchmark: number; campaign: number; inactive: number }> {
-  const { data } = await sb.from('prompts').select('prompt_type, tags, is_active')
-  if (!data) return { total: 0, benchmark: 0, campaign: 0, inactive: 0 }
+  const data = await fetchAllPages(sb.from('prompts').select('prompt_type, tags, is_active'))
+  if (!data.length) return { total: 0, benchmark: 0, campaign: 0, inactive: 0 }
   const active = data.filter(p => p.is_active !== false)
   return {
     total: active.length,
-    benchmark: active.filter(p => p.prompt_type === 'benchmark').length,
-    campaign: active.filter(p => p.tags && p.prompt_type !== 'benchmark').length,
+    benchmark: active.filter(p => (p.prompt_type ?? '').toLowerCase() === 'benchmark').length,
+    campaign: active.filter(p => p.tags && (p.prompt_type ?? '').toLowerCase() !== 'benchmark').length,
     inactive: data.filter(p => p.is_active === false).length,
   }
 }
