@@ -80,17 +80,43 @@ export async function getExplorerData(
   sb: SupabaseClient,
   params: ExplorerParams
 ): Promise<ExplorerRow[]> {
-  let query = sb
+  const cols = buildSelect(params.metric, params.dimension)
+  console.log('[Explorer] params:', params)
+  console.log('[Explorer] select cols:', cols)
+
+  // Probe: check if any rows exist at all for this date range
+  const { data: probe, error: probeErr } = await sb
     .from('responses')
-    .select(buildSelect(params.metric, params.dimension))
+    .select('run_day')
     .gte('run_day', params.startDate)
     .lte('run_day', params.endDate)
+    .limit(1)
+  console.log('[Explorer] probe row:', probe, 'err:', probeErr)
+
+  // Also try run_date as fallback probe
+  if (!probe?.length) {
+    const { data: probe2, error: probe2Err } = await sb
+      .from('responses')
+      .select('run_date')
+      .gte('run_date', params.startDate)
+      .lte('run_date', params.endDate)
+      .limit(1)
+    console.log('[Explorer] run_date probe:', probe2, 'err:', probe2Err)
+  }
+
+  let query = sb
+    .from('responses')
+    .select(cols)
+    .gte('run_day', params.startDate)
+    .lte('run_day', params.endDate)
+    .order('run_day', { ascending: true })
 
   if (params.dimensionValues.length > 0) {
     query = query.in(params.dimension, params.dimensionValues)
   }
 
   const data = await fetchAllPages(query)
+  console.log('[Explorer] fetchAllPages returned:', data.length, 'rows')
   if (!data.length) return []
 
   // Group by period + dimension value
@@ -196,8 +222,14 @@ export async function getDistinctDimensionValues(
   sb: SupabaseClient,
   dimension: ExplorerDimension
 ): Promise<string[]> {
-  const data = await fetchAllPages(
-    sb.from('responses').select(dimension).not(dimension, 'is', null)
-  )
-  return [...new Set(data.map(r => r[dimension]).filter(Boolean))].sort() as string[]
+  // Fetch up to 5000 rows of just this column to find all distinct values.
+  // Avoid fetchAllPages here — we just need a representative sample.
+  const { data, error } = await sb
+    .from('responses')
+    .select(dimension)
+    .not(dimension, 'is', null)
+    .limit(5000)
+  console.log('[Explorer] dim values for', dimension, '- rows:', data?.length, 'err:', error)
+  if (error || !data) return []
+  return [...new Set(data.map((r: any) => r[dimension]).filter(Boolean))].sort() as string[]
 }
