@@ -89,11 +89,14 @@ export async function getPromptsWithResponses(
   const responses = await fetchAllPages(rQuery)
   if (!responses.length) return []
 
-  const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
-  let promptQuery = sb.from('prompts').select('*').in('prompt_id', promptIds)
+  // Don't use .in(prompt_id, [...thousands...]) — URL gets too long.
+  // Fetch all prompts and filter in JS instead.
+  let promptQuery = sb.from('prompts').select('*')
   if (!showInactive) promptQuery = promptQuery.eq('is_active', true)
+  const allPrompts = await fetchAllPages(promptQuery)
 
-  const prompts = await fetchAllPages(promptQuery)
+  const promptIdSet = new Set(responses.map((r: any) => r.prompt_id).filter(Boolean))
+  const prompts = allPrompts.filter((p: any) => promptIdSet.has(p.prompt_id))
   if (!prompts.length) return []
 
   const responsesByPrompt = new Map<string, ResponseRow[]>()
