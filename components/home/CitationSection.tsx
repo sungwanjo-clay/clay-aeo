@@ -74,13 +74,19 @@ function buildChartData(
 
   const allDates = generateDateRange(startDate, endDate)
 
-  // Use clay.com from competitorTs if available (same formula as competitors);
-  // fall back to timeseries only if aeo_cache_domains has no clay.com rows
   const clayLookup = clayRows.length > 0
     ? new Map(clayRows.map(r => [r.date, r.value]))
     : new Map(timeseries.map(r => [r.date, r.value]))
 
   const compLookup = new Map(compRows.map(r => [`${r.date}|||${r.domain}`, r.value]))
+
+  // DEBUG — remove after confirming chart works
+  console.log('[citation chart] allDates', allDates.slice(0, 3), '...', allDates.slice(-1))
+  console.log('[citation chart] clayLookup keys', [...clayLookup.keys()].slice(0, 3))
+  console.log('[citation chart] compLookup keys (first 5)', [...compLookup.keys()].slice(0, 5))
+  console.log('[citation chart] topDomains', topDomains)
+  console.log('[citation chart] timeseries length', timeseries.length, 'sample', timeseries[0])
+  console.log('[citation chart] competitorTs length', competitorTs.length, 'sample', competitorTs[0])
 
   const data = allDates.map(date => {
     const row: Record<string, string | number> = { date }
@@ -91,6 +97,9 @@ function buildChartData(
     }
     return row
   })
+
+  console.log('[citation chart] first chartData row', data[0])
+  console.log('[citation chart] last chartData row', data[data.length - 1])
 
   return { competitorDomains: topDomains, data }
 }
