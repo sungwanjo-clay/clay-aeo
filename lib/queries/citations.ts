@@ -248,6 +248,8 @@ export async function getCompetitorCitationTimeseries(
 
   const domainTotals = new Map<string, number>()
   const domainDay    = new Map<string, Map<string, number>>()
+  // Grand total per day across ALL domains — same denominator as sidebar share_pct
+  const dailyTotals  = new Map<string, number>()
 
   for (const r of data) {
     const day = String(r.run_day).substring(0, 10)
@@ -260,6 +262,9 @@ export async function getCompetitorCitationTimeseries(
 
     if (!domainDay.has(dom)) domainDay.set(dom, new Map())
     domainDay.get(dom)!.set(day, (domainDay.get(dom)!.get(day) ?? 0) + cnt)
+
+    // Accumulate all domains into daily denominator
+    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
   }
 
   const topDomains = [...domainTotals.entries()]
@@ -269,14 +274,6 @@ export async function getCompetitorCitationTimeseries(
 
   const clayDomain = [...domainDay.keys()].find(d => d.includes('clay')) ?? 'clay.com'
   const relevant = new Set([...topDomains, clayDomain])
-
-  // Per-day denominator = sum of only the displayed domains
-  const dailyTotals = new Map<string, number>()
-  for (const dom of relevant) {
-    for (const [day, cnt] of domainDay.get(dom) ?? []) {
-      dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + cnt)
-    }
-  }
 
   const result: { date: string; domain: string; value: number }[] = []
   for (const [domain, byDay] of domainDay) {
