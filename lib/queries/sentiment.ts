@@ -195,8 +195,10 @@ export async function getSentimentNarratives(
   f: FilterParams
 ): Promise<NarrativeGroup[]> {
   const params = sentimentRpcParams(f)
-  const { data, error } = await sb.rpc('get_sentiment_narratives_rpc', params)
-  if (error) {
+  let data: any[]
+  try {
+    data = await fetchAllPages(sb.rpc('get_sentiment_narratives_rpc', params))
+  } catch (error) {
     console.error('[getSentimentNarratives] RPC error:', error)
     return []
   }
