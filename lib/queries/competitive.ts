@@ -21,10 +21,17 @@ function applyFilters(query: any, f: FilterParams): any {
   return query
 }
 
+export interface ResponseMeta { id: string; topic: string | null; platform: string | null }
+
+/** Fetch id+topic+platform for all matching responses. Pre-fetch once and share across callers. */
+export async function getFilteredResponses(sb: SupabaseClient, f: FilterParams): Promise<ResponseMeta[]> {
+  const rows = await fetchAllPages(applyFilters(sb.from('responses').select('id, topic, platform'), f))
+  return rows.map((r: any) => ({ id: String(r.id), topic: r.topic ?? null, platform: r.platform ?? null }))
+}
+
 /** Get all valid response IDs matching the filter (with pagination). */
 async function getValidResponseIds(sb: SupabaseClient, f: FilterParams): Promise<string[]> {
-  const rows = await fetchAllPages(applyFilters(sb.from('responses').select('id'), f))
-  return rows.map((r: any) => String(r.id))
+  return (await getFilteredResponses(sb, f)).map(r => r.id)
 }
 
 /** Fetch response_competitors for a set of response IDs via batched IN() queries. */
@@ -435,12 +442,19 @@ export async function getCompetitorCoCitedDomains(
 export async function getCompetitorKPIs(
   sb: SupabaseClient,
   f: FilterParams,
-  competitor: string
+  competitor: string,
+  prefetched?: { cur: ResponseMeta[]; prev: ResponseMeta[] }
 ): Promise<{ visibilityScore: number | null; mentionCount: number; avgPosition: number | null; topTopic: string | null; topPlatform: string | null; deltaVisibility: number | null }> {
-  const [curIds, prevIds] = await Promise.all([
-    getValidResponseIds(sb, f),
-    getValidResponseIds(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-  ])
+  const [curMeta, prevMeta] = prefetched
+    ? [prefetched.cur, prefetched.prev]
+    : await Promise.all([
+        getFilteredResponses(sb, f),
+        getFilteredResponses(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+      ])
+
+  const curIds  = curMeta.map(r => r.id)
+  const prevIds = prevMeta.map(r => r.id)
+
   const [rcData, prevRcData] = await Promise.all([
     fetchCompetitorsByIds(sb, curIds, q => q.eq('competitor_name', competitor)),
     fetchCompetitorsByIds(sb, prevIds, q => q.eq('competitor_name', competitor)),
@@ -448,61 +462,47 @@ export async function getCompetitorKPIs(
 
   if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
 
+  // Compute topTopic from pre-fetched meta — no extra network request needed
+  const compResponseIds = new Set(rcData.map((r: any) => String(r.response_id)))
+  const metaById = new Map(curMeta.map(r => [r.id, r]))
+  const topicCounts = new Map<string, number>()
+  for (const id of compResponseIds) {
+    const t = metaById.get(id)?.topic
+    if (t) topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1)
+  }
+  const topTopic = [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
   const platformMap = new Map<string, number>()
   for (const r of rcData) {
     if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
   }
-
-  // Compute top topic by sampling up to 200 response IDs (2 batches of 100)
-  // — enough to determine the dominant topic without full table scan
-  let topTopic: string | null = null
-  const sampleIds = [...new Set(rcData.map((r: any) => String(r.response_id)))].slice(0, 200)
-  const topicResults = (await Promise.all(
-    Array.from({ length: Math.ceil(sampleIds.length / 100) }, (_, i) =>
-      sb.from('responses')
-        .select('topic')
-        .in('id', sampleIds.slice(i * 100, (i + 1) * 100))
-        .not('topic', 'is', null)
-        .then(({ data }) => data ?? [])
-    )
-  )).flat()
-  const topicCounts = new Map<string, number>()
-  for (const r of topicResults) {
-    if (r.topic) topicCounts.set(r.topic, (topicCounts.get(r.topic) ?? 0) + 1)
-  }
-  topTopic = [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-
   const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
   const currentVis = curIds.length ? (rcData.length / curIds.length) * 100 : null
-  const prevVis = prevIds.length ? (prevRcData.length / prevIds.length) * 100 : null
+  const prevVis    = prevIds.length ? (prevRcData.length / prevIds.length) * 100 : null
   const deltaVisibility = currentVis !== null && prevVis !== null ? currentVis - prevVis : null
 
-  return {
-    visibilityScore: currentVis,
-    mentionCount: rcData.length,
-    avgPosition: null,
-    topTopic,
-    topPlatform,
-    deltaVisibility,
-  }
+  return { visibilityScore: currentVis, mentionCount: rcData.length, avgPosition: null, topTopic, topPlatform, deltaVisibility }
 }
 
 // ── Heatmap ─────────────────────────────────────────────────────────────────
 
 export async function getPlatformHeatmap(
   sb: SupabaseClient,
-  f: FilterParams
+  f: FilterParams,
+  prefetchedIds?: string[]
 ): Promise<{ competitor: string; platform: string; visibility_score: number }[]> {
-  const [validIds, totalData] = await Promise.all([
-    getValidResponseIds(sb, f),
-    fetchAllPages(applyFilters(sb.from('responses').select('platform'), f)),
+  const validIds = prefetchedIds ?? await getValidResponseIds(sb, f)
+
+  // Use aeo_cache_daily for platform totals — avoids a full responses.platform scan
+  const [dailyData, rc] = await Promise.all([
+    fetchAllPages(applyFilters(sb.from('aeo_cache_daily').select('platform, total_responses'), f)),
+    fetchCompetitorsByIds(sb, validIds),
   ])
-  const rc = await fetchCompetitorsByIds(sb, validIds)
 
   const totals = new Map<string, number>()
-  for (const r of totalData) {
-    totals.set(r.platform, (totals.get(r.platform) ?? 0) + 1)
+  for (const r of dailyData) {
+    if (r.platform) totals.set(r.platform, (totals.get(r.platform) ?? 0) + Number(r.total_responses))
   }
 
   const map = new Map<string, number>()
@@ -666,6 +666,7 @@ export async function getCompetitorCitationsFlat(
     .gte('run_date', f.startDate)
     .lte('run_date', f.endDate)
     .ilike('domain', `%${slug}%`)
+    .limit(2000)
 
   if (f.platforms?.length) query = query.in('platform', f.platforms)
 
@@ -696,7 +697,6 @@ export interface CitationResponseRow {
   run_date: string
   clay_mentioned: string | null
   clay_mention_snippet: string | null
-  response_text: string | null
 }
 
 export interface CitationPromptRow {
@@ -713,7 +713,7 @@ export async function getPromptsForCitation(
 
   const { data: responses } = await sb
     .from('responses')
-    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text')
+    .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet')
     .in('id', responseIds.slice(0, 300))
 
   if (!responses?.length) return []
@@ -734,7 +734,6 @@ export async function getPromptsForCitation(
       run_date: (r.run_date ?? '').substring(0, 10),
       clay_mentioned: r.clay_mentioned ?? null,
       clay_mention_snippet: r.clay_mention_snippet ?? null,
-      response_text: r.response_text ?? null,
     })
     promptMap.set(pid, cur)
   }
@@ -750,6 +749,56 @@ export interface PMMCompRow {
   competitor_visibility: number
   clay_visibility: number
   delta: number
+}
+
+/** Fetch responses once, compute PMM breakdown for all competitors. Avoids N redundant fetches. */
+export async function getCompetitorPMMComparisonBatch(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitors: string[]
+): Promise<Record<string, PMMCompRow[]>> {
+  if (!competitors.length) return {}
+
+  const responses = await fetchAllPages(applyFilters(
+    sb.from('responses')
+      .select('pmm_use_case, clay_mentioned, competitors_mentioned')
+      .not('pmm_use_case', 'is', null),
+    f
+  ))
+  if (!responses.length) return Object.fromEntries(competitors.map(c => [c, []]))
+
+  function parseCompArr(raw: any): string[] {
+    if (Array.isArray(raw)) return raw
+    if (typeof raw === 'string' && raw) { try { return JSON.parse(raw) } catch { return [] } }
+    return []
+  }
+
+  const result: Record<string, PMMCompRow[]> = {}
+  for (const competitor of competitors) {
+    const isClay   = competitor === 'Clay'
+    const compSlug = competitor.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
+    for (const r of responses) {
+      if (!r.pmm_use_case) continue
+      const cur = topicMap.get(r.pmm_use_case) ?? { total: 0, clay: 0, comp: 0 }
+      cur.total++
+      const clayMentioned = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
+      if (clayMentioned) cur.clay++
+      const compMentioned = isClay ? clayMentioned
+        : parseCompArr(r.competitors_mentioned).some((c: string) =>
+            c.toLowerCase().replace(/[^a-z0-9]/g, '').includes(compSlug))
+      if (compMentioned) cur.comp++
+      topicMap.set(r.pmm_use_case, cur)
+    }
+    result[competitor] = Array.from(topicMap.entries()).map(([pmm_use_case, { total, clay, comp }]) => ({
+      pmm_use_case,
+      total_responses: total,
+      competitor_visibility: total > 0 ? (comp / total) * 100 : 0,
+      clay_visibility:       total > 0 ? (clay / total) * 100 : 0,
+      delta:                 total > 0 ? ((comp - clay) / total) * 100 : 0,
+    })).sort((a, b) => b.competitor_visibility - a.competitor_visibility)
+  }
+  return result
 }
 
 export async function getCompetitorPMMComparison(

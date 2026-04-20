@@ -18,8 +18,9 @@ import {
   getCompetitorCitationRate,
   getCompetitorCitationsFlat,
   getPromptsForCitation,
-  getCompetitorPMMComparison,
+  getCompetitorPMMComparisonBatch,
   getCompetitorPMMPromptDrilldown,
+  getFilteredResponses,
 } from '@/lib/queries/competitive'
 import type {
   CitationFlatItem,
@@ -288,49 +289,56 @@ export default function CompetitivePage() {
   }, [dropdownOpen])
 
   // Fast effect: KPIs + timeseries + heatmap + movers
-  // In default view (only Clay selected), the chart auto-shows Clay + top 5 competitors
   useEffect(() => {
     if (selectedComps.length === 0) return
     setLoading(true)
 
-    const isDefaultView = selectedComps.length === 1 && selectedComps[0] === 'Clay'
+    async function loadMain() {
+      const isDefaultView = selectedComps.length === 1 && selectedComps[0] === 'Clay'
 
-    const kpiPromises = selectedComps.map(comp => {
-      const isClay = comp === 'Clay'
-      const p = isClay
-        ? getClayKPIs(supabase, f).then(r => ({
-            visibilityScore: r.visibilityScore,
-            deltaVisibility: r.deltaVisibility,
-            citationRate: r.citationRate,
-            deltaCitationRate: r.deltaCitationRate,
-            mentionCount: r.mentionCount,
-            avgPosition: r.avgPosition,
-            topTopic: r.topTopic,
-            topPlatform: r.topPlatform,
-          })).catch(() => null)
-        : Promise.all([
-            getCompetitorKPIs(supabase, f, comp).catch(() => null),
-            getCompetitorCitationRate(supabase, f, comp).catch(() => ({ rate: null, deltaRate: null })),
-          ]).then(([k, cit]) => k ? {
-            visibilityScore: k.visibilityScore,
-            deltaVisibility: k.deltaVisibility,
-            citationRate: cit.rate,
-            deltaCitationRate: cit.deltaRate,
-            mentionCount: k.mentionCount,
-            avgPosition: k.avgPosition ?? null,
-            topTopic: k.topTopic,
-            topPlatform: k.topPlatform,
-          } : null)
-      return p.then(kpi => ({ comp, kpi }))
-    })
+      // Pre-fetch response metadata once — shared across all competitor KPI calls.
+      // Eliminates N×2 redundant full-table scans (one per competitor per period).
+      const [sharedCurMeta, sharedPrevMeta] = await Promise.all([
+        getFilteredResponses(supabase, f),
+        getFilteredResponses(supabase, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
+      ])
+      const sharedCurIds = sharedCurMeta.map(r => r.id)
 
-    // Load KPIs + heatmap + movers first; movers determines which comps go in the default chart
-    Promise.all([
-      Promise.all(kpiPromises),
-      getPlatformHeatmap(supabase, f).catch(() => []),
-      getWinnersAndLosers(supabase, f).catch(() => []),
-    ]).then(async ([kpiResults, heat, wl]) => {
-      // In default view, chart shows top 5 competitors by visibility
+      const kpiPromises = selectedComps.map(comp => {
+        const isClay = comp === 'Clay'
+        const p = isClay
+          ? getClayKPIs(supabase, f).then(r => ({
+              visibilityScore: r.visibilityScore,
+              deltaVisibility: r.deltaVisibility,
+              citationRate: r.citationRate,
+              deltaCitationRate: r.deltaCitationRate,
+              mentionCount: r.mentionCount,
+              avgPosition: r.avgPosition,
+              topTopic: r.topTopic,
+              topPlatform: r.topPlatform,
+            })).catch(() => null)
+          : Promise.all([
+              getCompetitorKPIs(supabase, f, comp, { cur: sharedCurMeta, prev: sharedPrevMeta }).catch(() => null),
+              getCompetitorCitationRate(supabase, f, comp).catch(() => ({ rate: null, deltaRate: null })),
+            ]).then(([k, cit]) => k ? {
+              visibilityScore: k.visibilityScore,
+              deltaVisibility: k.deltaVisibility,
+              citationRate: cit.rate,
+              deltaCitationRate: cit.deltaRate,
+              mentionCount: k.mentionCount,
+              avgPosition: k.avgPosition ?? null,
+              topTopic: k.topTopic,
+              topPlatform: k.topPlatform,
+            } : null)
+        return p.then(kpi => ({ comp, kpi }))
+      })
+
+      const [kpiResults, heat, wl] = await Promise.all([
+        Promise.all(kpiPromises),
+        getPlatformHeatmap(supabase, f, sharedCurIds).catch(() => []),
+        getWinnersAndLosers(supabase, f).catch(() => []),
+      ])
+
       const top5 = (wl as WinnerLoser[])
         .filter(w => w.competitor_name !== 'Clay')
         .sort((a, b) => b.current - a.current)
@@ -340,17 +348,16 @@ export default function CompetitivePage() {
       const compsForChart = isDefaultView ? top5 : selectedComps.filter(c => c !== 'Clay')
       setChartCompLines(compsForChart)
 
-      // Build merged timeseries: Clay + determined competitors
-      const clayTs = await getClayVisibilityTimeseries(supabase, f).catch(() => [])
-      const compMap: Record<string, Record<string, number>> = {}
+      const [clayTs, ...compTsResults] = await Promise.all([
+        getClayVisibilityTimeseries(supabase, f).catch(() => []),
+        ...compsForChart.map(comp => getCompetitorVsClayTimeseries(supabase, f, comp).catch(() => [])),
+      ])
 
-      await Promise.all(compsForChart.map(async comp => {
-        const rows = await getCompetitorVsClayTimeseries(supabase, f, comp).catch(() => [])
+      const compMap: Record<string, Record<string, number>> = {}
+      compsForChart.forEach((comp, i) => {
         compMap[comp] = {}
-        for (const r of rows) {
-          compMap[comp][r.date] = r.competitor
-        }
-      }))
+        for (const r of compTsResults[i]) compMap[comp][r.date] = r.competitor
+      })
 
       const allDates = generateDateRange(f.startDate.split('T')[0], f.endDate.split('T')[0])
       const clayDateMap = new Map(clayTs.map(r => [r.date, r.value]))
@@ -372,7 +379,9 @@ export default function CompetitivePage() {
       setHeatmap(heat)
       setMovers(wl as WinnerLoser[])
       setLoading(false)
-    }).catch(() => setLoading(false))
+    }
+
+    loadMain().catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
 
@@ -390,18 +399,12 @@ export default function CompetitivePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, activeComp])
 
-  // Slow effect B: PMM for ALL selectedComps (so we can show multi-column table)
+  // Slow effect B: PMM for ALL selectedComps — single fetch, compute all competitors client-side
   useEffect(() => {
     if (selectedComps.length === 0) return
-    Promise.all(
-      selectedComps.map(comp =>
-        getCompetitorPMMComparison(supabase, f, comp).catch(() => []).then(rows => ({ comp, rows }))
-      )
-    ).then(results => {
-      const newMap: Record<string, PMMCompRow[]> = {}
-      for (const { comp, rows } of results) newMap[comp] = rows as PMMCompRow[]
-      setPmmRowsMap(newMap)
-    })
+    getCompetitorPMMComparisonBatch(supabase, f, selectedComps)
+      .then(result => setPmmRowsMap(result))
+      .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
 
