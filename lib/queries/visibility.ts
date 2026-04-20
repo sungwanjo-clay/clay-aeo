@@ -627,12 +627,14 @@ export async function getLastRunDate(sb: SupabaseClient): Promise<string | null>
 export async function getDataFreshnessStats(
   sb: SupabaseClient
 ): Promise<{ lastRunDate: string | null; promptCount: number; platformCount: number }> {
-  const [dateRes, statsRes] = await Promise.all([
+  const [dateRes, promptRes, platformRes] = await Promise.all([
     sb.from('responses').select('run_date').order('run_date', { ascending: false }).limit(1),
-    sb.from('responses').select('prompt_id, platform').limit(20000),
+    sb.from('prompts').select('prompt_id', { count: 'exact', head: true }).eq('is_active', true),
+    sb.from('aeo_cache_daily').select('platform').limit(50),
   ])
-  const lastRunDate = dateRes.data?.[0]?.run_date ?? null
-  const promptCount = new Set(statsRes.data?.map(r => r.prompt_id)).size
-  const platformCount = new Set(statsRes.data?.map(r => r.platform)).size
-  return { lastRunDate, promptCount, platformCount }
+  return {
+    lastRunDate:   dateRes.data?.[0]?.run_date ?? null,
+    promptCount:   promptRes.count ?? 0,
+    platformCount: new Set(platformRes.data?.map((r: any) => r.platform).filter(Boolean)).size,
+  }
 }

@@ -13,7 +13,7 @@ import {
   getCitationTypeBreakdown,
   getCitationRateByTopic,
   getCitationShareByPlatform,
-  getCitationURLContext,
+  getCitationURLContextBatch,
 } from '@/lib/queries/citations'
 import type { TopDomainRow, TopicCitationRow, URLCitationContext } from '@/lib/queries/citations'
 import VisibilityLineChart from '@/components/charts/VisibilityLineChart'
@@ -167,29 +167,20 @@ function CitationCategoryBar({ types, selected, onSelect }: {
   )
 }
 
-// ── URL row with lazy-loaded prompt context ────────────────────────────────────
-function URLRowItem({ u, f }: {
+// ── URL row — uses pre-fetched context from parent DomainRowItem ───────────────
+function URLRowItem({ u, preloadedCtx }: {
   u: TopDomainRow['top_urls'][number]
-  f: ReturnType<ReturnType<typeof useGlobalFilters>['toQueryParams']>
+  preloadedCtx: URLCitationContext[] | null
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [ctx, setCtx] = useState<URLCitationContext[] | null>(null)
-  const [loadingCtx, setLoadingCtx] = useState(false)
   const uc = urlTypeColor(u.url_type ?? 'Other')
 
-  const toggle = async (e: React.MouseEvent) => {
+  const toggle = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (expanded) { setExpanded(false); return }
-    setExpanded(true)
-    if (ctx === null && !loadingCtx) {
-      setLoadingCtx(true)
-      try {
-        const result = await getCitationURLContext(supabase, u.url, f as any)
-        setCtx(result)
-      } catch { setCtx([]) }
-      finally { setLoadingCtx(false) }
-    }
+    setExpanded(v => !v)
   }
+
+  const ctx = preloadedCtx
 
   return (
     <div className="rounded hover:bg-[rgba(26,25,21,0.02)] transition-colors"
@@ -229,7 +220,7 @@ function URLRowItem({ u, f }: {
       {/* Expanded: prompt context rows */}
       {expanded && (
         <div className="px-3 pb-2 space-y-1.5" style={{ borderTop: '1px solid rgba(26,25,21,0.05)' }}>
-          {loadingCtx ? (
+          {ctx === null ? (
             <div className="py-2 flex items-center gap-2">
               <div className="h-2 w-2 rounded-full animate-pulse" style={{ background: 'rgba(26,25,21,0.2)' }} />
               <span className="text-[10px]" style={{ color: 'rgba(26,25,21,0.35)' }}>Loading citation context…</span>
@@ -295,12 +286,23 @@ function DomainRowItem({ row, rank, f }: {
 }) {
   const [open, setOpen] = useState(false)
   const [showAllUrls, setShowAllUrls] = useState(false)
+  const [ctxByUrl, setCtxByUrl] = useState<Record<string, URLCitationContext[]> | null>(null)
   const color = typeColor(row.citation_type ?? 'Other')
   const subdomainCount = countSubdomains(row.domain, row.top_urls)
 
+  const handleOpen = () => {
+    if (!open && row.top_urls.length > 0 && ctxByUrl === null) {
+      const urls = row.top_urls.map(u => u.url)
+      getCitationURLContextBatch(supabase, urls, f as any)
+        .then(result => setCtxByUrl(result))
+        .catch(() => setCtxByUrl({}))
+    }
+    setOpen(v => !v)
+  }
+
   return (
     <React.Fragment>
-      <tr onClick={() => row.top_urls.length > 0 && setOpen(v => !v)}
+      <tr onClick={() => row.top_urls.length > 0 && handleOpen()}
         className={`transition-colors ${row.top_urls.length > 0 ? 'cursor-pointer hover:bg-[rgba(26,25,21,0.015)]' : ''}`}
         style={{
           borderBottom: open ? 'none' : '1px solid rgba(26,25,21,0.06)',
@@ -350,7 +352,7 @@ function DomainRowItem({ row, rank, f }: {
                 <span />
               </div>
               {(showAllUrls ? row.top_urls : row.top_urls.slice(0, URL_LIMIT)).map(u => (
-                <URLRowItem key={u.url} u={u} f={f} />
+                <URLRowItem key={u.url} u={u} preloadedCtx={ctxByUrl ? (ctxByUrl[u.url] ?? []) : null} />
               ))}
               {row.top_urls.length > URL_LIMIT && (
                 <button

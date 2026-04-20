@@ -189,8 +189,8 @@ export async function getCitationTypeBreakdown(
   if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
   if (f.promptType && f.promptType !== 'all') query = query.ilike('prompt_type', f.promptType)
 
-  const data = await fetchAllPages(query)
-  if (!data.length) return []
+  const { data } = await query.limit(2000)
+  if (!data?.length) return []
 
   const map = new Map<string, number>()
   for (const row of data) {
@@ -226,75 +226,27 @@ export async function getCitationCount(
   }
 }
 
-// Returns timeseries for top N domains by share + clay.com.
-// Denominator = total_with_citations from aeo_cache_daily (same as sidebar RPC),
-// so per-day values are directly comparable to sidebar share_pct.
+// Returns timeseries for top N domains by share + clay.com via server-side RPC.
 export async function getCompetitorCitationTimeseries(
   sb: SupabaseClient,
   f: FilterParams,
   topN = 5
 ): Promise<{ date: string; domain: string; value: number }[]> {
-  const startDay = f.startDate.split('T')[0]
-  const endDay   = f.endDate.split('T')[0]
-
-  let domQ = sb.from('aeo_cache_domains')
-    .select('run_day,domain,response_count')
-    .gte('run_day', startDay).lte('run_day', endDay)
-  if (f.platforms && f.platforms.length > 0) domQ = domQ.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') domQ = domQ.ilike('prompt_type', f.promptType)
-
-  let dailyQ = sb.from('aeo_cache_daily')
-    .select('run_day,total_with_citations')
-    .gte('run_day', startDay).lte('run_day', endDay)
-  if (f.platforms && f.platforms.length > 0) dailyQ = dailyQ.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') dailyQ = dailyQ.ilike('prompt_type', f.promptType)
-
-  const [domData, dailyData] = await Promise.all([
-    fetchAllPages(domQ),
-    fetchAllPages(dailyQ),
-  ])
-  if (!domData?.length) return []
-
-  // Per-day denominator: total_with_citations (same as sidebar RPC)
-  const dailyTotals = new Map<string, number>()
-  for (const r of dailyData) {
-    const day = String(r.run_day).substring(0, 10)
-    dailyTotals.set(day, (dailyTotals.get(day) ?? 0) + Number(r.total_with_citations ?? 0))
-  }
-
-  const domainTotals = new Map<string, number>()
-  const domainDay    = new Map<string, Map<string, number>>()
-
-  for (const r of domData) {
-    const day = String(r.run_day).substring(0, 10)
-    const cnt = Number(r.response_count ?? 0)
-    const dom = (r.domain ?? '').toLowerCase()
-
-    if (!dom.includes('clay')) {
-      domainTotals.set(dom, (domainTotals.get(dom) ?? 0) + cnt)
-    }
-    if (!domainDay.has(dom)) domainDay.set(dom, new Map())
-    domainDay.get(dom)!.set(day, (domainDay.get(dom)!.get(day) ?? 0) + cnt)
-  }
-
-  const topDomains = [...domainTotals.entries()]
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, topN)
-    .map(([d]) => d)
-
-  const clayDomain = [...domainDay.keys()].find(d => d.includes('clay')) ?? 'clay.com'
-  const relevant = new Set([...topDomains, clayDomain])
-
-  const result: { date: string; domain: string; value: number }[] = []
-  for (const [domain, byDay] of domainDay) {
-    if (!relevant.has(domain)) continue
-    for (const [day, cnt] of byDay) {
-      const total = dailyTotals.get(day) ?? 0
-      result.push({ date: day, domain, value: total > 0 ? (cnt / total) * 100 : 0 })
-    }
-  }
-
-  return result.sort((a, b) => a.date.localeCompare(b.date) || a.domain.localeCompare(b.domain))
+  const { data, error } = await sb.rpc('get_competitor_citation_timeseries_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prompt_type:    f.promptType || 'all',
+    p_platforms:      f.platforms?.length ? f.platforms : [],
+    p_branded_filter: f.brandedFilter || 'all',
+    p_tags:           f.tags || 'all',
+    p_top_n:          topN,
+  })
+  if (error) { console.error('[getCompetitorCitationTimeseries] RPC error:', error); return [] }
+  return (data ?? []).map((r: any) => ({
+    date:   String(r.date).substring(0, 10),
+    domain: r.domain,
+    value:  Number(r.value ?? 0),
+  }))
 }
 
 export async function getCitationOverallTimeseries(
@@ -591,8 +543,8 @@ export async function getCitationShareByPlatform(
   if (f.platforms && f.platforms.length > 0) q = q.in('platform', f.platforms)
   if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
 
-  const data = await fetchAllPages(q)
-  if (!data.length) return []
+  const { data } = await q.limit(2000)
+  if (!data?.length) return []
 
   const map = new Map<string, { cited: number; total: number }>()
   for (const row of data) {
@@ -684,6 +636,75 @@ export async function getCitationURLContext(
   })
 }
 
+// ── Batch URL context — fetches context for multiple URLs in 2 round trips ────
+export async function getCitationURLContextBatch(
+  sb: SupabaseClient,
+  urls: string[],
+  f: FilterParams,
+  limitPerUrl = 8
+): Promise<Record<string, URLCitationContext[]>> {
+  if (!urls.length) return {}
+
+  const { data, error } = await sb
+    .from('citation_domains')
+    .select('url, response_id, platform, run_date, responses(prompt_id, clay_mention_position, cited_domains)')
+    .in('url', urls)
+    .gte('run_date', f.startDate.split('T')[0])
+    .lt('run_date', cdNextDay(f.endDate.split('T')[0]))
+    .limit(urls.length * limitPerUrl)
+
+  if (error || !data?.length) return Object.fromEntries(urls.map(u => [u, []]))
+
+  // Collect all unique prompt IDs in one pass
+  const promptIds = [...new Set(
+    (data as any[]).map((r: any) => r.responses?.prompt_id).filter(Boolean)
+  )]
+  const promptMap = new Map<string, string>()
+  if (promptIds.length > 0) {
+    const BATCH = 100
+    const allPrompts = (await Promise.all(
+      Array.from({ length: Math.ceil(promptIds.length / BATCH) }, (_, i) =>
+        sb.from('prompts')
+          .select('prompt_id, prompt_text')
+          .in('prompt_id', promptIds.slice(i * BATCH, (i + 1) * BATCH))
+          .then(({ data: d }) => d ?? [])
+      )
+    )).flat()
+    for (const p of allPrompts) promptMap.set(p.prompt_id, p.prompt_text)
+  }
+
+  // Group rows by URL, cap at limitPerUrl each
+  const byUrl = new Map<string, any[]>()
+  for (const row of data as any[]) {
+    const u = row.url
+    if (!byUrl.has(u)) byUrl.set(u, [])
+    const arr = byUrl.get(u)!
+    if (arr.length < limitPerUrl) arr.push(row)
+  }
+
+  const result: Record<string, URLCitationContext[]> = {}
+  for (const url of urls) {
+    const rows = byUrl.get(url) ?? []
+    result[url] = rows.map((row: any) => {
+      const resp = row.responses ?? {}
+      let domains: string[] = []
+      try {
+        domains = Array.isArray(resp.cited_domains)
+          ? resp.cited_domains
+          : JSON.parse(resp.cited_domains ?? '[]')
+      } catch { /* ignore */ }
+      return {
+        prompt_text:   promptMap.get(resp.prompt_id) ?? '(unknown prompt)',
+        clay_position: resp.clay_mention_position ?? null,
+        other_domains: domains.filter((d: string) => typeof d === 'string' && !d.toLowerCase().includes('clay.com')).slice(0, 5),
+        platform:      row.platform ?? '',
+        run_date:      (row.run_date ?? '').substring(0, 10),
+      }
+    })
+  }
+  return result
+}
+
 // ── Citation rate grouped by prompt topic (timeseries) ────────────────────────
 // Returns one row per date × topic with Clay citation rate as the value,
 // suitable for rendering as a multi-line chart (one line per topic).
@@ -714,8 +735,8 @@ export async function getCitationRateByTopic(
   if (f.promptType && f.promptType !== 'all') query = query.ilike('prompt_type', f.promptType)
   if (f.topics && f.topics.length > 0) query = query.in('topic', f.topics)
 
-  const data = await fetchAllPages(query)
-  if (!data.length) return []
+  const { data } = await query.limit(5000)
+  if (!data?.length) return []
 
   // Filter topics with too few total responses across all dates (min 5)
   const topicTotals = new Map<string, number>()
@@ -801,16 +822,16 @@ export async function getCitationCoverage(
   if (f.platforms && f.platforms.length > 0) domainsQ = domainsQ.in('platform', f.platforms)
   if (f.promptType && f.promptType !== 'all') domainsQ = domainsQ.ilike('prompt_type', f.promptType)
 
-  const [dailyData, domainsData] = await Promise.all([
-    fetchAllPages(dailyQ),
-    fetchAllPages(domainsQ),
+  const [{ data: dailyData }, { data: domainsData }] = await Promise.all([
+    dailyQ.limit(5000),
+    domainsQ.limit(5000),
   ])
 
-  if (!dailyData.length) return { coveragePct: 0, avgPerCited: 0 }
+  if (!dailyData?.length) return { coveragePct: 0, avgPerCited: 0 }
 
-  const totalResponses   = dailyData.reduce((s, r) => s + Number(r.total_responses),   0)
-  const withCitations    = dailyData.reduce((s, r) => s + Number(r.total_with_citations), 0)
-  const totalDomainPairs = domainsData.reduce((s, r) => s + Number(r.response_count),  0)
+  const totalResponses   = (dailyData   ?? []).reduce((s: number, r: any) => s + Number(r.total_responses),   0)
+  const withCitations    = (dailyData   ?? []).reduce((s: number, r: any) => s + Number(r.total_with_citations), 0)
+  const totalDomainPairs = (domainsData ?? []).reduce((s: number, r: any) => s + Number(r.response_count),  0)
 
   return {
     coveragePct: totalResponses > 0 ? (withCitations / totalResponses) * 100 : 0,

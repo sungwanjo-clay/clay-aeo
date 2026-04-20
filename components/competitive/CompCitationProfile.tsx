@@ -58,7 +58,7 @@ function FullResponseBlock({ text }: { text: string }) {
 // ── Response row inside a citation prompt ─────────────────────────────────────
 function CitationResponseRow({ r, defaultOpen = false }: { r: CitationPromptRow['responses'][0]; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
-  const hasDetail = !!(r.clay_mention_snippet || r.response_text)
+  const hasDetail = !!r.clay_mention_snippet
   return (
     <div style={{ borderBottom: '1px solid rgba(26,25,21,0.04)', background: open ? 'rgba(26,25,21,0.01)' : 'transparent' }}>
       <div
@@ -97,7 +97,6 @@ function CitationResponseRow({ r, defaultOpen = false }: { r: CitationPromptRow[
               </p>
             </div>
           )}
-          {r.response_text && <FullResponseBlock text={r.response_text} />}
         </div>
       )}
     </div>
