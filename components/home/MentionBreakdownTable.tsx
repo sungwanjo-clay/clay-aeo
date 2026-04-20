@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { MentionTopicRow, MentionPromptRow, MentionResponseRow } from '@/lib/queries/visibility'
+import { supabase } from '@/lib/supabase/client'
 
 interface Props {
   data: MentionTopicRow[]
@@ -63,14 +64,27 @@ function FullResponseBlock({ text }: { text: string }) {
 // ── Single response row ─────────────────────────────────────────────────────
 function ResponseRow({ r, accentColor, defaultOpen }: { r: MentionResponseRow; accentColor: string; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false)
-  const hasDetail = !!(r.snippet || r.response_text)
+  const [responseText, setResponseText] = useState<string | null>(null)
+  const [loadingText, setLoadingText] = useState(false)
+  const hasDetail = !!r.snippet
+
+  async function handleExpand() {
+    const next = !open
+    setOpen(next)
+    if (next && responseText === null && !loadingText) {
+      setLoadingText(true)
+      const { data } = await supabase.from('responses').select('response_text').eq('id', r.id).single()
+      setResponseText(data?.response_text ?? '')
+      setLoadingText(false)
+    }
+  }
 
   return (
     <div style={{ borderBottom: '1px solid rgba(26,25,21,0.04)', background: open ? 'rgba(26,25,21,0.01)' : 'transparent' }}>
       <div
-        className={`grid items-center gap-2 px-3 py-2 ${hasDetail ? 'cursor-pointer hover:bg-[rgba(26,25,21,0.02)]' : ''}`}
+        className="grid items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[rgba(26,25,21,0.02)]"
         style={{ gridTemplateColumns: '88px 76px 1fr 16px' }}
-        onClick={() => hasDetail && setOpen(v => !v)}
+        onClick={handleExpand}
       >
         {/* Platform */}
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-center"
@@ -125,7 +139,8 @@ function ResponseRow({ r, accentColor, defaultOpen }: { r: MentionResponseRow; a
               </p>
             </div>
           )}
-          {r.response_text && <FullResponseBlock text={r.response_text} />}
+          {loadingText && <div className="mt-2 h-10 rounded-lg animate-pulse" style={{ background: 'rgba(26,25,21,0.05)' }} />}
+          {!loadingText && responseText && <FullResponseBlock text={responseText} />}
           {r.other_cited_domains.length > 0 && (
             <div className="mt-2">
               <p style={{ ...labelStyle, display: 'block', marginBottom: '4px' }}>Other cited domains</p>
