@@ -81,28 +81,8 @@ export async function getExplorerData(
   params: ExplorerParams
 ): Promise<ExplorerRow[]> {
   const cols = buildSelect(params.metric, params.dimension)
-  console.log('[Explorer] params:', params)
+  console.log('[Explorer] params:', JSON.stringify(params))
   console.log('[Explorer] select cols:', cols)
-
-  // Probe: check if any rows exist at all for this date range
-  const { data: probe, error: probeErr } = await sb
-    .from('responses')
-    .select('run_day')
-    .gte('run_day', params.startDate)
-    .lte('run_day', params.endDate)
-    .limit(1)
-  console.log('[Explorer] probe row:', probe, 'err:', probeErr)
-
-  // Also try run_date as fallback probe
-  if (!probe?.length) {
-    const { data: probe2, error: probe2Err } = await sb
-      .from('responses')
-      .select('run_date')
-      .gte('run_date', params.startDate)
-      .lte('run_date', params.endDate)
-      .limit(1)
-    console.log('[Explorer] run_date probe:', probe2, 'err:', probe2Err)
-  }
 
   let query = sb
     .from('responses')
@@ -115,9 +95,24 @@ export async function getExplorerData(
     query = query.in(params.dimension, params.dimensionValues)
   }
 
-  const data = await fetchAllPages(query)
+  let data: any[]
+  try {
+    data = await fetchAllPages(query)
+  } catch (err) {
+    console.error('[Explorer] fetchAllPages threw:', err)
+    return []
+  }
   console.log('[Explorer] fetchAllPages returned:', data.length, 'rows')
-  if (!data.length) return []
+  if (!data.length) {
+    // Diagnostic probe — check if run_day has any data in range
+    const { data: probe, error: probeErr } = await sb
+      .from('responses').select('run_day').gte('run_day', params.startDate).lte('run_day', params.endDate).limit(1)
+    console.log('[Explorer] probe (run_day):', probe, 'err:', probeErr)
+    const { data: probe2, error: probe2Err } = await sb
+      .from('responses').select('run_date').limit(1)
+    console.log('[Explorer] any row at all:', probe2, 'err:', probe2Err)
+    return []
+  }
 
   // Group by period + dimension value
   const map = new Map<string, { rows: typeof data }>()
@@ -222,14 +217,15 @@ export async function getDistinctDimensionValues(
   sb: SupabaseClient,
   dimension: ExplorerDimension
 ): Promise<string[]> {
-  // Fetch up to 5000 rows of just this column to find all distinct values.
-  // Avoid fetchAllPages here — we just need a representative sample.
+  // Sample the most recent 1000 rows — enough to see all distinct values for
+  // low-cardinality dimensions (platform, topic, intent, etc.).
   const { data, error } = await sb
     .from('responses')
     .select(dimension)
-    .not(dimension, 'is', null)
-    .limit(5000)
+    .order('run_day', { ascending: false })
+    .range(0, 999)
   console.log('[Explorer] dim values for', dimension, '- rows:', data?.length, 'err:', error)
-  if (error || !data) return []
+  if (error) { console.error('[Explorer] dim values error:', error); return [] }
+  if (!data?.length) return []
   return [...new Set(data.map((r: any) => r[dimension]).filter(Boolean))].sort() as string[]
 }
