@@ -800,41 +800,37 @@ export async function getCitationCoverage(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ coveragePct: number; avgPerCited: number }> {
-  // Fast path: read from pre-aggregated cache tables instead of scanning responses.
-  //   coveragePct   = SUM(total_with_citations) / SUM(total_responses)
-  //   avgPerCited   = SUM(aeo_cache_domains.response_count) / SUM(total_with_citations)
-  //                   (response_count = COUNT DISTINCT responses per domain, so summing
-  //                   across all domains gives total domain-response pairs → avg domains
-  //                   cited per cited response)
+  const startDay = f.startDate.split('T')[0]
+  const endDay   = f.endDate.split('T')[0]
+
   let dailyQ = sb
     .from('aeo_cache_daily')
     .select('total_responses, total_with_citations')
-    .gte('run_day', f.startDate.split('T')[0])
-    .lte('run_day', f.endDate.split('T')[0])
+    .gte('run_day', startDay)
+    .lte('run_day', endDay)
   if (f.platforms && f.platforms.length > 0) dailyQ = dailyQ.in('platform', f.platforms)
   if (f.promptType && f.promptType !== 'all') dailyQ = dailyQ.ilike('prompt_type', f.promptType)
 
-  let domainsQ = sb
-    .from('aeo_cache_domains')
-    .select('response_count')
-    .gte('run_day', f.startDate.split('T')[0])
-    .lte('run_day', f.endDate.split('T')[0])
-  if (f.platforms && f.platforms.length > 0) domainsQ = domainsQ.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') domainsQ = domainsQ.ilike('prompt_type', f.promptType)
+  // COUNT all citation_domains rows = total domain citations across all sources
+  let countQ: any = sb
+    .from('citation_domains')
+    .select('*', { count: 'exact', head: true })
+    .gte('run_date', startDay)
+    .lt('run_date', cdNextDay(endDay))
+  if (f.platforms && f.platforms.length > 0) countQ = countQ.in('platform', f.platforms)
 
-  const [{ data: dailyData }, { data: domainsData }] = await Promise.all([
+  const [{ data: dailyData }, { count: totalDomainCites }] = await Promise.all([
     dailyQ.limit(5000),
-    domainsQ.limit(5000),
+    countQ,
   ])
 
   if (!dailyData?.length) return { coveragePct: 0, avgPerCited: 0 }
 
-  const totalResponses   = (dailyData   ?? []).reduce((s: number, r: any) => s + Number(r.total_responses),   0)
-  const withCitations    = (dailyData   ?? []).reduce((s: number, r: any) => s + Number(r.total_with_citations), 0)
-  const totalDomainPairs = (domainsData ?? []).reduce((s: number, r: any) => s + Number(r.response_count),  0)
+  const totalResponses = (dailyData ?? []).reduce((s: number, r: any) => s + Number(r.total_responses), 0)
+  const withCitations  = (dailyData ?? []).reduce((s: number, r: any) => s + Number(r.total_with_citations), 0)
 
   return {
     coveragePct: totalResponses > 0 ? (withCitations / totalResponses) * 100 : 0,
-    avgPerCited: withCitations > 0 ? totalDomainPairs / withCitations : 0,
+    avgPerCited: totalResponses > 0 ? (totalDomainCites ?? 0) / totalResponses : 0,
   }
 }
