@@ -1,7 +1,9 @@
 'use client'
 
-import { createContext, useContext, useState, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import type { FilterParams } from '@/lib/queries/types'
+import { supabase } from '@/lib/supabase/client'
+import { getMaxCachedDate } from '@/lib/queries/visibility'
 
 export interface GlobalFilters {
   promptType: string  // 'all' or any prompt_type value from DB (e.g. 'benchmark', 'branded')
@@ -19,6 +21,7 @@ interface GlobalFiltersContextValue {
   setFilters: (f: Partial<GlobalFilters>) => void
   toQueryParams: () => FilterParams
   clearAll: () => void
+  maxCachedDate: string | null  // YYYY-MM-DD of the most recent cached day
 }
 
 function computeComparisonRange(start: Date, end: Date): { start: Date; end: Date } {
@@ -62,6 +65,11 @@ const GlobalFiltersContext = createContext<GlobalFiltersContextValue | null>(nul
 
 export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
   const [filters, setFiltersState] = useState<GlobalFilters>(defaultFilters)
+  const [maxCachedDate, setMaxCachedDate] = useState<string | null>(null)
+
+  useEffect(() => {
+    getMaxCachedDate(supabase).then(d => setMaxCachedDate(d)).catch(() => {})
+  }, [])
 
   const setFilters = (partial: Partial<GlobalFilters>) => {
     setFiltersState(prev => {
@@ -73,24 +81,29 @@ export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  const toQueryParams = (): FilterParams => ({
-    promptType: filters.promptType,
-    tags: filters.tags,
-    // Use local date strings (not toISOString) to avoid UTC offset shifting
-    // the date into the next/previous day for users in non-UTC timezones.
-    startDate: localDateStr(filters.dateRange.start) + 'T00:00:00',
-    endDate:   localDateStr(filters.dateRange.end)   + 'T23:59:59',
-    prevStartDate: localDateStr(filters.comparisonRange.start) + 'T00:00:00',
-    prevEndDate:   localDateStr(filters.comparisonRange.end)   + 'T23:59:59',
-    platforms: filters.platform === 'all' ? [] : [filters.platform],
-    topics: filters.topics,
-    brandedFilter: filters.brandedFilter,
-  })
+  const toQueryParams = (): FilterParams => {
+    // Clamp endDate to the last cached day so cache-backed queries stay consistent
+    // with raw-table queries. If cache hasn't loaded yet, use the filter date as-is.
+    const rawEnd = localDateStr(filters.dateRange.end)
+    const clampedEnd = maxCachedDate && maxCachedDate < rawEnd ? maxCachedDate : rawEnd
+
+    return {
+      promptType: filters.promptType,
+      tags: filters.tags,
+      startDate: localDateStr(filters.dateRange.start) + 'T00:00:00',
+      endDate:   clampedEnd + 'T23:59:59',
+      prevStartDate: localDateStr(filters.comparisonRange.start) + 'T00:00:00',
+      prevEndDate:   localDateStr(filters.comparisonRange.end)   + 'T23:59:59',
+      platforms: filters.platform === 'all' ? [] : [filters.platform],
+      topics: filters.topics,
+      brandedFilter: filters.brandedFilter,
+    }
+  }
 
   const clearAll = () => setFiltersState(defaultFilters())
 
   return (
-    <GlobalFiltersContext.Provider value={{ filters, setFilters, toQueryParams, clearAll }}>
+    <GlobalFiltersContext.Provider value={{ filters, setFilters, toQueryParams, clearAll, maxCachedDate }}>
       {children}
     </GlobalFiltersContext.Provider>
   )

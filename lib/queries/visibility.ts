@@ -624,6 +624,15 @@ export async function getLastRunDate(sb: SupabaseClient): Promise<string | null>
   return data?.[0]?.run_date ?? null
 }
 
+export async function getMaxCachedDate(sb: SupabaseClient): Promise<string | null> {
+  const { data } = await sb
+    .from('aeo_cache_daily')
+    .select('run_day')
+    .order('run_day', { ascending: false })
+    .limit(1)
+  return data?.[0]?.run_day ?? null
+}
+
 export async function getDataFreshnessStats(
   sb: SupabaseClient
 ): Promise<{ lastRunDate: string | null; promptCount: number; platformCount: number }> {

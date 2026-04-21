@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getDistinctTags, getDistinctPromptTypes, getLastRunDate } from '@/lib/queries/visibility'
+import { getDistinctTags, getDistinctPromptTypes } from '@/lib/queries/visibility'
 import { formatDate } from '@/lib/utils/formatters'
 
 const PLATFORMS = ['all', 'ChatGPT', 'Claude']
@@ -46,10 +46,9 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
 }
 
 export default function GlobalFilterBar() {
-  const { filters, setFilters, clearAll } = useGlobalFilters()
+  const { filters, setFilters, clearAll, maxCachedDate } = useGlobalFilters()
   const [tags, setTags] = useState<string[]>([])
   const [promptTypes, setPromptTypes] = useState<string[]>([])
-  const [lastRunDate, setLastRunDate] = useState<string | null>(null)
 
   const startISO = filters.dateRange.start.toISOString()
   const endISO = filters.dateRange.end.toISOString()
@@ -58,16 +57,14 @@ export default function GlobalFilterBar() {
     Promise.all([
       getDistinctTags(supabase, startISO, endISO),
       getDistinctPromptTypes(supabase),
-      getLastRunDate(supabase),
-    ]).then(([tg, pt, lr]) => {
+    ]).then(([tg, pt]) => {
       setTags(tg)
       setPromptTypes(pt)
-      setLastRunDate(lr)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startISO, endISO])
 
-  const isStale = lastRunDate ? Date.now() - new Date(lastRunDate).getTime() > 24 * 60 * 60 * 1000 : false
+  const isStale = maxCachedDate ? Date.now() - new Date(maxCachedDate).getTime() > 24 * 60 * 60 * 1000 : false
 
   // Keyword type maps directly to prompt_type values from the DB
   const keywordTypeValue = filters.promptType
@@ -184,7 +181,7 @@ export default function GlobalFilterBar() {
           </button>
           <div className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>
             {isStale && <AlertTriangle size={11} style={{ color: 'var(--clay-tangerine)' }} />}
-            <span>Updated: {lastRunDate ? formatDate(lastRunDate) : '—'}</span>
+            <span>Updated: {maxCachedDate ? formatDate(maxCachedDate) : '—'}</span>
           </div>
         </div>
       </div>
