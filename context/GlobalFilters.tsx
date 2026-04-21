@@ -68,7 +68,21 @@ export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
   const [maxCachedDate, setMaxCachedDate] = useState<string | null>(null)
 
   useEffect(() => {
-    getMaxCachedDate(supabase).then(d => setMaxCachedDate(d)).catch(() => {})
+    getMaxCachedDate(supabase).then(d => {
+      if (!d) return
+      setMaxCachedDate(d)
+      // Snap the filter end date to the last cached day if it's ahead of it
+      setFiltersState(prev => {
+        const prevEnd = localDateStr(prev.dateRange.end)
+        if (d >= prevEnd) return prev  // cache is current, no change needed
+        const snappedEnd = new Date(d + 'T23:59:59')
+        return {
+          ...prev,
+          dateRange: { ...prev.dateRange, end: snappedEnd },
+          comparisonRange: computeComparisonRange(prev.dateRange.start, snappedEnd),
+        }
+      })
+    }).catch(() => {})
   }, [])
 
   const setFilters = (partial: Partial<GlobalFilters>) => {
