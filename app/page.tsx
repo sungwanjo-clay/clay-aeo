@@ -24,7 +24,7 @@ import ClaygentSection from '@/components/home/ClaygentSection'
 import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
 export default function HomePage() {
-  const { filters, toQueryParams } = useGlobalFilters()
+  const { filters, toQueryParams, initialized } = useGlobalFilters()
 
   // Stable reference — only changes when filter values actually change
   const f = useMemo(() => toQueryParams(), [
@@ -70,6 +70,7 @@ export default function HomePage() {
 
   // Tier 1: KPI numbers — one RPC call covers visibility + avg pos + claygent
   useEffect(() => {
+    if (!initialized) return   // wait for date window to be snapped before fetching
     setLoading(true)
     setLoadingInsight(true)
     Promise.all([
@@ -107,10 +108,11 @@ export default function HomePage() {
       setLoading(false)
       setLoadingInsight(false)
     })
-  }, [f])
+  }, [f, initialized])
 
   // Tier 2: Visibility + competitor charts (heavier)
   useEffect(() => {
+    if (!initialized) return
     setLoadingCharts(true)
     Promise.all([
       getCompetitorLeaderboard(supabase, f),
@@ -125,10 +127,11 @@ export default function HomePage() {
       console.error('[page] charts Promise.all failed:', err)
       setLoadingCharts(false)
     })
-  }, [f])
+  }, [f, initialized])
 
   // Tier 3a: Fast RPC-backed sections — renders charts immediately
   useEffect(() => {
+    if (!initialized) return
     setLoadingExtra(true)
     setLoadingCitation(true)
     Promise.all([
@@ -160,7 +163,7 @@ export default function HomePage() {
       console.error('[page] Tier3a-B failed:', err)
       setLoadingExtra(false)
     })
-  }, [f])
+  }, [f, initialized])
 
 
   const handlePMMDrilldown = useCallback(async (pmmUseCase: string, pmmClassification: string | null) => {

@@ -11,7 +11,10 @@ const PLATFORMS = ['all', 'ChatGPT', 'Claude']
 const PLATFORM_LABELS: Record<string, string> = { all: 'All Platforms', ChatGPT: 'ChatGPT', Claude: 'Claude' }
 
 function toInputDate(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 interface FilterSelectProps {
@@ -46,7 +49,7 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
 }
 
 export default function GlobalFilterBar() {
-  const { filters, setFilters, clearAll, maxCachedDate } = useGlobalFilters()
+  const { filters, setFilters, clearAll, maxCachedDate, lastRunDate } = useGlobalFilters()
   const [tags, setTags] = useState<string[]>([])
   const [promptTypes, setPromptTypes] = useState<string[]>([])
 
@@ -65,6 +68,8 @@ export default function GlobalFilterBar() {
   }, [startISO, endISO])
 
   const isStale = maxCachedDate ? Date.now() - new Date(maxCachedDate).getTime() > 24 * 60 * 60 * 1000 : false
+  // Show raw data date when cache is behind (so the label reflects actual ingestion, not cache lag)
+  const displayDate = (lastRunDate && maxCachedDate && lastRunDate > maxCachedDate) ? lastRunDate : maxCachedDate
 
   // Keyword type maps directly to prompt_type values from the DB
   const keywordTypeValue = filters.promptType
@@ -181,7 +186,7 @@ export default function GlobalFilterBar() {
           </button>
           <div className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'rgba(26,25,21,0.4)' }}>
             {isStale && <AlertTriangle size={11} style={{ color: 'var(--clay-tangerine)' }} />}
-            <span>Updated: {maxCachedDate ? formatDate(maxCachedDate) : '—'}</span>
+            <span>Updated: {displayDate ? formatDate(displayDate) : '—'}</span>
           </div>
         </div>
       </div>

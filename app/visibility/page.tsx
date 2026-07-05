@@ -29,7 +29,7 @@ interface PMMRow {
 }
 
 export default function VisibilityPage() {
-  const { filters, toQueryParams } = useGlobalFilters()
+  const { filters, toQueryParams, initialized } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -50,6 +50,7 @@ export default function VisibilityPage() {
   const [showAllPmm, setShowAllPmm] = useState(false)
 
   useEffect(() => {
+    if (!initialized) return
     setLoading(true)
     Promise.all([
       getVisibilityScore(supabase, f),
@@ -74,7 +75,7 @@ export default function VisibilityPage() {
       setLoading(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.tags, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.tags, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   // Load competitor timeseries when toggle turned on
   useEffect(() => {

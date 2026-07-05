@@ -214,7 +214,7 @@ function KpiCompTable({ kpisMap, competitors }: { kpisMap: Record<string, AnyKPI
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function CompetitivePage() {
-  const { toQueryParams } = useGlobalFilters()
+  const { toQueryParams, initialized } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -290,7 +290,7 @@ export default function CompetitivePage() {
 
   // Fast effect: KPIs + timeseries + heatmap + movers
   useEffect(() => {
-    if (selectedComps.length === 0) return
+    if (!initialized || selectedComps.length === 0) return
     setLoading(true)
 
     async function loadMain() {
@@ -383,11 +383,11 @@ export default function CompetitivePage() {
 
     loadMain().catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(','), initialized])
 
   // Slow effect A: citations for activeComp
   useEffect(() => {
-    if (!activeComp) return
+    if (!initialized || !activeComp) return
     setLoadingExtra(true)
     setCitPromptCache({})
     getCompetitorCitationsFlat(supabase, f, activeComp)
@@ -397,16 +397,16 @@ export default function CompetitivePage() {
       })
       .catch(() => setLoadingExtra(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, activeComp])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, activeComp, initialized])
 
   // Slow effect B: PMM for ALL selectedComps — single fetch, compute all competitors client-side
   useEffect(() => {
-    if (selectedComps.length === 0) return
+    if (!initialized || selectedComps.length === 0) return
     getCompetitorPMMComparisonBatch(supabase, f, selectedComps)
       .then(result => setPmmRowsMap(result))
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(',')])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, selectedComps.join(','), initialized])
 
   // Citation drill-down
   const handleLoadCitationPrompts = useCallback(async (url: string, responseIds: string[]) => {

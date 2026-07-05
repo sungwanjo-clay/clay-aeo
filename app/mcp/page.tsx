@@ -248,7 +248,7 @@ function PromptList({ prompts }: { prompts: FlatPrompt[] }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function McpPage() {
-  const { toQueryParams } = useGlobalFilters()
+  const { toQueryParams, initialized } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -259,6 +259,7 @@ export default function McpPage() {
   const [breakdown, setBreakdown] = useState<MentionTopicRow[]>([])
 
   useEffect(() => {
+    if (!initialized) return
     setLoading(true)
     Promise.all([
       getClaygentCount(supabase, f).catch(() => null),
@@ -269,15 +270,16 @@ export default function McpPage() {
       setLoading(false)
     }).catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   useEffect(() => {
+    if (!initialized) return
     setLoadingBreakdown(true)
     getMentionBreakdown(supabase, f, 'claygent_or_mcp_mentioned')
       .then(bd => { setBreakdown(bd ?? []); setLoadingBreakdown(false) })
       .catch(() => setLoadingBreakdown(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   // Flatten topic→prompt→response to a simple ranked prompt list
   const flatPrompts = useMemo((): FlatPrompt[] => {

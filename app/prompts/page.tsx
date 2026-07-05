@@ -11,7 +11,7 @@ import { SkeletonTable } from '@/components/shared/Skeleton'
 interface Stats { total: number; benchmark: number; campaign: number; inactive: number }
 
 export default function PromptsPage() {
-  const { toQueryParams } = useGlobalFilters()
+  const { toQueryParams, initialized } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -20,6 +20,7 @@ export default function PromptsPage() {
   const [showInactive, setShowInactive] = useState(false)
 
   useEffect(() => {
+    if (!initialized) return
     setLoading(true)
     Promise.all([
       getPromptsWithResponses(supabase, f, showInactive),
@@ -30,7 +31,7 @@ export default function PromptsPage() {
       setLoading(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, showInactive])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, showInactive, initialized])
 
   function getAvgVisibility() {
     if (!prompts.length) return null

@@ -722,7 +722,7 @@ function PlatformSplitTile({ rates, loading }: {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 export default function CitationsPage() {
-  const { toQueryParams } = useGlobalFilters()
+  const { toQueryParams, initialized } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -742,6 +742,7 @@ export default function CitationsPage() {
 
   // Fast: KPIs
   useEffect(() => {
+    if (!initialized) return
     setLoading(true)
     Promise.all([
       getCitationShare(supabase, f).catch(() => null),
@@ -754,19 +755,21 @@ export default function CitationsPage() {
       setLoading(false)
     }).catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   // Platform split (fast cache query)
   useEffect(() => {
+    if (!initialized) return
     setLoadingPlatform(true)
     getCitationShareByPlatform(supabase, f)
       .then(r => { setPlatformRates(r); setLoadingPlatform(false) })
       .catch(() => setLoadingPlatform(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   // Slow: domain-level data
   useEffect(() => {
+    if (!initialized) return
     setLoadingExtra(true)
     setSelectedType(null)
     Promise.all([
@@ -782,7 +785,7 @@ export default function CitationsPage() {
       setLoadingExtra(false)
     }).catch(() => setLoadingExtra(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   const citDelta = (citShare?.current != null && citShare?.previous != null)
     ? citShare.current - citShare.previous : null

@@ -393,7 +393,7 @@ function CompetitiveFraming({ items, loading }: { items: PositioningEntry[]; loa
 }
 
 export default function SentimentPage() {
-  const { toQueryParams } = useGlobalFilters()
+  const { toQueryParams, initialized } = useGlobalFilters()
   const f = toQueryParams()
 
   const [loading, setLoading] = useState(true)
@@ -403,6 +403,7 @@ export default function SentimentPage() {
   const [positioning, setPositioning] = useState<PositioningEntry[]>([])
 
   useEffect(() => {
+    if (!initialized) return
     setLoading(true)
     Promise.all([
       getSentimentBreakdown(supabase, f),
@@ -417,7 +418,7 @@ export default function SentimentPage() {
       setLoading(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter])
+  }, [f.startDate, f.endDate, f.promptType, f.platforms.join(), f.topics.join(), f.brandedFilter, initialized])
 
   const negCount = narratives.filter(n => n.sentiment === 'Negative').length
 

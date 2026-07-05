@@ -356,7 +356,12 @@ export async function getTopCitedDomainsWithURLs(
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
   })
-  if (error) console.error('[getTopCitedDomainsWithURLs] RPC error:', error)
+  if (error) {
+    console.error('[getTopCitedDomainsWithURLs] RPC error:', error)
+    // Return empty rather than falling through to the clay.com-only fallback path,
+    // which would show "clay.com 100%" any time there's a transient RPC failure.
+    return []
+  }
 
   const result: { domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[] =
     (data ?? []).map((r: any) => ({

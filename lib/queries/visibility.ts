@@ -616,12 +616,14 @@ export async function getPMMPromptDrilldown(
 }
 
 export async function getLastRunDate(sb: SupabaseClient): Promise<string | null> {
+  // Use run_day (DATE) for apples-to-apples comparison with maxCachedDate
   const { data } = await sb
     .from('responses')
-    .select('run_date')
-    .order('run_date', { ascending: false })
+    .select('run_day')
+    .order('run_day', { ascending: false })
     .limit(1)
-  return data?.[0]?.run_date ?? null
+  const raw = data?.[0]?.run_day ?? null
+  return raw ? String(raw).substring(0, 10) : null
 }
 
 export async function getMaxCachedDate(sb: SupabaseClient): Promise<string | null> {
