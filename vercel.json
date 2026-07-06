@@ -7,10 +7,6 @@
     {
       "path": "/api/detect-anomalies",
       "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/generate-insight",
-      "schedule": "15 0 * * *"
     }
   ]
 }

@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
-import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
+import { getActiveAnomalies } from '@/lib/queries/home'
 import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getClaygentTimeseries, getFollowupTimeseries } from '@/lib/queries/visibility'
 import { getCompetitorPMMComparisonBatch, getCompetitorPMMPromptDrilldown } from '@/lib/queries/competitive'
 import type { PMMCompRow, PMMCompPromptRow } from '@/lib/queries/competitive'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
-import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
-import InsightCard from '@/components/cards/InsightCard'
+import type { AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
 import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
@@ -42,8 +41,6 @@ export default function HomePage() {
 
   // ── Tier 1: KPI cards (fast RPCs, renders first) ─────────
   const [loading, setLoading] = useState(true)
-  const [loadingInsight, setLoadingInsight] = useState(true)
-  const [insight, setInsight] = useState<InsightRow | null>(null)
   const [anomalies, setAnomalies] = useState<AnomalyRow[]>([])
   const [visibility, setVisibility] = useState<{ current: number | null; previous: number | null; total: number } | null>(null)
   const [sentiment, setSentiment] = useState<{ positive: number | null } | null>(null)
@@ -75,15 +72,13 @@ export default function HomePage() {
   useEffect(() => {
     if (!initialized) return   // wait for date window to be snapped before fetching
     setLoading(true)
-    setLoadingInsight(true)
     Promise.all([
       getVisibilityKpis(supabase, f),   // single RPC → all 3 KPIs
       getCitationShare(supabase, f),
       getSentimentBreakdown(supabase, f),
-      getLatestInsight(supabase),
       getActiveAnomalies(supabase),
       getDataFreshnessStats(supabase),
-    ]).then(async ([kpis, citRate, sent, ins, ano, fresh]) => {
+    ]).then(([kpis, citRate, sent, ano, fresh]) => {
       setVisibility(kpis.visibility)
       setAvgPos(kpis.avgPosition)
       setClaygentCount(kpis.claygentCount)
@@ -91,25 +86,10 @@ export default function HomePage() {
       setSentiment({ positive: sent.positive })
       setAnomalies(ano)
       setFreshness(fresh)
-      // KPIs are ready — unblock the page immediately
       setLoading(false)
-
-      // Insight: show cached value right away, then generate in background if stale
-      const today = new Date().toISOString().split('T')[0]
-      const cached = ins as InsightRow | null
-      if (cached) setInsight(cached)
-      if (!cached || cached.run_date?.substring(0, 10) !== today) {
-        try {
-          const res = await fetch('/api/generate-insight', { method: 'POST' })
-          const json = await res.json()
-          if (json.ok && json.insight) setInsight(json.insight)
-        } catch { /* silent */ }
-      }
-      setLoadingInsight(false)
     }).catch(err => {
       console.error('[page] KPI Promise.all failed:', err)
       setLoading(false)
-      setLoadingInsight(false)
     })
   }, [f, initialized])
 
@@ -235,9 +215,6 @@ export default function HomePage() {
           <p className="text-xs font-bold uppercase tracking-wider mt-0.5" style={{ color: 'rgba(26,25,21,0.45)' }}>Here&apos;s what happened with Clay&apos;s AI visibility</p>
         </div>
       </div>
-
-      {/* Insight */}
-      <InsightCard insight={insight} loading={loadingInsight} />
 
       {/* Anomaly alerts */}
       <div>

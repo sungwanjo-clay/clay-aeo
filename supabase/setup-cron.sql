@@ -26,24 +26,11 @@ select cron.schedule(
   $$ select refresh_dashboard_cache(); $$
 );
 
--- Schedule: generate-daily-insight at 08:00 UTC daily (1am PST)
--- Runs 1 hour after cache refresh to ensure cache is current.
-select cron.schedule(
-  'generate-daily-insight',
-  '0 8 * * *',
-  $$
-  select net.http_post(
-    url    => current_setting('app.supabase_url') || '/functions/v1/generate-daily-insight',
-    headers => jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.supabase_service_role_key')
-    ),
-    body   => '{}'::jsonb
-  );
-  $$
-);
+-- generate-daily-insight was REMOVED (2026-07-05): the "Insight of the Day" card
+-- was dropped from the dashboard as noise, so daily insight generation (edge
+-- function + Anthropic call + writes) is no longer needed. Job unscheduled in prod.
 
--- Schedule: evaluate-alerts at 08:05 UTC daily (runs after insight generation)
+-- Schedule: evaluate-alerts at 08:05 UTC daily
 select cron.schedule(
   'evaluate-alerts',
   '5 8 * * *',
