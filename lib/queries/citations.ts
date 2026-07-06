@@ -96,34 +96,9 @@ export async function getCitationDomains(
   })).sort((a, b) => b.citation_count - a.citation_count)
 }
 
-export async function getCitationShareTimeseries(
-  sb: SupabaseClient,
-  f: FilterParams
-): Promise<{ date: string; platform: string; value: number }[]> {
-  const data = await fetchAllPages(applyResponseFilters(
-    sb.from('responses').select('run_date, platform, cited_domains'),
-    f
-  ))
-  if (!data.length) return []
-
-  const map = new Map<string, { clayCited: number; total: number }>()
-  for (const row of data) {
-    const date = row.run_date?.split('T')[0] ?? ''
-    const key = `${date}|||${row.platform}`
-    const cur = map.get(key) ?? { clayCited: 0, total: 0 }
-    cur.total++
-    try {
-      const domains = Array.isArray(row.cited_domains) ? row.cited_domains : JSON.parse(row.cited_domains ?? '[]')
-      if (domains.some((d: string) => typeof d === 'string' && d.includes('clay.com'))) cur.clayCited++
-    } catch { /* ignore */ }
-    map.set(key, cur)
-  }
-
-  return Array.from(map.entries()).map(([key, { clayCited, total }]) => {
-    const [date, platform] = key.split('|||')
-    return { date, platform, value: total > 0 ? (clayCited / total) * 100 : 0 }
-  }).sort((a, b) => a.date.localeCompare(b.date))
-}
+// Removed: getCitationShareTimeseries — dead code (no callers) that crawled the
+// full responses table via fetchAllPages. The citation-share timeseries shown in
+// the UI comes from get_citation_share_kpi / cache-backed queries.
 
 export async function getCitationGaps(
   sb: SupabaseClient,
@@ -177,30 +152,21 @@ export async function getCitationTypeBreakdown(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ type: string; count: number; pct: number }[]> {
-  // Fast path: read from aeo_cache_domains (pre-aggregated, indexed).
-  // Each domain already has a canonical citation_type and a response_count.
-  // Summing response_count by type gives citation-weighted totals without
-  // scanning the raw citation_domains table.
-  let query = sb
-    .from('aeo_cache_domains')
-    .select('citation_type, response_count')
-    .gte('run_day', f.startDate.split('T')[0])
-    .lte('run_day', f.endDate.split('T')[0])
-  if (f.platforms && f.platforms.length > 0) query = query.in('platform', f.platforms)
-  if (f.promptType && f.promptType !== 'all') query = query.ilike('prompt_type', f.promptType)
-
-  const { data } = await query.limit(2000)
-  if (!data?.length) return []
-
-  const map = new Map<string, number>()
-  for (const row of data) {
-    const t = row.citation_type ?? 'Other'
-    map.set(t, (map.get(t) ?? 0) + Number(row.response_count))
-  }
-  const total = [...map.values()].reduce((s, n) => s + n, 0)
-  return Array.from(map.entries()).map(([type, count]) => ({
-    type, count, pct: total > 0 ? (count / total) * 100 : 0,
-  })).sort((a, b) => b.count - a.count)
+  // Server-side SUM(response_count) GROUP BY citation_type. Replaces reading
+  // aeo_cache_domains with a hard .limit(2000) — that table has ~18k rows for a
+  // 7-day window, so the old query silently dropped ~90% of it (wrong counts).
+  const { data, error } = await sb.rpc('get_citation_type_breakdown_rpc', {
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType || 'all',
+    p_platforms:   (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+  })
+  if (error) { console.error('[getCitationTypeBreakdown] RPC error:', error); return [] }
+  const rows = (data ?? []).map((r: any) => ({ type: r.type as string, count: Number(r.count) }))
+  const total = rows.reduce((s, r) => s + r.count, 0)
+  return rows
+    .map(r => ({ type: r.type, count: r.count, pct: total > 0 ? (r.count / total) * 100 : 0 }))
+    .sort((a, b) => b.count - a.count)
 }
 
 export async function getCitationCount(
