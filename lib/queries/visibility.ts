@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, TimeseriesRow, CompetitorRow } from './types'
+import { HIDDEN_PMM_USE_CASES } from './types'
 
 /**
  * Supabase projects have a hard 1000-row cap per request regardless of .limit().
@@ -244,7 +245,7 @@ export async function getPMMTable(
   if (error) console.error('[getPMMTable] RPC error:', error)
   if (!data?.length) return []
 
-  return data.map((r: any) => ({
+  return data.filter((r: any) => !HIDDEN_PMM_USE_CASES.has(r.pmm_use_case)).map((r: any) => ({
     pmm_use_case:       r.pmm_use_case,
     pmm_classification: r.pmm_classification ?? null,
     visibility_score:   r.visibility_score ?? 0,

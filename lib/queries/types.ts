@@ -1,3 +1,10 @@
+/**
+ * PMM use-cases (topics) hidden from every dashboard view because they're noise.
+ * Applied in the query layer so all views (Home, Competitive, Visibility) stay
+ * consistent. Add a use-case name here to hide it everywhere.
+ */
+export const HIDDEN_PMM_USE_CASES = new Set<string>(['Event Campaigns'])
+
 export interface FilterParams {
   promptType: string // 'benchmark' | 'campaign' | 'all'
   tags: string       // specific tag or 'all'

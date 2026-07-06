@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { FilterParams, CompetitorRow } from './types'
+import { HIDDEN_PMM_USE_CASES } from './types'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -714,7 +715,7 @@ export async function getCompetitorPMMComparisonBatch(
   const entries = await Promise.all(competitors.map(async (competitor) => {
     const { data, error } = await sb.rpc('get_pmm_comparison_rpc', { p_competitor: competitor, ...params })
     if (error) { console.error('[getCompetitorPMMComparisonBatch] RPC error:', error); return [competitor, []] as const }
-    const rows: PMMCompRow[] = (data ?? []).map((r: any) => ({
+    const rows: PMMCompRow[] = (data ?? []).filter((r: any) => !HIDDEN_PMM_USE_CASES.has(r.pmm_use_case)).map((r: any) => ({
       pmm_use_case:          r.pmm_use_case,
       total_responses:       Number(r.total_responses),
       competitor_visibility: Number(r.competitor_visibility),
