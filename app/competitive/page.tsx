@@ -20,7 +20,6 @@ import {
   getPromptsForCitation,
   getCompetitorPMMComparisonBatch,
   getCompetitorPMMPromptDrilldown,
-  getFilteredResponses,
 } from '@/lib/queries/competitive'
 import type {
   CitationFlatItem,
@@ -298,14 +297,6 @@ export default function CompetitivePage() {
     async function loadMain() {
       const isDefaultView = selectedComps.length === 1 && selectedComps[0] === 'Clay'
 
-      // Pre-fetch response metadata once — shared across all competitor KPI calls.
-      // Eliminates N×2 redundant full-table scans (one per competitor per period).
-      const [sharedCurMeta, sharedPrevMeta] = await Promise.all([
-        getFilteredResponses(supabase, f),
-        getFilteredResponses(supabase, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-      ])
-      const sharedCurIds = sharedCurMeta.map(r => r.id)
-
       const kpiPromises = selectedComps.map(comp => {
         const isClay = comp === 'Clay'
         const p = isClay
@@ -320,7 +311,7 @@ export default function CompetitivePage() {
               topPlatform: r.topPlatform,
             })).catch(() => null)
           : Promise.all([
-              getCompetitorKPIs(supabase, f, comp, { cur: sharedCurMeta, prev: sharedPrevMeta }).catch(() => null),
+              getCompetitorKPIs(supabase, f, comp).catch(() => null),
               getCompetitorCitationRate(supabase, f, comp).catch(() => ({ rate: null, deltaRate: null })),
             ]).then(([k, cit]) => k ? {
               visibilityScore: k.visibilityScore,
@@ -337,7 +328,7 @@ export default function CompetitivePage() {
 
       const [kpiResults, heat, wl] = await Promise.all([
         Promise.all(kpiPromises),
-        getPlatformHeatmap(supabase, f, sharedCurIds).catch(() => []),
+        getPlatformHeatmap(supabase, f).catch(() => []),
         getWinnersAndLosers(supabase, f).catch(() => []),
       ])
 

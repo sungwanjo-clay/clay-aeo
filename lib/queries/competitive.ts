@@ -433,83 +433,60 @@ export async function getCompetitorCoCitedDomains(
 export async function getCompetitorKPIs(
   sb: SupabaseClient,
   f: FilterParams,
-  competitor: string,
-  prefetched?: { cur: ResponseMeta[]; prev: ResponseMeta[] }
+  competitor: string
 ): Promise<{ visibilityScore: number | null; mentionCount: number; avgPosition: number | null; topTopic: string | null; topPlatform: string | null; deltaVisibility: number | null }> {
-  const [curMeta, prevMeta] = prefetched
-    ? [prefetched.cur, prefetched.prev]
-    : await Promise.all([
-        getFilteredResponses(sb, f),
-        getFilteredResponses(sb, { ...f, startDate: f.prevStartDate, endDate: f.prevEndDate }),
-      ])
+  // Server-side aggregation from the cache tables (aeo_cache_competitors /
+  // aeo_cache_daily) — same source as getWinnersAndLosers. Replaces a crawl of
+  // ~30k `responses` rows (x2 cur+prev) + batched response_competitors lookups.
+  // visibility/mention/top_platform are byte-identical to the old path in the
+  // default view; topTopic is dropped (it required a 4.4M-row responses join and
+  // was uselessly constant across competitors).
+  const { data, error } = await sb.rpc('get_competitor_kpis_rpc', {
+    p_competitor:     competitor,
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
+    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
+    p_prompt_type:    f.promptType || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+  })
+  if (error) console.error('[getCompetitorKPIs] RPC error:', error)
+  const r = !error && data?.[0] ? data[0] : null
 
-  const curIds  = curMeta.map(r => r.id)
-  const prevIds = prevMeta.map(r => r.id)
-
-  const [rcData, prevRcData] = await Promise.all([
-    fetchCompetitorsByIds(sb, curIds, q => q.eq('competitor_name', competitor)),
-    fetchCompetitorsByIds(sb, prevIds, q => q.eq('competitor_name', competitor)),
-  ])
-
-  if (!rcData.length) return { visibilityScore: null, mentionCount: 0, avgPosition: null, topTopic: null, topPlatform: null, deltaVisibility: null }
-
-  // Compute topTopic from pre-fetched meta — no extra network request needed
-  const compResponseIds = new Set(rcData.map((r: any) => String(r.response_id)))
-  const metaById = new Map(curMeta.map(r => [r.id, r]))
-  const topicCounts = new Map<string, number>()
-  for (const id of compResponseIds) {
-    const t = metaById.get(id)?.topic
-    if (t) topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1)
+  const cur  = r?.visibility_current  ?? null
+  const prev = r?.visibility_previous ?? null
+  return {
+    visibilityScore: cur,
+    mentionCount:    r?.mention_count != null ? Number(r.mention_count) : 0,
+    avgPosition:     null,
+    topTopic:        null,
+    topPlatform:     r?.top_platform ?? null,
+    deltaVisibility: cur !== null && prev !== null ? cur - prev : null,
   }
-  const topTopic = [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-
-  const platformMap = new Map<string, number>()
-  for (const r of rcData) {
-    if (r.platform) platformMap.set(r.platform, (platformMap.get(r.platform) ?? 0) + 1)
-  }
-  const topPlatform = [...platformMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-
-  const currentVis = curIds.length ? (rcData.length / curIds.length) * 100 : null
-  const prevVis    = prevIds.length ? (prevRcData.length / prevIds.length) * 100 : null
-  const deltaVisibility = currentVis !== null && prevVis !== null ? currentVis - prevVis : null
-
-  return { visibilityScore: currentVis, mentionCount: rcData.length, avgPosition: null, topTopic, topPlatform, deltaVisibility }
 }
 
 // ── Heatmap ─────────────────────────────────────────────────────────────────
 
 export async function getPlatformHeatmap(
   sb: SupabaseClient,
-  f: FilterParams,
-  prefetchedIds?: string[]
+  f: FilterParams
 ): Promise<{ competitor: string; platform: string; visibility_score: number }[]> {
-  const validIds = prefetchedIds ?? await getValidResponseIds(sb, f)
-
-  // Use aeo_cache_daily for platform totals — avoids a full responses.platform scan
-  const [dailyData, rc] = await Promise.all([
-    fetchAllPages(applyFilters(sb.from('aeo_cache_daily').select('platform, total_responses'), f)),
-    fetchCompetitorsByIds(sb, validIds),
-  ])
-
-  const totals = new Map<string, number>()
-  for (const r of dailyData) {
-    if (r.platform) totals.set(r.platform, (totals.get(r.platform) ?? 0) + Number(r.total_responses))
-  }
-
-  const map = new Map<string, number>()
-  for (const r of rc) {
-    const key = `${r.competitor_name}|||${r.platform}`
-    map.set(key, (map.get(key) ?? 0) + 1)
-  }
-
-  return Array.from(map.entries()).map(([key, count]) => {
-    const [competitor, platform] = key.split('|||')
-    return {
-      competitor,
-      platform,
-      visibility_score: totals.get(platform) ? (count / totals.get(platform)!) * 100 : 0,
-    }
+  // Server-side aggregation from cache tables. Replaces a crawl of all filtered
+  // response ids + batched response_competitors lookups (which also silently
+  // undercounted, since the unfiltered batches hit PostgREST's 1000-row cap).
+  // Scoped to the top-100 competitors by mentions (the UI shows top 50).
+  const { data, error } = await sb.rpc('get_platform_heatmap_rpc', {
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType || 'all',
+    p_platforms:   (f.platforms && f.platforms.length > 0) ? f.platforms : null,
   })
+  if (error) { console.error('[getPlatformHeatmap] RPC error:', error); return [] }
+  return (data ?? []).map((r: any) => ({
+    competitor: r.competitor,
+    platform: r.platform,
+    visibility_score: Number(r.visibility_score),
+  }))
 }
 
 // ── Timeseries ───────────────────────────────────────────────────────────────
