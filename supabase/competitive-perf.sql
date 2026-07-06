@@ -35,6 +35,26 @@ CREATE INDEX IF NOT EXISTS idx_aeo_cache_competitors_name_mentions
   ON aeo_cache_competitors (competitor_name) INCLUDE (mention_count)
   WHERE competitor_name IS NOT NULL;
 
+-- 2b. MATERIALIZED: the all-time competitor ranking changes slowly, so instead
+--     of a 321k-row GROUP BY on every page mount, read from a matview (indexed
+--     200-row read). Refreshed daily by the pg_cron job (see below).
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_competitor_ranks AS
+  SELECT competitor_name, SUM(mention_count)::bigint AS total_mentions
+  FROM aeo_cache_competitors WHERE competitor_name IS NOT NULL
+  GROUP BY competitor_name;
+CREATE UNIQUE INDEX IF NOT EXISTS mv_competitor_ranks_pk ON mv_competitor_ranks (competitor_name);
+CREATE INDEX IF NOT EXISTS mv_competitor_ranks_total ON mv_competitor_ranks (total_mentions DESC);
+-- get_competitor_list_rpc now reads from the matview:
+CREATE OR REPLACE FUNCTION get_competitor_list_rpc(p_limit int DEFAULT 200)
+RETURNS TABLE(competitor_name text, total_mentions bigint)
+LANGUAGE sql STABLE SET statement_timeout='15000' AS $$
+  SELECT competitor_name, total_mentions FROM mv_competitor_ranks
+  ORDER BY total_mentions DESC LIMIT p_limit;
+$$;
+-- Daily cron (jobid 13 'refresh-dashboard-cache') command now ends with:
+--   REFRESH MATERIALIZED VIEW mv_competitor_ranks;
+-- Full command: SELECT refresh_dashboard_cache(3); SELECT refresh_narrative_cache(3); REFRESH MATERIALIZED VIEW mv_competitor_ranks;
+
 -- ============================================================
 -- 3. Per-competitor KPIs — cache-based (replaces getFilteredResponses x2
 --    + batched response_competitors lookups). visibility/mention/top_platform
