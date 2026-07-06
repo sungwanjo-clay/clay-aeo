@@ -3,9 +3,10 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { getPlatformColor } from '@/lib/utils/colors'
+import { supabase } from '@/lib/supabase/client'
 import type { PMMCompRow, PMMCompPromptRow } from '@/lib/queries/competitive'
 
 const LABEL = {
@@ -52,7 +53,26 @@ function FullResponseBlock({ text }: { text: string }) {
 // ── Response row ───────────────────────────────────────────────────────────────
 function CompResponseRow({ r, compName, defaultOpen = false }: { r: PMMCompPromptRow['responses'][0]; compName: string | null; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
-  const hasDetail = !!(r.clay_mention_snippet || r.response_text)
+  // response_text is lazy-loaded by id (it is NOT fetched in the bulk drill-down
+  // query — that made the drill-down ~20s). Fetch it the first time this row opens.
+  const [text, setText] = useState<string | null>(r.response_text ?? null)
+  const [loadingText, setLoadingText] = useState(false)
+  useEffect(() => {
+    if (!open || text !== null || loadingText || !r.id) return
+    setLoadingText(true)
+    ;(async () => {
+      try {
+        const { data } = await supabase.from('responses').select('response_text').eq('id', r.id).single()
+        setText(data?.response_text ?? '')
+      } catch {
+        setText('')
+      } finally {
+        setLoadingText(false)
+      }
+    })()
+  }, [open, text, loadingText, r.id])
+  // Every response has a full AI response to view, so the row is always expandable.
+  const hasDetail = true
   const clayYes = r.clay_mentioned === 'Yes'
   const compYes = r.competitor_mentioned
   // Show the competitor badge whenever we have a real competitor to display
@@ -109,7 +129,10 @@ function CompResponseRow({ r, compName, defaultOpen = false }: { r: PMMCompPromp
               </p>
             </div>
           )}
-          {r.response_text && <FullResponseBlock text={r.response_text} />}
+          {loadingText && (
+            <p className="text-[11px] mt-2" style={{ color: 'rgba(26,25,21,0.4)' }}>Loading response…</p>
+          )}
+          {text && <FullResponseBlock text={text} />}
         </div>
       )}
     </div>

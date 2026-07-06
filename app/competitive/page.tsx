@@ -221,13 +221,15 @@ export default function CompetitivePage() {
   const [loadingExtra, setLoadingExtra] = useState(true)
 
   // Competitor list + multi-select
-  const [competitors, setCompetitors] = useState<string[]>([])
-  const [selectedComps, setSelectedComps] = useState<string[]>([])
+  const [competitors, setCompetitors] = useState<string[]>(['Clay'])
+  // Default to Clay so the main dashboard loads immediately instead of waiting
+  // for getCompetitorList (which only populates the dropdown, not the default view).
+  const [selectedComps, setSelectedComps] = useState<string[]>(['Clay'])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [dropdownSearch, setDropdownSearch] = useState('')
   const dropdownRef = useRef(null)
   // activeComp: which competitor is shown in drill-down sections (Citation, PMM, Sentiment)
-  const [activeComp, setActiveComp] = useState<string>('')
+  const [activeComp, setActiveComp] = useState<string>('Clay')
 
   // Per-competitor KPIs
   const [kpisMap, setKpisMap] = useState<Record<string, AnyKPIs>>({})

@@ -95,25 +95,16 @@ function domainSlug(competitor: string): string {
 // ── list ────────────────────────────────────────────────────────────────────
 
 export async function getCompetitorList(sb: SupabaseClient): Promise<string[]> {
-  // Use aeo_cache_competitors: already deduplicated, no 1000-row PostgREST cap issue.
-  // Sort by total mention_count DESC so most relevant competitors appear first in the dropdown.
-  const data = await fetchAllPages(
-    sb.from('aeo_cache_competitors')
-      .select('competitor_name, mention_count')
-      .not('competitor_name', 'is', null)
-  )
-  if (!data.length) return ['Clay']
+  // Server-side aggregation via RPC: returns the top-N competitor names ranked by
+  // total mention_count. Replaces a full-table crawl of aeo_cache_competitors
+  // (~321k rows / 300+ paginated round trips, ~40s) with one GROUP BY (~3s).
+  const { data, error } = await sb.rpc('get_competitor_list_rpc', { p_limit: 200 })
+  if (error) console.error('[getCompetitorList] RPC error:', error)
+  if (error || !data?.length) return ['Clay']
 
-  // Sum mention_count per competitor name across all days/platforms
-  const totals = new Map<string, number>()
-  for (const r of data) {
-    const name = r.competitor_name as string
-    totals.set(name, (totals.get(name) ?? 0) + Number(r.mention_count))
-  }
-
-  const sorted = Array.from(totals.keys())
-    .filter(c => c.toLowerCase() !== 'clay')
-    .sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0))
+  const sorted = (data as { competitor_name: string }[])
+    .map(r => r.competitor_name)
+    .filter(c => c && c.toLowerCase() !== 'clay')
 
   return ['Clay', ...sorted]
 }
@@ -881,9 +872,14 @@ export async function getCompetitorPMMPromptDrilldown(
 
   // Include competitors_mentioned (JSONB array) so we can check per-response without
   // a separate join to response_competitors (which can lag behind ingestion)
+  // NOTE: response_text is intentionally NOT selected here. It is the heaviest
+  // column (full LLM output) and fetching it for every response made this
+  // drill-down take ~20s. The list view only needs counts + snippets; the full
+  // text is lazy-loaded per response by id when a row is expanded (see
+  // CompPMMComparison → CompResponseRow).
   const responses = await fetchAllPages(applyFilters(
     sb.from('responses')
-      .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, response_text, competitors_mentioned')
+      .select('id, prompt_id, platform, run_date, clay_mentioned, clay_mention_snippet, competitors_mentioned')
       .eq('pmm_use_case', pmmUseCase),
     f
   ))
@@ -932,7 +928,7 @@ export async function getCompetitorPMMPromptDrilldown(
       clay_mentioned: r.clay_mentioned ?? null,
       competitor_mentioned: compMentioned,
       clay_mention_snippet: r.clay_mention_snippet ?? null,
-      response_text: r.response_text ?? null,
+      response_text: null,  // lazy-loaded by id on expand (see CompResponseRow)
     })
     promptMap.set(pid, cur)
   }
