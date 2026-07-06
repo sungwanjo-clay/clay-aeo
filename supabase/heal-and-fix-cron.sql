@@ -1,47 +1,43 @@
 -- ============================================================
--- Clay AEO dashboard — heal cache gap + repair refresh cron
+-- Clay AEO dashboard — heal cache gap + fix refresh cron timeout
 -- ============================================================
--- Context (Jul 5, 2026): the dashboard showed a 4-day hole
--- (Jun 28 – Jul 1) in ALL 8 cache tables even though raw
--- `responses` had full data for those days. Trend charts
--- rendered lines only from Jul 2 onward.
+-- Incident 2026-07-05: the dashboard showed a multi-day hole
+-- (Jun 28 – Jul 1) in ALL cache tables even though raw `responses`
+-- had full data. Trend charts rendered lines only from Jul 2.
 --
--- Root cause: the only refresh path that runs reliably is the
--- Vercel cron -> /api/refresh-cache -> refresh_dashboard_cache(3),
--- a 3-DAY window. A 3-day rebuild structurally cannot backfill a
--- gap once it is older than 3 days. The 14-day pg_cron safety net
--- ('refresh-dashboard-cache') was not healing it.
+-- ROOT CAUSE (confirmed via cron.job_run_details): the pg_cron job
+-- 'refresh-dashboard-cache' (jobid 13) FAILED 6 days straight
+-- (Jun 29 – Jul 4), each canceled at exactly 120s with
+-- "canceling statement due to statement timeout". Failed runs roll
+-- back atomically, so the cache never advanced -> the gap.
 --
--- Run each STEP top-to-bottom in the Supabase SQL Editor.
+-- The 120s ceiling is the `postgres` ROLE DEFAULT statement_timeout
+-- (2min). The refresh functions normally run ~44s (dashboard) + ~10s
+-- (narrative), but exceed 120s on heavy Clay-concurrent-push days.
+--
+-- Live cron command (NOT what setup-cron.sql in this repo says):
+--   SELECT refresh_dashboard_cache(3); SELECT refresh_narrative_cache(3);
+--
+-- Run each STEP in the Supabase SQL Editor (or a direct psql/pg
+-- connection, which also works when api.supabase.com is down).
 -- ============================================================
 
 
 -- ============================================================
--- STEP 1 — DIAGNOSE (read-only, safe)
+-- STEP 1 — DIAGNOSE (read-only)
 -- ============================================================
 
--- 1a. Is the pg_cron refresh job scheduled and active?
+-- 1a. The refresh job + its exact command
 SELECT jobid, jobname, schedule, active, command
-FROM cron.job
-WHERE jobname = 'refresh-dashboard-cache';
--- Expect one active row at '0 7 * * *'. If NO rows -> job was
--- never (re)scheduled or was unscheduled: STEP 3 fixes that.
+FROM cron.job WHERE jobname = 'refresh-dashboard-cache';
 
--- 1b. Last 10 runs of that job — did it run Jun 28 – Jul 1? Errors?
-SELECT start_time, end_time, status, return_message
+-- 1b. Recent runs — look for status='failed' / 'statement timeout'
+SELECT start_time, end_time, status, left(return_message, 100) AS return_message
 FROM cron.job_run_details
-WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname = 'refresh-dashboard-cache')
-ORDER BY start_time DESC
-LIMIT 10;
--- Look for: missing dates (job didn't fire) OR status='failed'
--- (e.g. statement timeout, permission error).
+WHERE jobid IN (SELECT jobid FROM cron.job WHERE jobname = 'refresh-dashboard-cache')
+ORDER BY start_time DESC LIMIT 10;
 
--- 1c. Cache freshness vs raw data
-SELECT 'cache' AS src, MAX(run_day) FROM aeo_cache_daily
-UNION ALL
-SELECT 'raw',   MAX(run_day) FROM responses;
-
--- 1d. Per-day gap (raw present, cache missing = the hole)
+-- 1c. Per-day gap (raw present, cache missing = the hole)
 SELECT d.run_day,
        (SELECT COUNT(*) FROM responses r      WHERE r.run_day = d.run_day) AS raw_rows,
        (SELECT COUNT(*) FROM aeo_cache_daily c WHERE c.run_day = d.run_day) AS cache_rows
@@ -50,44 +46,50 @@ ORDER BY d.run_day;
 
 
 -- ============================================================
--- STEP 2 — HEAL the gap (rebuilds from intact raw `responses`)
+-- STEP 2 — FIX the timeout (prevents recurrence)
 -- ============================================================
--- Runs server-side with the function's own 120s timeout (the
--- REST API's 30s gateway cap does NOT apply here).
--- Rebuilds the last 14 days of all cache tables. No raw data touched.
+-- Give the refresh functions their own statement_timeout that
+-- OVERRIDES the 120s role default while they run. Function-local
+-- SET wins over the session/role default for the function body.
+-- (~3x headroom over the ~44s + ~10s typical runtime.)
+
+ALTER FUNCTION public.refresh_dashboard_cache(integer) SET statement_timeout = '300000';
+ALTER FUNCTION public.refresh_dashboard_cache()        SET statement_timeout = '300000';
+ALTER FUNCTION public.refresh_narrative_cache(integer) SET statement_timeout = '300000';
+
+-- Verify (proconfig should list statement_timeout=300000 for each):
+SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args, p.proconfig
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.proname IN ('refresh_dashboard_cache','refresh_narrative_cache')
+ORDER BY p.proname;
+
+
+-- ============================================================
+-- STEP 3 — HEAL the existing gap (rebuild from intact raw data)
+-- ============================================================
+-- Wider one-off window than the daily 3-day cron. Now safe from the
+-- 120s cap thanks to STEP 2. Direct connection can also SET statement_timeout
+-- = '300000' for the session before running.
 
 SELECT refresh_dashboard_cache(14);
+SELECT refresh_narrative_cache(14);
 
--- Verify the hole is filled (cache_rows should now be > 0 for every
--- day that has raw_rows):
+-- Verify the hole is filled (cache_rows > 0 for every day with raw_rows):
 SELECT d.run_day,
        (SELECT COUNT(*) FROM responses r      WHERE r.run_day = d.run_day) AS raw_rows,
        (SELECT COUNT(*) FROM aeo_cache_daily c WHERE c.run_day = d.run_day) AS cache_rows
 FROM (SELECT generate_series(CURRENT_DATE - 14, CURRENT_DATE, '1 day')::date AS run_day) d
 ORDER BY d.run_day;
 
--- If STEP 2 itself times out (>120s), the deployed function is too
--- slow — heal a smaller window first, e.g. refresh_dashboard_cache(8),
--- and treat "optimize the refresh function" as a follow-up.
-
 
 -- ============================================================
--- STEP 3 — REPAIR the safety-net cron (self-healing, server-side)
+-- FOLLOW-UPS (not done here)
 -- ============================================================
--- pg_cron runs inside Postgres (120s function timeout, NOT the 30s
--- REST cap), so it can afford the wider 14-day self-healing window.
--- Idempotent: unschedules any existing job of this name, reschedules.
-
-SELECT cron.unschedule('refresh-dashboard-cache')
-WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'refresh-dashboard-cache');
-
-SELECT cron.schedule(
-  'refresh-dashboard-cache',
-  '0 7 * * *',                        -- 07:00 UTC daily (midnight PST)
-  $$ SELECT refresh_dashboard_cache(14); $$
-);
-
--- Confirm it's scheduled and active:
-SELECT jobid, jobname, schedule, active, command
-FROM cron.job
-WHERE jobname = 'refresh-dashboard-cache';
+-- * Optimize the refresh function — 300s is a stopgap; a 3-day
+--   incremental rebuild should take seconds, not ~44s.
+-- * The Vercel cron (GET /api/refresh-cache @ 23:45 UTC) uses the
+--   service-role REST path, capped at 30s — it can never finish the
+--   rebuild and is a redundant no-op. Consider removing it.
+-- * Update setup-cron.sql to match the live command (p_days=3 +
+--   refresh_narrative_cache), or reconcile the two.
