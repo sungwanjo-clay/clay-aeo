@@ -495,6 +495,32 @@ export async function getCompetitorVsClayTimeseries(
   }))
 }
 
+/**
+ * Timeseries for MANY competitors in a single RPC call — one scan of
+ * aeo_cache_competitors instead of N concurrent scans. Returns a map of
+ * competitor → { date → visibility% }. Used by the competitive chart.
+ */
+export async function getCompetitorTimeseriesMulti(
+  sb: SupabaseClient,
+  f: FilterParams,
+  competitors: string[]
+): Promise<Record<string, Record<string, number>>> {
+  if (!competitors.length) return {}
+  const { data, error } = await sb.rpc('get_competitor_timeseries_multi_rpc', {
+    p_competitors: competitors,
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType || 'all',
+    p_platforms:   (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+  })
+  if (error) { console.error('[getCompetitorTimeseriesMulti] RPC error:', error); return {} }
+  const map: Record<string, Record<string, number>> = {}
+  for (const r of (data ?? []) as any[]) {
+    ;(map[r.competitor] ??= {})[r.date] = Number(r.competitor_vis)
+  }
+  return map
+}
+
 // ── Citation profile grouped by type (with response_id linkage) ─────────────
 
 export interface CitationItem {

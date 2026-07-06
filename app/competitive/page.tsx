@@ -12,7 +12,7 @@ import {
   getCompetitorKPIs,
   getClayKPIs,
   getPlatformHeatmap,
-  getCompetitorVsClayTimeseries,
+  getCompetitorTimeseriesMulti,
   getClayVisibilityTimeseries,
   getWinnersAndLosers,
   getCompetitorCitationRate,
@@ -341,16 +341,11 @@ export default function CompetitivePage() {
       const compsForChart = isDefaultView ? top5 : selectedComps.filter(c => c !== 'Clay')
       setChartCompLines(compsForChart)
 
-      const [clayTs, ...compTsResults] = await Promise.all([
+      // One multi-competitor RPC instead of N concurrent per-competitor calls.
+      const [clayTs, compMap] = await Promise.all([
         getClayVisibilityTimeseries(supabase, f).catch(() => []),
-        ...compsForChart.map(comp => getCompetitorVsClayTimeseries(supabase, f, comp).catch(() => [])),
+        getCompetitorTimeseriesMulti(supabase, f, compsForChart).catch(() => ({} as Record<string, Record<string, number>>)),
       ])
-
-      const compMap: Record<string, Record<string, number>> = {}
-      compsForChart.forEach((comp, i) => {
-        compMap[comp] = {}
-        for (const r of compTsResults[i]) compMap[comp][r.date] = r.competitor
-      })
 
       const allDates = generateDateRange(f.startDate.split('T')[0], f.endDate.split('T')[0])
       const clayDateMap = new Map(clayTs.map(r => [r.date, r.value]))

@@ -194,8 +194,26 @@ GRANT EXECUTE ON FUNCTION get_distinct_tags_rpc(timestamptz,timestamptz) TO anon
 CREATE INDEX IF NOT EXISTS idx_aeo_cache_comp_rangeagg
   ON aeo_cache_competitors (run_day, prompt_type, platform) INCLUDE (competitor_name, mention_count);
 
+-- 10. Multi-competitor timeseries — ONE scan of aeo_cache_competitors for all
+--     chart competitors, instead of N concurrent get_competitor_timeseries_rpc
+--     calls. Verified identical to the per-competitor RPC. Cut competitive load
+--     concurrency (5 timeseries calls -> 1); dev wall-clock ~11-16s -> ~6.5s.
+CREATE OR REPLACE FUNCTION get_competitor_timeseries_multi_rpc(
+  p_competitors text[], p_start_day date, p_end_day date,
+  p_prompt_type text DEFAULT 'all', p_platforms text[] DEFAULT NULL
+) RETURNS TABLE(competitor text, date text, competitor_vis double precision)
+LANGUAGE sql STABLE SET statement_timeout='30000' AS $$
+  WITH d AS (SELECT run_day, SUM(total_responses) total FROM aeo_cache_daily
+    WHERE run_day BETWEEN p_start_day AND p_end_day AND (p_platforms IS NULL OR platform=ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type) GROUP BY run_day),
+  cc AS (SELECT competitor_name, run_day, SUM(mention_count) m FROM aeo_cache_competitors
+    WHERE competitor_name = ANY(p_competitors) AND run_day BETWEEN p_start_day AND p_end_day AND (p_platforms IS NULL OR platform=ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type) GROUP BY competitor_name, run_day)
+  SELECT cc.competitor_name, cc.run_day::text, CASE WHEN d.total>0 THEN cc.m::double precision/d.total*100 ELSE 0 END
+  FROM cc JOIN d ON d.run_day = cc.run_day ORDER BY 1, 2;
+$$;
+GRANT EXECUTE ON FUNCTION get_competitor_timeseries_multi_rpc(text[],date,date,text,text[]) TO anon, authenticated;
+
 -- ============================================================
--- RESULT: Competitive-tab load requests 227 -> ~18; ALL client-side crawls
+-- RESULT: Competitive-tab load requests 227 -> ~12; ALL client-side crawls
 -- eliminated (every aggregation is now a server-side RPC).
 --
 -- REMAINING (further tuning, not blocking): ~10 RPCs fire concurrently on load
