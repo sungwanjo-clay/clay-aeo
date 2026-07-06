@@ -277,44 +277,26 @@ export async function getWinnersAndLosers(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ competitor_name: string; current: number; previous: number | null; delta: number | null; isNew: boolean }[]> {
-  // Fast path: read from aeo_cache_competitors + aeo_cache_daily.
-  // Replaces: full responses scan + hundreds of batched response_competitors requests.
-  const applyCache = (q: any, start: string, end: string) => {
-    q = q.gte('run_day', start).lte('run_day', end)
-    if (f.platforms?.length) q = q.in('platform', f.platforms)
-    if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
-    return q
-  }
-  const curStart  = f.startDate.split('T')[0]
-  const curEnd    = f.endDate.split('T')[0]
-  const prevStart = (f.prevStartDate || f.startDate).split('T')[0]
-  const prevEnd   = (f.prevEndDate   || f.endDate).split('T')[0]
-
-  const [curComp, prevComp, curDaily, prevDaily] = await Promise.all([
-    fetchAllPages(applyCache(sb.from('aeo_cache_competitors').select('competitor_name, mention_count'), curStart, curEnd)),
-    fetchAllPages(applyCache(sb.from('aeo_cache_competitors').select('competitor_name, mention_count'), prevStart, prevEnd)),
-    fetchAllPages(applyCache(sb.from('aeo_cache_daily').select('total_responses'), curStart, curEnd)),
-    fetchAllPages(applyCache(sb.from('aeo_cache_daily').select('total_responses'), prevStart, prevEnd)),
-  ])
-
-  const totalNow  = curDaily.reduce((s: number, r: any)  => s + Number(r.total_responses), 0)
-  const totalPrev = prevDaily.reduce((s: number, r: any) => s + Number(r.total_responses), 0)
-
-  const curCounts  = new Map<string, number>()
-  const prevCounts = new Map<string, number>()
-  for (const r of curComp)  curCounts.set(r.competitor_name,  (curCounts.get(r.competitor_name)  ?? 0) + Number(r.mention_count))
-  for (const r of prevComp) prevCounts.set(r.competitor_name, (prevCounts.get(r.competitor_name) ?? 0) + Number(r.mention_count))
-
-  const allNames = new Set([...curCounts.keys(), ...prevCounts.keys()])
-  return Array.from(allNames).map(competitor_name => {
-    const cur  = curCounts.get(competitor_name)  ?? 0
-    const prev = prevCounts.get(competitor_name) ?? 0
-    const current  = totalNow  > 0 ? (cur  / totalNow)  * 100 : 0
-    const previous = totalPrev > 0 ? (prev / totalPrev) * 100 : null
-    const delta    = previous !== null ? current - previous : null
-    const isNew    = (previous === null || previous === 0) && current > 0
-    return { competitor_name, current, previous, delta, isNew }
-  }).sort((a, b) => (b.delta ?? b.current) - (a.delta ?? a.current))
+  // Server-side aggregation from cache tables via RPC. Replaces a client-side
+  // crawl that paginated aeo_cache_competitors twice (cur+prev, ~40 pages).
+  // Scoped to top-250 competitors by current mention share (the 23k+ distinct
+  // names are mostly LLM one-offs; the UI shows top-5 winners / losers).
+  const { data, error } = await sb.rpc('get_winners_losers_rpc', {
+    p_start_day:      f.startDate.split('T')[0],
+    p_end_day:        f.endDate.split('T')[0],
+    p_prev_start_day: (f.prevStartDate || f.startDate).split('T')[0],
+    p_prev_end_day:   (f.prevEndDate   || f.endDate).split('T')[0],
+    p_prompt_type:    f.promptType || 'all',
+    p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
+  })
+  if (error) { console.error('[getWinnersAndLosers] RPC error:', error); return [] }
+  return (data ?? []).map((r: any) => ({
+    competitor_name: r.competitor_name,
+    current:  Number(r.current),
+    previous: r.previous != null ? Number(r.previous) : null,
+    delta:    r.delta != null ? Number(r.delta) : null,
+    isNew:    !!r.is_new,
+  }))
 }
 
 // ── PMM topic breakdown ─────────────────────────────────────────────────────
@@ -496,55 +478,21 @@ export async function getCompetitorVsClayTimeseries(
   f: FilterParams,
   competitor: string
 ): Promise<{ date: string; clay: number; competitor: number }[]> {
-  // Fast path: read from aeo_cache_competitors + aeo_cache_daily.
-  // Replaces: full responses scan + batched response_competitors per-date aggregation.
-  const start = f.startDate.split('T')[0]
-  const end   = f.endDate.split('T')[0]
-  const applyCache = (q: any) => {
-    q = q.gte('run_day', start).lte('run_day', end)
-    if (f.platforms?.length) q = q.in('platform', f.platforms)
-    if (f.promptType && f.promptType !== 'all') q = q.ilike('prompt_type', f.promptType)
-    return q
-  }
-
-  const [compData, dailyData] = await Promise.all([
-    fetchAllPages(applyCache(
-      sb.from('aeo_cache_competitors')
-        .select('run_day, mention_count')
-        .eq('competitor_name', competitor)
-    )),
-    fetchAllPages(applyCache(
-      sb.from('aeo_cache_daily')
-        .select('run_day, total_responses, clay_mentioned')
-    )),
-  ])
-
-  // Aggregate daily totals (sum across platforms/prompt_types)
-  const dailyMap = new Map<string, { total: number; clay: number }>()
-  for (const r of dailyData) {
-    const d = String(r.run_day)
-    const cur = dailyMap.get(d) ?? { total: 0, clay: 0 }
-    cur.total += Number(r.total_responses)
-    cur.clay  += Number(r.clay_mentioned)
-    dailyMap.set(d, cur)
-  }
-
-  const compMap = new Map<string, number>()
-  for (const r of compData) {
-    const d = String(r.run_day)
-    compMap.set(d, (compMap.get(d) ?? 0) + Number(r.mention_count))
-  }
-
-  const allDates = new Set([...dailyMap.keys(), ...compMap.keys()])
-  return Array.from(allDates).sort().map(date => {
-    const { total, clay } = dailyMap.get(date) ?? { total: 0, clay: 0 }
-    const comp = compMap.get(date) ?? 0
-    return {
-      date,
-      clay:       total > 0 ? (clay / total) * 100 : 0,
-      competitor: total > 0 ? (comp / total) * 100 : 0,
-    }
+  // Server-side aggregation from cache tables via RPC. Replaces client-side
+  // pagination of aeo_cache_competitors + aeo_cache_daily.
+  const { data, error } = await sb.rpc('get_competitor_timeseries_rpc', {
+    p_competitor:  competitor,
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType || 'all',
+    p_platforms:   (f.platforms && f.platforms.length > 0) ? f.platforms : null,
   })
+  if (error) { console.error('[getCompetitorVsClayTimeseries] RPC error:', error); return [] }
+  return (data ?? []).map((r: any) => ({
+    date: r.date,
+    clay: Number(r.clay),
+    competitor: Number(r.competitor),
+  }))
 }
 
 // ── Citation profile grouped by type (with response_id linkage) ─────────────

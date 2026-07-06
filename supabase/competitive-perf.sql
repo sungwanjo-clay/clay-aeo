@@ -107,8 +107,50 @@ LANGUAGE sql STABLE SET statement_timeout = '30000' AS $$
 $$;
 GRANT EXECUTE ON FUNCTION get_platform_heatmap_rpc(date,date,text,text[],int) TO anon, authenticated;
 
+-- 5. Winners & Losers — cache-based (replaces paginating aeo_cache_competitors
+--    x2, cur+prev). Top-250 by current share. current/previous verified identical
+--    to the old path (ZoomInfo 48.299/48.835, HubSpot 47.939/46.977).
+CREATE OR REPLACE FUNCTION get_winners_losers_rpc(
+  p_start_day date, p_end_day date, p_prev_start_day date, p_prev_end_day date,
+  p_prompt_type text DEFAULT 'all', p_platforms text[] DEFAULT NULL, p_limit int DEFAULT 250
+) RETURNS TABLE(competitor_name text, current double precision, previous double precision, delta double precision, is_new boolean)
+LANGUAGE sql STABLE SET statement_timeout='30000' AS $$
+  WITH cur AS (SELECT competitor_name, SUM(mention_count) m FROM aeo_cache_competitors
+    WHERE run_day BETWEEN p_start_day AND p_end_day AND competitor_name IS NOT NULL
+      AND (p_platforms IS NULL OR platform = ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type) GROUP BY competitor_name),
+  prv AS (SELECT competitor_name, SUM(mention_count) m FROM aeo_cache_competitors
+    WHERE run_day BETWEEN p_prev_start_day AND p_prev_end_day AND competitor_name IS NOT NULL
+      AND (p_platforms IS NULL OR platform = ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type) GROUP BY competitor_name),
+  tot AS (SELECT (SELECT COALESCE(SUM(total_responses),0) FROM aeo_cache_daily WHERE run_day BETWEEN p_start_day AND p_end_day AND (p_platforms IS NULL OR platform=ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type)) ct,
+                 (SELECT COALESCE(SUM(total_responses),0) FROM aeo_cache_daily WHERE run_day BETWEEN p_prev_start_day AND p_prev_end_day AND (p_platforms IS NULL OR platform=ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type)) pt)
+  SELECT COALESCE(c.competitor_name, p.competitor_name),
+         CASE WHEN t.ct>0 THEN COALESCE(c.m,0)::double precision/t.ct*100 ELSE 0 END,
+         CASE WHEN t.pt>0 THEN COALESCE(p.m,0)::double precision/t.pt*100 ELSE NULL END,
+         CASE WHEN t.pt>0 THEN (COALESCE(c.m,0)::double precision/NULLIF(t.ct,0)*100) - (COALESCE(p.m,0)::double precision/t.pt*100) ELSE NULL END,
+         ((t.pt=0 OR COALESCE(p.m,0)=0) AND COALESCE(c.m,0)>0)
+  FROM cur c FULL OUTER JOIN prv p ON p.competitor_name=c.competitor_name CROSS JOIN tot t
+  ORDER BY 2 DESC LIMIT p_limit;
+$$;
+GRANT EXECUTE ON FUNCTION get_winners_losers_rpc(date,date,date,date,text,text[],int) TO anon, authenticated;
+
+-- 6. Per-competitor daily timeseries — cache-based (replaces client pagination).
+CREATE OR REPLACE FUNCTION get_competitor_timeseries_rpc(
+  p_competitor text, p_start_day date, p_end_day date, p_prompt_type text DEFAULT 'all', p_platforms text[] DEFAULT NULL
+) RETURNS TABLE(date text, clay double precision, competitor double precision)
+LANGUAGE sql STABLE SET statement_timeout='30000' AS $$
+  WITH d AS (SELECT run_day, SUM(total_responses) total, SUM(clay_mentioned) clay FROM aeo_cache_daily
+    WHERE run_day BETWEEN p_start_day AND p_end_day AND (p_platforms IS NULL OR platform=ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type) GROUP BY run_day),
+  cc AS (SELECT run_day, SUM(mention_count) m FROM aeo_cache_competitors
+    WHERE competitor_name=p_competitor AND run_day BETWEEN p_start_day AND p_end_day AND (p_platforms IS NULL OR platform=ANY(p_platforms)) AND (p_prompt_type='all' OR prompt_type ILIKE p_prompt_type) GROUP BY run_day)
+  SELECT COALESCE(d.run_day, cc.run_day)::text,
+         CASE WHEN d.total>0 THEN d.clay::double precision/d.total*100 ELSE 0 END,
+         CASE WHEN d.total>0 THEN COALESCE(cc.m,0)::double precision/d.total*100 ELSE 0 END
+  FROM d FULL OUTER JOIN cc ON cc.run_day=d.run_day ORDER BY 1;
+$$;
+GRANT EXECUTE ON FUNCTION get_competitor_timeseries_rpc(text,date,date,text,text[]) TO anon, authenticated;
+
 -- ============================================================
 -- STILL TODO: getCompetitorPMMComparisonBatch, getCompetitorCitationsFlat,
--- and the competitor sentiment query still crawl `responses` client-side.
--- Convert to RPCs next.
+-- and the competitor sentiment query still crawl `responses` client-side (~46
+-- requests). Convert to RPCs to fully eliminate connection-pool saturation.
 -- ============================================================
