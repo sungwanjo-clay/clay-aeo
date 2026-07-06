@@ -383,7 +383,7 @@ function TopicBattleRow({
                     </span>
                   )}
                   <span style={LABEL}>Clay %</span>
-                  <span style={LABEL}>Gap</span>
+                  {nonClayComps.length > 0 && <span style={LABEL}>Gap</span>}
                   <span style={LABEL}>Resp.</span>
                 </div>
               </div>

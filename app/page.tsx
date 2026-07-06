@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useGlobalFilters } from '@/context/GlobalFilters'
 import { supabase } from '@/lib/supabase/client'
 import { getLatestInsight, getActiveAnomalies } from '@/lib/queries/home'
-import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getVisibilityByPMM, getPMMTable, getClaygentTimeseries, getFollowupTimeseries, getPMMPromptDrilldown } from '@/lib/queries/visibility'
+import { getVisibilityKpis, getDataFreshnessStats, getClayOverallTimeseries, getCompetitorLeaderboard, getCompetitorVisibilityTimeseries, getClaygentTimeseries, getFollowupTimeseries } from '@/lib/queries/visibility'
+import { getCompetitorPMMComparisonBatch, getCompetitorPMMPromptDrilldown } from '@/lib/queries/competitive'
+import type { PMMCompRow, PMMCompPromptRow } from '@/lib/queries/competitive'
 import { getSentimentBreakdown } from '@/lib/queries/sentiment'
 import { getCitationShare, getCitationOverallTimeseries, getTopCitedDomainsWithURLs, getCompetitorCitationTimeseries } from '@/lib/queries/citations'
 import type { InsightRow, AnomalyRow, CompetitorRow } from '@/lib/queries/types'
@@ -19,7 +21,7 @@ import { LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, Ca
 import { Info } from 'lucide-react'
 import { CHART_COLORS } from '@/lib/utils/colors'
 import CitationSection from '@/components/home/CitationSection'
-import PMMTopicsSection from '@/components/home/PMMTopicsSection'
+import CompPMMComparison from '@/components/competitive/CompPMMComparison'
 import ClaygentSection from '@/components/home/ClaygentSection'
 import CompetitorIcon from '@/components/shared/CompetitorIcon'
 
@@ -63,8 +65,9 @@ export default function HomePage() {
   const [citationTimeseries, setCitationTimeseries] = useState<{ date: string; value: number }[]>([])
   const [competitorCitTimeseries, setCompetitorCitTimeseries] = useState<{ date: string; domain: string; value: number }[]>([])
   const [citedDomains, setCitedDomains] = useState<{ domain: string; citation_count: number; share_pct: number; is_clay: boolean; citation_type: string | null; top_urls: { url: string; title: string | null; count: number }[] }[]>([])
-  const [pmmSeries, setPmmSeries] = useState<{ date: string; value: number; pmm_use_case?: string }[]>([])
-  const [pmmTable, setPmmTable] = useState<{ pmm_use_case: string; pmm_classification: string | null; visibility_score: number; delta: number | null; citation_share: number | null; avg_position: number | null; total_responses: number; timeseries: { date: string; value: number }[] }[]>([])
+  // Topic visibility now mirrors the Competitive tab's PMM view (Clay-only),
+  // via the same component + RPCs, for consistency across tabs.
+  const [pmmRowsMap, setPmmRowsMap] = useState<Record<string, PMMCompRow[]>>({})
   const [claygentTimeseries, setClaygentTimeseries] = useState<{ date: string; count: number }[]>([])
   const [followupTimeseries, setFollowupTimeseries] = useState<{ date: string; count: number }[]>([])
 
@@ -149,13 +152,11 @@ export default function HomePage() {
     })
 
     Promise.all([
-      getVisibilityByPMM(supabase, f),
-      getPMMTable(supabase, f),
+      getCompetitorPMMComparisonBatch(supabase, f, ['Clay']),
       getClaygentTimeseries(supabase, f),
       getFollowupTimeseries(supabase, f),
-    ]).then(([pmmTs, pmmTbl, claygentTs, followupTs]) => {
-      setPmmSeries(pmmTs)
-      setPmmTable(pmmTbl)
+    ]).then(([pmmRows, claygentTs, followupTs]) => {
+      setPmmRowsMap(pmmRows)
       setClaygentTimeseries(claygentTs)
       setFollowupTimeseries(followupTs)
       setLoadingExtra(false)
@@ -166,8 +167,9 @@ export default function HomePage() {
   }, [f, initialized])
 
 
-  const handlePMMDrilldown = useCallback(async (pmmUseCase: string, pmmClassification: string | null) => {
-    return getPMMPromptDrilldown(supabase, f, pmmUseCase, pmmClassification)
+  // Same drill-down the Competitive tab uses (Clay perspective).
+  const handlePMMDrilldown = useCallback(async (pmmUseCase: string): Promise<PMMCompPromptRow[]> => {
+    return getCompetitorPMMPromptDrilldown(supabase, f, 'Clay', pmmUseCase) as Promise<PMMCompPromptRow[]>
   }, [f])
 
   function visDelta() {
@@ -419,11 +421,11 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Topic Visibility */}
+      {/* Topic Visibility — mirrors the Competitive tab's PMM view (Clay-only) */}
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Topic Visibility</h2>
-        {loadingExtra ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
-          <PMMTopicsSection series={pmmSeries} table={pmmTable} compareEnabled={filters.compareEnabled} onDrilldown={handlePMMDrilldown} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
+        {loadingExtra ? <SkeletonChart /> : (
+          <CompPMMComparison allRows={pmmRowsMap} selectedComps={['Clay']} selected="Clay" onDrilldown={handlePMMDrilldown} />
         )}
       </div>
 
