@@ -148,10 +148,11 @@ export async function getFullLeaderboard(
 }
 
 export async function getDistinctPromptTypes(sb: SupabaseClient): Promise<string[]> {
-  // Query prompts table (small, fast) rather than paginating 9000+ response rows
-  const data = await fetchAllPages(sb.from('prompts').select('prompt_type').not('prompt_type', 'is', null))
-  const normalized = data.map((r: any) => (r.prompt_type ?? '').trim().toLowerCase()).filter(Boolean)
-  return [...new Set(normalized)].sort() as string[]
+  // Server-side SELECT DISTINCT via RPC (one call) instead of paginating the
+  // prompts table. Runs from the global filter bar on every page load.
+  const { data, error } = await sb.rpc('get_distinct_prompt_types_rpc')
+  if (error) { console.error('[getDistinctPromptTypes] RPC error:', error); return [] }
+  return (data ?? []).map((r: any) => r.prompt_type).filter(Boolean) as string[]
 }
 
 export async function getVisibilityTimeseries(

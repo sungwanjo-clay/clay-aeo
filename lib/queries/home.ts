@@ -2,20 +2,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { AnomalyRow, InsightRow } from './types'
 
-async function fetchAllPages(query: any): Promise<any[]> {
-  const PAGE = 1000
-  const all: any[] = []
-  let offset = 0
-  while (true) {
-    const { data, error } = await query.range(offset, offset + PAGE - 1)
-    if (error || !data?.length) break
-    all.push(...data)
-    if (data.length < PAGE) break
-    offset += PAGE
-  }
-  return all
-}
-
 export async function getLatestInsight(sb: SupabaseClient): Promise<InsightRow | null> {
   const today = new Date().toISOString().split('T')[0]
   // Prefer today's daily_insight, fall back to most recent
@@ -61,35 +47,6 @@ export async function dismissAnomaly(sb: SupabaseClient, id: string): Promise<vo
   await sb.from('anomalies').update({ dismissed: true }).eq('id', id)
 }
 
-export async function getTopCompetitorThisWeek(
-  sb: SupabaseClient,
-  startDate: string,
-  endDate: string
-): Promise<{ name: string; pct: number } | null> {
-  const data = await fetchAllPages(sb
-    .from('response_competitors')
-    .select('competitor_name')
-    .gte('run_date', startDate)
-    .lte('run_date', endDate))
-
-  if (!data.length) return null
-
-  const map = new Map<string, number>()
-  for (const r of data) {
-    const n = r.competitor_name ?? ''
-    map.set(n, (map.get(n) ?? 0) + 1)
-  }
-
-  const top = [...map.entries()].sort((a, b) => b[1] - a[1])[0]
-  if (!top) return null
-
-  // Get total unique responses to compute %
-  const totalData = await fetchAllPages(sb
-    .from('responses')
-    .select('id')
-    .gte('run_date', startDate)
-    .lte('run_date', endDate))
-
-  const total = totalData.length || 1
-  return { name: top[0], pct: (top[1] / total) * 100 }
-}
+// Removed: getTopCompetitorThisWeek — dead code (no callers) that crawled the
+// 4.4M-row response_competitors table plus all responses. Competitor share now
+// comes from the cache-backed get_winners_losers_rpc / get_competitor_leaderboard_rpc.
