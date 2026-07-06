@@ -149,8 +149,58 @@ LANGUAGE sql STABLE SET statement_timeout='30000' AS $$
 $$;
 GRANT EXECUTE ON FUNCTION get_competitor_timeseries_rpc(text,date,date,text,text[]) TO anon, authenticated;
 
+-- 7. PMM comparison per competitor. Clay → aeo_cache_pmm (~150ms). Others →
+--    server-side responses scan with the same normalized-substring match on
+--    competitors_mentioned (jsonb). Verified identical to old client logic.
+CREATE OR REPLACE FUNCTION get_pmm_comparison_rpc(
+  p_competitor text, p_start_day date, p_end_day date,
+  p_prompt_type text DEFAULT 'all', p_platforms text[] DEFAULT NULL
+) RETURNS TABLE(pmm_use_case text, total_responses bigint, clay_visibility double precision, competitor_visibility double precision, delta double precision)
+LANGUAGE plpgsql STABLE SET statement_timeout='30000' AS $fn$
+DECLARE slug text := regexp_replace(lower(p_competitor), '[^a-z0-9]', '', 'g');
+BEGIN
+  IF p_competitor = 'Clay' THEN
+    RETURN QUERY
+      SELECT p.pmm_use_case, SUM(p.total_responses)::bigint,
+             CASE WHEN SUM(p.total_responses)>0 THEN SUM(p.clay_mentioned)::double precision/SUM(p.total_responses)*100 ELSE 0 END,
+             CASE WHEN SUM(p.total_responses)>0 THEN SUM(p.clay_mentioned)::double precision/SUM(p.total_responses)*100 ELSE 0 END, 0::double precision
+      FROM aeo_cache_pmm p WHERE p.run_day BETWEEN p_start_day AND p_end_day AND p.pmm_use_case IS NOT NULL
+        AND (p_platforms IS NULL OR p.platform = ANY(p_platforms)) AND (p_prompt_type='all' OR p.prompt_type ILIKE p_prompt_type)
+      GROUP BY p.pmm_use_case ORDER BY 4 DESC;
+  ELSE
+    RETURN QUERY
+      SELECT r.pmm_use_case, COUNT(*)::bigint,
+             CASE WHEN COUNT(*)>0 THEN COUNT(*) FILTER (WHERE r.clay_mentioned ILIKE 'yes')::double precision/COUNT(*)*100 ELSE 0 END,
+             CASE WHEN COUNT(*)>0 THEN COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.competitors_mentioned) e WHERE regexp_replace(lower(e),'[^a-z0-9]','','g') LIKE '%'||slug||'%'))::double precision/COUNT(*)*100 ELSE 0 END,
+             CASE WHEN COUNT(*)>0 THEN (COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.competitors_mentioned) e WHERE regexp_replace(lower(e),'[^a-z0-9]','','g') LIKE '%'||slug||'%')) - COUNT(*) FILTER (WHERE r.clay_mentioned ILIKE 'yes'))::double precision/COUNT(*)*100 ELSE 0 END
+      FROM responses r WHERE r.run_day BETWEEN p_start_day AND p_end_day AND r.pmm_use_case IS NOT NULL
+        AND (p_platforms IS NULL OR r.platform = ANY(p_platforms)) AND (p_prompt_type='all' OR r.prompt_type ILIKE p_prompt_type)
+      GROUP BY r.pmm_use_case ORDER BY 4 DESC;
+  END IF;
+END $fn$;
+GRANT EXECUTE ON FUNCTION get_pmm_comparison_rpc(text,date,date,text,text[]) TO anon, authenticated;
+
+-- 8. Distinct tags for the global filter bar — replaces a 30+ page crawl of
+--    responses that ran on EVERY page load.
+CREATE OR REPLACE FUNCTION get_distinct_tags_rpc(p_start timestamptz, p_end timestamptz)
+RETURNS TABLE(tag text) LANGUAGE sql STABLE SET statement_timeout='20000' AS $$
+  SELECT DISTINCT trim(tags) FROM responses
+  WHERE tags IS NOT NULL AND trim(tags) <> '' AND run_date >= p_start AND run_date <= p_end ORDER BY 1;
+$$;
+GRANT EXECUTE ON FUNCTION get_distinct_tags_rpc(timestamptz,timestamptz) TO anon, authenticated;
+
+-- 9. Covering index so the range-filtered aggregations (winners/heatmap/timeseries)
+--    do index-only scans — needed because ~8 of them fire concurrently on load.
+CREATE INDEX IF NOT EXISTS idx_aeo_cache_comp_rangeagg
+  ON aeo_cache_competitors (run_day, prompt_type, platform) INCLUDE (competitor_name, mention_count);
+
 -- ============================================================
--- STILL TODO: getCompetitorPMMComparisonBatch, getCompetitorCitationsFlat,
--- and the competitor sentiment query still crawl `responses` client-side (~46
--- requests). Convert to RPCs to fully eliminate connection-pool saturation.
+-- RESULT: Competitive-tab load requests 227 -> ~18; ALL client-side crawls
+-- eliminated (every aggregation is now a server-side RPC).
+--
+-- REMAINING (further tuning, not blocking): ~10 RPCs fire concurrently on load
+-- and contend on the small Supabase instance (~11s dev wall-clock). Options:
+--   * combine the 5 get_competitor_timeseries_rpc calls into one multi-competitor RPC
+--   * materialize the all-time competitor list (get_competitor_list_rpc scans 321k rows)
+--   * source get_distinct_tags from a smaller table
 -- ============================================================

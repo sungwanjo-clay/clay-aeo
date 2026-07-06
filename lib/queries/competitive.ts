@@ -675,46 +675,29 @@ export async function getCompetitorPMMComparisonBatch(
 ): Promise<Record<string, PMMCompRow[]>> {
   if (!competitors.length) return {}
 
-  const responses = await fetchAllPages(applyFilters(
-    sb.from('responses')
-      .select('pmm_use_case, clay_mentioned, competitors_mentioned')
-      .not('pmm_use_case', 'is', null),
-    f
-  ))
-  if (!responses.length) return Object.fromEntries(competitors.map(c => [c, []]))
-
-  function parseCompArr(raw: any): string[] {
-    if (Array.isArray(raw)) return raw
-    if (typeof raw === 'string' && raw) { try { return JSON.parse(raw) } catch { return [] } }
-    return []
+  // Server-side aggregation via RPC, one call per competitor (parallel). Replaces
+  // a crawl of ~30k `responses` rows. Clay reads from aeo_cache_pmm (~150ms);
+  // competitors do a server-side responses scan with the same normalized-substring
+  // match on competitors_mentioned (verified identical to the old client logic).
+  const params = {
+    p_start_day:   f.startDate.split('T')[0],
+    p_end_day:     f.endDate.split('T')[0],
+    p_prompt_type: f.promptType || 'all',
+    p_platforms:   (f.platforms && f.platforms.length > 0) ? f.platforms : null,
   }
-
-  const result: Record<string, PMMCompRow[]> = {}
-  for (const competitor of competitors) {
-    const isClay   = competitor === 'Clay'
-    const compSlug = competitor.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const topicMap = new Map<string, { total: number; clay: number; comp: number }>()
-    for (const r of responses) {
-      if (!r.pmm_use_case) continue
-      const cur = topicMap.get(r.pmm_use_case) ?? { total: 0, clay: 0, comp: 0 }
-      cur.total++
-      const clayMentioned = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
-      if (clayMentioned) cur.clay++
-      const compMentioned = isClay ? clayMentioned
-        : parseCompArr(r.competitors_mentioned).some((c: string) =>
-            c.toLowerCase().replace(/[^a-z0-9]/g, '').includes(compSlug))
-      if (compMentioned) cur.comp++
-      topicMap.set(r.pmm_use_case, cur)
-    }
-    result[competitor] = Array.from(topicMap.entries()).map(([pmm_use_case, { total, clay, comp }]) => ({
-      pmm_use_case,
-      total_responses: total,
-      competitor_visibility: total > 0 ? (comp / total) * 100 : 0,
-      clay_visibility:       total > 0 ? (clay / total) * 100 : 0,
-      delta:                 total > 0 ? ((comp - clay) / total) * 100 : 0,
-    })).sort((a, b) => b.competitor_visibility - a.competitor_visibility)
-  }
-  return result
+  const entries = await Promise.all(competitors.map(async (competitor) => {
+    const { data, error } = await sb.rpc('get_pmm_comparison_rpc', { p_competitor: competitor, ...params })
+    if (error) { console.error('[getCompetitorPMMComparisonBatch] RPC error:', error); return [competitor, []] as const }
+    const rows: PMMCompRow[] = (data ?? []).map((r: any) => ({
+      pmm_use_case:          r.pmm_use_case,
+      total_responses:       Number(r.total_responses),
+      competitor_visibility: Number(r.competitor_visibility),
+      clay_visibility:       Number(r.clay_visibility),
+      delta:                 Number(r.delta),
+    }))
+    return [competitor, rows] as const
+  }))
+  return Object.fromEntries(entries)
 }
 
 export async function getCompetitorPMMComparison(

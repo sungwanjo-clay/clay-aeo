@@ -323,11 +323,13 @@ export async function getDistinctBrandedValues(sb: SupabaseClient): Promise<stri
 }
 
 export async function getDistinctTags(sb: SupabaseClient, startDate?: string, endDate?: string): Promise<string[]> {
-  let query = sb.from('responses').select('tags').not('tags', 'is', null)
-  if (startDate) query = query.gte('run_date', startDate)
-  if (endDate) query = query.lte('run_date', endDate)
-  const data = await fetchAllPages(query)
-  return [...new Set(data.map(r => (r.tags ?? '').trim()).filter(Boolean))].sort() as string[]
+  // Server-side SELECT DISTINCT via RPC — replaces a crawl of all ~30k responses
+  // in range (30+ paginated round trips) that ran on EVERY page load and
+  // saturated the connection pool.
+  if (!startDate || !endDate) return []
+  const { data, error } = await sb.rpc('get_distinct_tags_rpc', { p_start: startDate, p_end: endDate })
+  if (error) { console.error('[getDistinctTags] RPC error:', error); return [] }
+  return (data ?? []).map((r: any) => r.tag).filter(Boolean) as string[]
 }
 
 export async function getClaygentCount(
