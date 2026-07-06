@@ -56,14 +56,21 @@ export default function GlobalFilterBar() {
   const startISO = filters.dateRange.start.toISOString()
   const endISO = filters.dateRange.end.toISOString()
 
+  // Keyword-type options come from the small `prompts` table and don't depend
+  // on the date range — load them once on mount so they're not blocked behind
+  // the slow tag crawl below (which paginates ~30k response rows).
   useEffect(() => {
-    Promise.all([
-      getDistinctTags(supabase, startISO, endISO),
-      getDistinctPromptTypes(supabase),
-    ]).then(([tg, pt]) => {
-      setTags(tg)
-      setPromptTypes(pt)
-    })
+    getDistinctPromptTypes(supabase)
+      .then(setPromptTypes)
+      .catch(() => {})
+  }, [])
+
+  // Tags depend on the date window and require scanning responses — keep this
+  // separate so it never gates the keyword-type dropdown.
+  useEffect(() => {
+    getDistinctTags(supabase, startISO, endISO)
+      .then(setTags)
+      .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startISO, endISO])
 
