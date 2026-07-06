@@ -175,6 +175,20 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
           {p.prompt_text}
         </span>
         <div className="flex items-center gap-3 shrink-0">
+          {/* Which top competitors show up in this prompt — the "who wins here" signal */}
+          {p.top_comps_present && p.top_comps_present.length > 0 && (
+            <div className="hidden md:flex items-center gap-1">
+              {p.top_comps_present.slice(0, 3).map(comp => (
+                <span key={comp} className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                  style={{ background: 'rgba(74,90,255,0.1)', color: '#4A5AFF' }}>{comp}</span>
+              ))}
+              {p.top_comps_present.length > 3 && (
+                <span className="text-[9px] font-semibold" style={{ color: 'rgba(26,25,21,0.35)' }}>
+                  +{p.top_comps_present.length - 3}
+                </span>
+              )}
+            </div>
+          )}
           {nonClayComps.length > 0 && (
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold tabular-nums" style={{ color: compColor }}>
@@ -194,7 +208,9 @@ function CompPromptRow({ p, selected, nonClayComps }: { p: PMMCompPromptRow; sel
             </div>
           )}
           {nonClayComps.length === 0 && (
-            <span className="text-[12px] font-bold tabular-nums" style={{ color: 'var(--clay-black)' }}>
+            <span className="text-[12px] font-bold tabular-nums"
+              title={p.clay_visibility > 0 ? 'Clay mentioned' : 'Clay not mentioned'}
+              style={{ color: p.clay_visibility > 0 ? 'var(--clay-black)' : 'var(--clay-pomegranate)' }}>
               {p.clay_visibility.toFixed(1)}%
             </span>
           )}
@@ -388,10 +404,11 @@ function TopicBattleRow({
                 </div>
               </div>
 
-              {/* Prompt rows sorted by biggest gap vs Clay */}
+              {/* Prompt rows sorted by Opportunity: most contested (most top
+                  competitors present) first, then where Clay is least visible. */}
               {visiblePrompts
                 .slice()
-                .sort((a, b) => (a.clay_visibility - a.competitor_visibility) - (b.clay_visibility - b.competitor_visibility))
+                .sort((a, b) => ((b.top_comp_hits ?? 0) - (a.top_comp_hits ?? 0)) || (a.clay_visibility - b.clay_visibility))
                 .map(p => (
                   <CompPromptRow key={p.prompt_id} p={p} selected={selected} nonClayComps={nonClayComps} />
                 ))}

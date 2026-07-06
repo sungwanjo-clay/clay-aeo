@@ -795,6 +795,10 @@ export interface PMMCompPromptRow {
   clay_visibility: number
   delta: number
   responses: PMMCompResponseRow[]
+  // How many of the top competitors show up in this prompt's responses, and which.
+  // Drives the "Opportunity" sort: contested prompts where Clay is absent rank first.
+  top_comp_hits: number
+  top_comps_present: string[]
 }
 
 export async function getCompetitorPMMPromptDrilldown(
@@ -821,6 +825,15 @@ export async function getCompetitorPMMPromptDrilldown(
 
   if (!responses?.length) return []
 
+  // Top competitors (the "Top Mentioned Competitors" set) — used to score each
+  // prompt by how many big competitors show up. Cheap read from mv_competitor_ranks.
+  const { data: topList } = await sb.rpc('get_competitor_list_rpc', { p_limit: 12 })
+  const topCompAlpha = ((topList ?? []) as { competitor_name: string }[])
+    .map(r => r.competitor_name)
+    .filter(c => c && c.toLowerCase() !== 'clay')
+    .slice(0, 8)
+    .map(name => ({ name, slug: name.toLowerCase().replace(/[^a-z0-9]/g, '') }))
+
   // Helper: check if a response's competitors_mentioned field includes the competitor.
   // Supabase can return JSONB columns as either a parsed array OR a JSON string —
   // handle both. Falls back to false if null/empty.
@@ -843,19 +856,24 @@ export async function getCompetitorPMMPromptDrilldown(
   const promptIds = [...new Set(responses.map(r => r.prompt_id).filter(Boolean))]
   const textMap = await fetchPromptTexts(sb, promptIds)
 
-  const promptMap = new Map<string, { prompt_text: string; total: number; clay: number; comp: number; responses: PMMCompResponseRow[] }>()
+  const promptMap = new Map<string, { prompt_text: string; total: number; clay: number; comp: number; responses: PMMCompResponseRow[]; topComps: Set<string> }>()
   for (const r of responses) {
     const pid = r.prompt_id
     if (!pid) continue
     const cur = promptMap.get(pid) ?? {
       prompt_text: textMap.get(pid) ?? '(unknown prompt)',
-      total: 0, clay: 0, comp: 0, responses: [],
+      total: 0, clay: 0, comp: 0, responses: [], topComps: new Set<string>(),
     }
     cur.total++
     const clayMentioned2 = (r.clay_mentioned ?? '').toLowerCase() === 'yes'
     if (clayMentioned2) cur.clay++
     const compMentioned = isCompMentioned(r)
     if (compMentioned) cur.comp++
+    // Which of the top competitors appear in this response (normalized match)
+    const respComps = parseCompArr(r.competitors_mentioned).map((c: string) => c.toLowerCase().replace(/[^a-z0-9]/g, ''))
+    for (const tc of topCompAlpha) {
+      if (respComps.some(rc => rc === tc.slug || (tc.slug.length > 2 && rc.includes(tc.slug)))) cur.topComps.add(tc.name)
+    }
     cur.responses.push({
       id: r.id,
       platform: r.platform ?? '',
@@ -868,7 +886,7 @@ export async function getCompetitorPMMPromptDrilldown(
     promptMap.set(pid, cur)
   }
 
-  return Array.from(promptMap.entries()).map(([prompt_id, { prompt_text, total, clay, comp, responses }]) => ({
+  return Array.from(promptMap.entries()).map(([prompt_id, { prompt_text, total, clay, comp, responses, topComps }]) => ({
     prompt_id,
     prompt_text,
     total_responses: total,
@@ -876,7 +894,12 @@ export async function getCompetitorPMMPromptDrilldown(
     clay_visibility: total > 0 ? (clay / total) * 100 : 0,
     delta: total > 0 ? ((comp - clay) / total) * 100 : 0,
     responses: responses.sort((a, b) => b.run_date.localeCompare(a.run_date)),
-  })).sort((a, b) => b.competitor_visibility - a.competitor_visibility)
+    top_comp_hits: topComps.size,
+    top_comps_present: [...topComps],
+  }))
+    // "Opportunity" default: most contested prompts (most top competitors present)
+    // first, and within those the ones where Clay is least visible — i.e. the gaps.
+    .sort((a, b) => (b.top_comp_hits - a.top_comp_hits) || (a.clay_visibility - b.clay_visibility))
 }
 
 // ── Claygent tracker ─────────────────────────────────────────────────────────
