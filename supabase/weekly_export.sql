@@ -166,3 +166,174 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION get_weekly_top_cited_domains(DATE, DATE, INT) TO anon, authenticated, service_role;
+
+
+-- ============================================================
+-- Per-URL and per-domain weekly aggregations from responses.citations
+--
+-- One row per (ISO week × url) with citation counts, per-platform /
+-- per-prompt-type / per-citation-type splits, url-type mode, and
+-- clay_mention_rate for the responses that cite the URL.
+-- Response-level fields that don't make sense per-URL (brand sentiment,
+-- clay_mention_position, credits, tools recommended) are excluded.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION get_weekly_url_citations(
+  p_start_day DATE,
+  p_end_day   DATE
+)
+RETURNS TABLE(
+  week_start                                 DATE,
+  week_end                                   DATE,
+  url                                        TEXT,
+  domain                                     TEXT,
+  title_most_common                          TEXT,
+  citation_count                             BIGINT,
+  responses_citing                           BIGINT,
+  unique_prompts                             BIGINT,
+  unique_topics                              BIGINT,
+  chatgpt_responses                          BIGINT,
+  claude_responses                           BIGINT,
+  benchmark_responses                        BIGINT,
+  branded_responses                          BIGINT,
+  citation_type_competition                  BIGINT,
+  citation_type_other                        BIGINT,
+  url_type_most_common                       TEXT,
+  clay_mention_rate_pct_of_citing_responses  NUMERIC
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '120000'
+AS $$
+  WITH exploded AS (
+    SELECT
+      date_trunc('week', r.run_day)::date AS week_start,
+      r.id, r.platform, r.prompt_type, r.prompt_id, r.topic, r.clay_mentioned,
+      c->>'url'     AS url,
+      c->>'domain'  AS domain,
+      c->>'title'   AS title,
+      c->>'type'    AS citation_type,
+      c->>'urlType' AS url_type
+    FROM responses r
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.citations, '[]'::jsonb)) AS c
+    WHERE r.run_day BETWEEN p_start_day AND p_end_day
+      AND (c->>'url') IS NOT NULL
+  ),
+  -- One (week, url, response) row per unique citing response, so per-response
+  -- counts don't double-count when the same response cites the same URL twice.
+  per_response AS (
+    SELECT DISTINCT week_start, url, id, platform, prompt_type, prompt_id, topic, clay_mentioned,
+                    FIRST_VALUE(domain) OVER (PARTITION BY week_start, url ORDER BY (domain IS NULL), domain) AS domain
+    FROM exploded
+  ),
+  title_mode AS (
+    SELECT week_start, url, title AS title_most_common,
+           ROW_NUMBER() OVER (PARTITION BY week_start, url ORDER BY COUNT(*) DESC, title) AS rn
+    FROM exploded
+    WHERE title IS NOT NULL AND title <> ''
+    GROUP BY 1, 2, 3
+  ),
+  urltype_mode AS (
+    SELECT week_start, url, url_type AS url_type_most_common,
+           ROW_NUMBER() OVER (PARTITION BY week_start, url ORDER BY COUNT(*) DESC, url_type) AS rn
+    FROM exploded
+    WHERE url_type IS NOT NULL AND url_type <> ''
+    GROUP BY 1, 2, 3
+  )
+  SELECT
+    e.week_start,
+    (e.week_start + INTERVAL '6 days')::date                             AS week_end,
+    e.url,
+    MAX(pr.domain)                                                       AS domain,
+    (SELECT title_most_common FROM title_mode WHERE week_start = e.week_start AND url = e.url AND rn = 1) AS title_most_common,
+    COUNT(*)                                                             AS citation_count,
+    COUNT(DISTINCT pr.id)                                                AS responses_citing,
+    COUNT(DISTINCT pr.prompt_id)                                         AS unique_prompts,
+    COUNT(DISTINCT pr.topic)                                             AS unique_topics,
+    COUNT(DISTINCT pr.id) FILTER (WHERE pr.platform = 'ChatGPT')         AS chatgpt_responses,
+    COUNT(DISTINCT pr.id) FILTER (WHERE pr.platform = 'Claude')          AS claude_responses,
+    COUNT(DISTINCT pr.id) FILTER (WHERE pr.prompt_type ILIKE 'benchmark') AS benchmark_responses,
+    COUNT(DISTINCT pr.id) FILTER (WHERE pr.prompt_type ILIKE 'branded')   AS branded_responses,
+    COUNT(*) FILTER (WHERE e.citation_type ILIKE 'competition')          AS citation_type_competition,
+    COUNT(*) FILTER (WHERE e.citation_type IS NULL OR NOT (e.citation_type ILIKE 'competition')) AS citation_type_other,
+    (SELECT url_type_most_common FROM urltype_mode WHERE week_start = e.week_start AND url = e.url AND rn = 1) AS url_type_most_common,
+    ROUND(100.0 * COUNT(DISTINCT pr.id) FILTER (WHERE pr.clay_mentioned ILIKE 'yes')
+          / NULLIF(COUNT(DISTINCT pr.id), 0), 2)                         AS clay_mention_rate_pct_of_citing_responses
+  FROM exploded e
+  LEFT JOIN per_response pr
+    ON pr.week_start = e.week_start AND pr.url = e.url AND pr.id = e.id
+  GROUP BY e.week_start, e.url
+  ORDER BY e.week_start, citation_count DESC, e.url;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_weekly_url_citations(DATE, DATE) TO anon, authenticated, service_role;
+
+
+CREATE OR REPLACE FUNCTION get_weekly_domain_citations(
+  p_start_day DATE,
+  p_end_day   DATE
+)
+RETURNS TABLE(
+  week_start                                 DATE,
+  week_end                                   DATE,
+  domain                                     TEXT,
+  citation_count                             BIGINT,
+  unique_urls                                BIGINT,
+  responses_citing                           BIGINT,
+  unique_prompts                             BIGINT,
+  unique_topics                              BIGINT,
+  chatgpt_responses                          BIGINT,
+  claude_responses                           BIGINT,
+  benchmark_responses                        BIGINT,
+  branded_responses                          BIGINT,
+  citation_type_competition                  BIGINT,
+  citation_type_other                        BIGINT,
+  url_type_most_common                       TEXT,
+  clay_mention_rate_pct_of_citing_responses  NUMERIC
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET statement_timeout = '120000'
+AS $$
+  WITH exploded AS (
+    SELECT
+      date_trunc('week', r.run_day)::date AS week_start,
+      r.id, r.platform, r.prompt_type, r.prompt_id, r.topic, r.clay_mentioned,
+      c->>'url'     AS url,
+      c->>'domain'  AS domain,
+      c->>'type'    AS citation_type,
+      c->>'urlType' AS url_type
+    FROM responses r
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.citations, '[]'::jsonb)) AS c
+    WHERE r.run_day BETWEEN p_start_day AND p_end_day
+      AND (c->>'domain') IS NOT NULL
+  ),
+  urltype_mode AS (
+    SELECT week_start, domain, url_type AS url_type_most_common,
+           ROW_NUMBER() OVER (PARTITION BY week_start, domain ORDER BY COUNT(*) DESC, url_type) AS rn
+    FROM exploded
+    WHERE url_type IS NOT NULL AND url_type <> ''
+    GROUP BY 1, 2, 3
+  )
+  SELECT
+    e.week_start,
+    (e.week_start + INTERVAL '6 days')::date                             AS week_end,
+    e.domain,
+    COUNT(*)                                                             AS citation_count,
+    COUNT(DISTINCT e.url)                                                AS unique_urls,
+    COUNT(DISTINCT e.id)                                                 AS responses_citing,
+    COUNT(DISTINCT e.prompt_id)                                          AS unique_prompts,
+    COUNT(DISTINCT e.topic)                                              AS unique_topics,
+    COUNT(DISTINCT e.id) FILTER (WHERE e.platform = 'ChatGPT')           AS chatgpt_responses,
+    COUNT(DISTINCT e.id) FILTER (WHERE e.platform = 'Claude')            AS claude_responses,
+    COUNT(DISTINCT e.id) FILTER (WHERE e.prompt_type ILIKE 'benchmark')  AS benchmark_responses,
+    COUNT(DISTINCT e.id) FILTER (WHERE e.prompt_type ILIKE 'branded')    AS branded_responses,
+    COUNT(*) FILTER (WHERE e.citation_type ILIKE 'competition')          AS citation_type_competition,
+    COUNT(*) FILTER (WHERE e.citation_type IS NULL OR NOT (e.citation_type ILIKE 'competition')) AS citation_type_other,
+    (SELECT url_type_most_common FROM urltype_mode WHERE week_start = e.week_start AND domain = e.domain AND rn = 1) AS url_type_most_common,
+    ROUND(100.0 * COUNT(DISTINCT e.id) FILTER (WHERE e.clay_mentioned ILIKE 'yes')
+          / NULLIF(COUNT(DISTINCT e.id), 0), 2)                          AS clay_mention_rate_pct_of_citing_responses
+  FROM exploded e
+  GROUP BY e.week_start, e.domain
+  ORDER BY e.week_start, citation_count DESC, e.domain;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_weekly_domain_citations(DATE, DATE) TO anon, authenticated, service_role;
