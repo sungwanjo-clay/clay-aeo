@@ -106,7 +106,9 @@ Writes `.aeo-outreach/targets.json`.
 
 ### Stage 6 — Author enrichment via Clay MCP
 
-For each target with a non-empty `author_byline`, call:
+Two resolution paths, chosen per target based on the scraped byline:
+
+**Path A — Named author.** If `author_byline` is a real person's name (first + last, not a role/team name), call:
 
 ```
 mcp__Clay__find-and-enrich-contacts-at-company({
@@ -123,7 +125,45 @@ mcp__Clay__find-and-enrich-list-of-contacts({
 })
 ```
 
-If both fail, mark the row `author_email = null` (still keep it — user may find manually). Attach `linkedin_url` if returned.
+If both fail, ALSO run Path B below (the SEO lead is often the right escalation contact anyway) and CC them on the outreach.
+
+**Path B — Team byline or unnamed.** If the byline is empty, or matches patterns like `"The X Team"`, `"X Editorial"`, `"Marketing Team"`, `"Content Team"`, or any generic role, search for the SEO/AEO lead at the company. Call:
+
+```
+mcp__Clay__find-and-enrich-contacts-at-company({
+  companyIdentifier: <target domain>,
+  contactFilters: {
+    job_title_keywords: [
+      "SEO", "AEO", "GEO",
+      "Organic", "Content Marketing",
+      "Head of Content", "Editorial",
+      "Growth Marketing"
+    ]
+  },
+  dataPoints: { contactDataPoints: [{type: "Email"}, {type: "LinkedIn"}] }
+})
+```
+
+Preferred titles in order (pick the most senior match at the domain):
+1. Head of SEO / Director of SEO / SEO Lead / SEO Manager
+2. Head of AEO / AEO Lead / GEO Manager
+3. Head of Content / Content Marketing Manager / Editorial Director / Head of Editorial
+4. Growth Marketing Manager / Head of Growth (only if content is part of their remit)
+
+Skip founders/CEOs unless it's an unequivocal SMB or the founder personally writes the blog.
+
+**Log the resolution path per target** in `authors_enriched.json`:
+- `resolution: "named_author"` — Path A succeeded
+- `resolution: "named_author_plus_seo_cc"` — Path A found a person, Path B found an SEO lead to CC
+- `resolution: "seo_lead_fallback"` — Path A failed, Path B succeeded
+- `resolution: "team_byline_lookup"` — no named author, Path B succeeded
+- `resolution: "unresolved"` — nothing found
+
+In the outreach email:
+- `To:` primary contact (named author when available, else SEO lead)
+- `CC:` SEO/AEO lead if resolved and distinct from the primary
+
+If both paths fail, keep the row with `author_email = null` — the user may resolve manually.
 
 Writes `.aeo-outreach/targets_enriched.json`.
 
