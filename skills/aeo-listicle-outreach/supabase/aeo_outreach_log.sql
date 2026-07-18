@@ -37,15 +37,16 @@ CREATE TABLE IF NOT EXISTS aeo_outreach_log (
   status         TEXT        NOT NULL DEFAULT 'queued'
     CHECK (status IN (
       'queued',
-      'outline_ready',      -- stage 8a done, placeholders still present
-      'draft_ready',        -- stage 8b done, screenshots/pricing filled
-      'awaiting_review',    -- stage 8c done, Google Doc published, waiting on human
-      'approved',           -- human OK'd the Google Doc
-      'email_ready',        -- stage 9 done, outreach email drafted
-      'sent',
-      'replied',
-      'mentioned',
-      'published',
+      'outline_ready',      -- stage 8a: mirror article outline exists
+      'draft_ready',        -- stage 8b: outline enriched with screenshots + pricing
+      'awaiting_review',    -- stage 8c: Google Doc published, awaiting human OK
+      'approved',           -- human approved the mirror article
+      'email_ready',        -- stage 9b: outreach email drafted (still just a draft — human must send)
+      'sent',               -- human hit Send in their mail client
+      'replied',            -- author responded — status_note has reply text
+      'reply_drafted',      -- stage 9c: response drafted (still a draft — human must send)
+      'mentioned',          -- author added Clay to their piece
+      'published',          -- our mirror article shipped (Webflow draft → human hit publish)
       'failed',
       'skipped'
     )),

@@ -13,6 +13,26 @@ Third-party listicles drive most AI citations for benchmark keywords. When Clay 
 
 ---
 
+## DRAFT-MODE INVARIANT (CRITICAL)
+
+Everything this skill produces is a **draft**. Nothing gets sent or published without a human pressing a button.
+
+| Artifact | Where it lives | Who ships it |
+|---|---|---|
+| Outreach email | `.aeo-outreach/emails/{slug}.md` | Human copies to Gmail, reviews, hits Send |
+| Reply email | `.aeo-outreach/replies/{slug}.md` | Human reviews, hits Send |
+| Mirror article | `.aeo-outreach/drafts/{slug}.enriched.md` + Google Doc | Human reviews Doc, hits Publish in Webflow |
+| Webflow entry | Pushed with `_draft` status only (once Phase 4 automation is built) | Human clicks Publish in Webflow admin |
+
+The skill NEVER:
+- Sends an email via SMTP / Gmail API / anything
+- Publishes to Webflow (only pushes as draft, once that automation exists)
+- Mutates status past `email_ready` without explicit human confirmation via chat
+
+This constraint exists so that (1) a bug in the skill can't damage relationships or ship bad content, and (2) the user validates outreach quality on real recipients before we automate any send-loop.
+
+---
+
 ## Environment
 
 Reads from process env (do not hardcode):
@@ -242,55 +262,96 @@ The `<clay_positioning.json>` file holds article-specific Clay facts (positionin
 
 Output includes `block_markdown` (the paste-ready entry), plus short `tone_notes`, `structure_notes`, and `position_recommendation` (where in their list Clay would slot in most naturally).
 
-### Stage 9b — Draft outreach email (post-review)
+### Stage 9b — Draft outreach email (single-step, "heads-up" template)
 
-For each target with `status = 'draft_ready'`, generate an email using this exact template (adjust placeholders only — do not change the ask):
+For each approved target, draft ONE email using the exact template below. Save to `.aeo-outreach/emails/{slug}.md`. Update log: `status = 'email_ready'`.
+
+**Design principle:** the email is a *courtesy heads-up* about our upcoming article, not a review request. The paste-ready Clay entry for their piece is offered separately, with no strings. Two asks are decoupled; neither is contingent on the other. Silence is a valid response.
 
 ```
-Subject: Made you a paste-ready Clay entry for "<target_title>"
+Subject: Heads up — mentioning your space in "<mirror_article_title>"
 
 Hi <FirstName>,
 
-I'm <UserFirstName> from Clay. I've been reading your piece on "<target_title>" — the section on <specific_thing_from_scrape> was particularly sharp.
+I'm <UserFirstName> from Clay. We're publishing "<mirror_article_title>" next week — a listicle covering <category> where Clay is entry #<position> alongside <2 tools from their list>.
 
-Clay isn't in the list right now, and I think we'd actually be a natural fit alongside <name of 2 tools from their list> — teams tend to stack us with those tools rather than pick between them, because <one-line reason based on Clay's differentiator>. To make it zero-effort if you agree, I drafted a Clay entry that matches your article's structure and voice exactly — you can paste it in as-is or edit freely:
+Wanted to give you a heads up since I studied your piece "<target_title>" for context (the section on <specific_thing_from_scrape> in particular). Here's how we're framing Clay:
+
+  Best for: <clay_positioning.best_for>
+  What's different: <clay_positioning.differentiator>
+  Proof: <clay_positioning.proof>
+
+Any red flags with that framing? Otherwise I'll take silence as a green light.
+
+Separately, and with no strings tied to the above: I noticed Clay isn't in your piece. If you ever want to add us, I drafted an entry that matches your article's structure and voice — zero editing needed:
 
 --- PASTE-READY CLAY ENTRY ---
 <block_markdown from generate_mention_block.ts>
 --- END ---
 
-Suggested position: <position_recommendation from generate_mention_block.ts>.
+Suggested position: <position_recommendation from generate_mention_block.ts>
 
-In return: I'm publishing "<mirror_article_title>" next week, and I'd love to include <TargetPublication> in it — either linking to your piece as the authoritative source on this category, or featuring <FirstName> as a quoted expert. Whichever you'd prefer.
-
-Two smaller things I'd genuinely value your read on before we publish ours:
-1. <positioning_question_1>  (e.g. "We're calling Clay 'waterfall enrichment across 100+ providers' — does that read as accurate or overclaiming to you?")
-2. <positioning_question_2>  (e.g. "We position it as best for RevOps building custom pipelines. Would you frame the ideal user differently?")
-
-Happy to send you the full draft if that helps — takes 5 min to skim.
-
-Thanks either way,
+Thanks,
 <UserFirstName>
 ```
 
-Guardrails:
-- Never fabricate a "you mentioned X in your bio" — only reference things pulled from the scraped article.
-- The paste-ready block must come from `generate_mention_block.ts` — do not hand-write it, or it won't match the target's voice.
-- The reciprocity offer is concrete (link/quote), not vague. Pick one that fits the target's likely motivation (publication link for outlets with ranking-sensitive traffic, quoted-expert for individual authors building their brand).
-- Two positioning questions max, drawn from real ambiguity in the mirror article — never invented, never asking about something you've already stated firmly in the mirror piece.
-- Never insert intentional errors (pricing typos, name misspellings, etc). The ask must be a real ask.
+STRICT RULES:
+1. **No feedback ask.** The email does NOT request positioning review, expert input, or "would love your read on X." That reads as demanding reviewer time. `"Any red flags?"` is passive-permission — silence means proceed.
+2. **No "in exchange" / "in return" phrasing.** The framing is "since we're both in the space, made it easy either way" — never transactional.
+3. **Two asks are decoupled.** The heads-up on our framing and the optional add to their piece must be presented as independent — neither contingent on the other.
+4. **Under 200 words** total (excluding the paste-ready block).
+5. **Named author only.** No CC on outreach send. If the author was resolved via Path B (SEO lead fallback), email the SEO lead directly (still no CC — the SEO lead IS the primary contact in that case).
+6. **The paste-ready block must come from `generate_mention_block.ts`** — do not hand-write it, or it won't match the target's voice.
+7. **Never fabricate specifics.** "The section on X" must reference something actually in the scraped article. Never invent a `<specific_thing_from_scrape>`.
 
-Save to `.aeo-outreach/emails/{slug}.md`. Update log: `status = 'email_ready'`.
+Reply drafts (Stage 9c) are drafted REACTIVELY, not proactively — see below.
 
-Only draft emails for targets whose article was `approved` in stage 8c. Never draft an email for a target still in `awaiting_review` or `draft_ready` — the human review is a hard gate.
+### Stage 9c — Draft reply (reactive, when the author responds)
 
-### Stage 10 — Webflow publish (STUB — do not implement automation yet)
+When the outreach log shows `status = 'replied'` with reply text in `status_note`, draft a response to `.aeo-outreach/replies/{slug}.md`. This stage runs one target at a time (triggered by the human pasting the reply, or by future Gmail-poll automation).
 
-Print to the user:
+Reply template shape (adapt to their specific response):
 
-> All drafts + emails ready in `.aeo-outreach/`. Webflow push is intentionally not automated. Review each draft, then push to Webflow manually via CMS. When we're ready to automate this, I'll add the collection ID + field mapping to the skill.
+```
+Subject: Re: <original subject>
 
-Do not call the Webflow API in this version.
+Hi <FirstName>,
+
+<one-sentence acknowledgment of their specific feedback — verbatim reference to what they said>
+
+<one-sentence response addressing their point — accept the correction, defend if genuinely wrong, or clarify>
+
+<if they haven't already declined the paste-ready block: gently reiterate it's there if useful; if they've declined: drop it entirely>
+
+Thanks,
+<UserFirstName>
+```
+
+Reply drafting rules:
+- Address ONLY what they said. Do not raise new topics.
+- If they said "positioning looks good" → thank + confirm we'll ship as-is + light nudge on the paste-ready block.
+- If they corrected positioning → thank + confirm we'll update + note the change.
+- If they said "add us reciprocally" → confirm delighted + share our exact positioning again for their reference.
+- If they said "no thanks" → thank + one-line close, no re-pitch.
+- Never re-open a decided question.
+
+Save reply drafts to `.aeo-outreach/replies/{slug}.md`. Update log: `status = 'reply_drafted'` (add to CHECK constraint if not present).
+
+### Stage 10 — Webflow draft push (Phase 4 automation, not yet implemented)
+
+**Current behavior:** stub — do NOT call the Webflow API. Print to the user:
+
+> All artifacts staged as drafts in `.aeo-outreach/`. Nothing has been sent or published. Manually:
+>   1. Copy each email from `.aeo-outreach/emails/{slug}.md` into your mail client, review, hit Send.
+>   2. When authors reply, paste their reply to trigger Stage 9c (I'll draft a response).
+>   3. Publish mirror articles from the Google Docs to Webflow manually.
+
+**Future behavior (Phase 4 build):** when the outreach log shows `status = 'mentioned'` AND the mirror article has been reviewed:
+1. Call Webflow CMS API `POST /collections/{id}/items` with `_draft: true`, `_archived: false`.
+2. Map local markdown fields → Webflow collection fields per configured mapping.
+3. Update log: `status = 'published'` only after the human clicks Publish in Webflow admin (never auto-published by the skill).
+
+Requires user to provide: Webflow API token, target collection ID, and field mapping. Do not implement until user explicitly requests Phase 4.
 
 ### Stage 11 — Log the run
 
