@@ -1,0 +1,26 @@
+{
+  "name": "aeo-listicle-outreach-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Support scripts for the aeo-listicle-outreach skill. Run each stage independently with `tsx <script>.ts`.",
+  "scripts": {
+    "candidates": "tsx fetch_candidates.ts",
+    "filter": "tsx domain_filter.ts",
+    "ahrefs": "tsx ahrefs_check.ts",
+    "scrape": "tsx scrape_url.ts",
+    "listicle": "tsx detect_listicle.ts",
+    "mention": "tsx check_clay_mention.ts"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "jsdom": "^25.0.1",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

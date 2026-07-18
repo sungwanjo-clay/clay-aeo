@@ -1,0 +1,12 @@
+# Manual competitor / noise deny-list. One domain per line, # comments OK.
+# Loaded by scripts/domain_filter.ts if placed at .aeo-outreach/manual_deny.txt.
+# Use for competitors not labeled 'Competition' in the citation_domains table.
+
+# --- Competitors missing from citation_domains labeling ---
+gumloop.com
+peopledatalabs.com
+outreach.ai
+# Add more as you spot them in the shortlist
+
+# --- Noise you'd rather skip ---
+# openai.com   # uncomment if you don't want to see openai.com/business/apps/clay/ etc.
