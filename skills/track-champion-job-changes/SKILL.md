@@ -60,15 +60,23 @@ Present this plan, mapped to the user's inputs, and wait for approval before bui
 ```
 TRIGGER: audience-scheduled over the "Champions" segment (weekly tick)
          + a manual trigger for testing
-  1. [tool]        Enrich person from LinkedIn URL (resolve from email first if needed)
-                   → current employer name, domain, title, experience array
-  2. [conditional] Current employer domain == recorded account domain?
-                   → SAME: stamp "verified current — <date>" on the digest, end
-                   → DIFFERENT or EMPTY: continue
-  3. [agent]       Job-change verdict. Decide REAL MOVE vs false positive:
-                   rebrand, acquisition, subsidiary/parent domain, second concurrent
-                   role, or a stale profile. Output: verdict + evidence + confidence.
-                   Uncertain → flag for human review, do not treat as a move.
+  1. [tool]        Resolve current employment. Resolution order matters:
+                   (a) LinkedIn URL on file → person enrichment (cpj-enrich-person);
+                   (b) no URL → people-index search by name + last-known company;
+                   (c) reverse email→LinkedIn lookup LAST (weakest coverage; fails often).
+                   → current employer name, domain, title, current-role start date
+  2. [code]        Extract + compare, deterministically — never an LLM. Pin the tool
+                   node's whole $.result (deep paths fail the run when empty), find the
+                   is_current experience entry, normalize both domains, and emit flat
+                   string fields: verdict (current / moved / unverified), evidence with
+                   dates, new-company domain/name/title/start. Use non-empty sentinels
+                   ("none") — a pinned value that resolves empty fails the run.
+  3. [conditional] Rules mode, routing on the verdict string (rules cannot compare two
+                   dynamic fields — that is why the code node computes the verdict).
+                   → current: deterministic digest leaf (code node), end
+                   → unverified: "could not verify" digest leaf (code node), end
+                   → moved: continue. Genuinely ambiguous cases (rebrand/acquisition
+                   suspicion) belong in the digest flagged for human review.
   4a. FOLLOW branch (real move):
       [tool]        Enrich the NEW company (industry, headcount, region)
       [conditional] ICP gate — outside ICP: log "moved, out of ICP", end
@@ -86,6 +94,20 @@ Build node-by-node with `edit_node`, confirm every action's real shape with
 user the graph. Where more than one Clay action can do a step (several person-enrichment or
 people-finding functions usually exist), list the options by human-readable name with costs
 and let the user choose.
+
+Build gotchas verified against the live Alpha (2026-08):
+- Code nodes are `def handler(context):` returning a dict; read inputs with
+  `context.get_input("name")`. Top-level `return` is a syntax error.
+- Pin inputs via the flat `inputSchema` shorthand (`{"x": {"type":"string","sourceNodeId":
+  "wfn_...","sourcePath":"$.field"}}`). Pins that resolve to undefined OR empty string fail
+  the whole run — pin container objects, not deep paths, and emit sentinels.
+- Prompt `{{vars}}` on agent nodes fill reliably from flat string/object pins; a raw array
+  pin can leave the model claiming it got nothing. Flatten arrays in a code node first.
+- Tool-node parameters wire via `tools[].inputMappingConfig` references, and the referenced
+  value must ALSO be pinned on that tool node's `inputSchema` when it comes from 2+ hops back.
+- Keep agents on a cheap model while wiring, then graduate only the nodes that write prose;
+  comparisons and routing stay in code — an LLM asked to compare domains may wander off to
+  the web instead.
 
 ## Step 3 — Test small, then scale
 
@@ -107,7 +129,11 @@ and let the user choose.
 - **A move verdict must trace to evidence in the enrichment payload** — quote the old and
   new employer with dates in the digest. Never infer a move from a name mismatch alone, and
   never fabricate a change to have something to report. Empty or errored enrichment = "could
-  not verify", not "no change" and not "moved".
+  not verify", not "no change" and not "moved" — and watch for the sneaky version: an
+  enrichment can return status SUCCESS with an empty payload. Gate on the presence of an
+  actual employer value, never on the run status.
+- **Use the current-role start date.** A mover who started < 12 months ago is in the
+  honeymoon window — tooling decisions are open. Rank the FOLLOW digest by recency.
 - **Both plays evaluated for every real move.** A digest that only follows movers and never
   flags vacated seats is half the value.
 - **The FOLLOW note leans on the shared history** — which product, at which account, roughly
