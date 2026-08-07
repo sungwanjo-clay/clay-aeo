@@ -68,6 +68,18 @@ directly and gets 403'd by the network layer while curl works. `NODE_USE_ENV_PRO
 Also: `--verbose` on `runs steps` produced empty output in this CLI version (0.1.25); plain
 `runs steps` returns full `stepInputs`/`stepOutputs`.
 
+### G9. `clay routines runs start --input` needs the items envelope
+`status: candidate · verified: 2026-08-07 · source: find-work-email eval`
+The input must be `{"items": [{"id": "<string>", "inputs": {<function inputs>}}]}` — a bare
+inputs object is rejected with a validation error. The help text's example (`--input -`)
+doesn't show the shape; the error message does.
+
+### G10. `clay routines list` paginates and can omit managed functions
+`status: candidate · verified: 2026-08-07 · source: find-work-email eval`
+The default list returned 20 rows and did not include the managed "Work Email" function,
+while `clay routines get function:<tableId>` fetched it fine. Don't conclude a function
+doesn't exist from an unpaginated list — page through, or fetch by id.
+
 ---
 
 ## Design findings — what makes a skill's workflow good
@@ -81,10 +93,18 @@ over LLM" rule holding on the Workflows surface: LLM nodes only for prose (compo
 never for extraction, comparison, or routing.
 
 ### D2. Enrichment can return status SUCCESS with an empty payload
-`status: confirmed (2 surfaces) · verified: 2026-08-07 · source: connector dry-run + workflow build`
-Observed on both the MCP connector (managed Enrich Person on a real email → `SUCCESS`,
-value `{}`) and in the workflow build. Any completeness gate must test for the presence of
-an actual data value, never the run status. Skills should name this trap explicitly.
+`status: confirmed (3 surfaces) · verified: 2026-08-07 · source: connector dry-run + workflow build + routines run`
+Observed on the MCP connector (managed Enrich Person on a real email → `SUCCESS`, value
+`{}`), in the workflow build, and on a `clay routines` run (`status: complete`, `result:
+{}` for a not-found email). Any completeness gate must test for the presence of an actual
+data value, never the run status. Skills should name this trap explicitly.
+
+### D5. Not-found is the slow path — waterfalls exhaust before giving up
+`status: candidate · verified: 2026-08-07 · source: find-work-email eval`
+A ground-truth email hit returned in ~12 seconds (waterfall stopped at an early provider);
+a nonexistent person took ~4.5 minutes to come back empty (every arm tried). Batch runs
+finish at the speed of their misses — set user expectations, and treat unusually slow rows
+as probable not-founds, not hangs.
 
 ### D3. Employment-resolution ordering: LinkedIn URL → people-index search → reverse-email last
 `status: candidate · verified: 2026-08-07 · source: connector dry-run`

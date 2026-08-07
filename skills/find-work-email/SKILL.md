@@ -46,9 +46,16 @@ providers and stops at the first valid result. Check its `estimatedCreditCost` a
 workspace balance (`clay credits`); for anything beyond a handful of lookups, state the
 total cost and get explicit approval first.
 
-- **1–20 people:** run the function directly (CLI `clay routines runs`, or the Clay MCP).
+- **1–20 people:** run the function directly (CLI `clay routines runs start`, or the Clay
+  MCP). The CLI input envelope is `{"items":[{"id":"<your-key>","inputs":{...}}]}` piped via
+  `--input -`; discovery note — `clay routines list` paginates and can omit managed
+  functions, but `clay routines get function:<id>` fetches any of them directly.
 - **Hundreds, or recurring:** this stops being a lookup and becomes a pipeline — put the
   list in an Audience and run it through a workflow or table instead, and say so.
+
+Set time expectations: a hit returns in seconds (the waterfall stops early), but a
+not-found takes minutes — the cascade exhausts every provider before giving up. A batch
+containing bad rows finishes at the speed of its misses.
 
 ## What good looks like
 
@@ -59,7 +66,13 @@ total cost and get explicit approval first.
   the user decide; on domains like these a validation-aware waterfall still salvages a
   meaningful share of real addresses.
 - **Not-found stays empty.** Never backfill with a pattern guess (`first.last@domain`) —
-  that's fabrication with a bounce risk attached.
+  that's fabrication with a bounce risk attached. And know the shape: a no-hit run returns
+  `status: complete` with an empty result object — completion is not data; gate on the
+  presence of an actual address.
+- **Know what the managed function does and doesn't tell you.** It returns an address only
+  when its internal verification passes — but it does not surface catch-all/risky
+  discrimination. When the user needs that distinction (cold outreach at volume), add an
+  explicit validation step and report the flag.
 - The common mistake: reporting whatever a single provider returns. One source's confident
   answer is exactly that — the waterfall plus verification is what makes the result real.
 
