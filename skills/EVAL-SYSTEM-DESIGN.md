@@ -189,3 +189,44 @@ into `eval_runs` for history and cost trend. Supabase realtime keeps it live dur
 6. Ploy: landing-page template + admin dashboard over Supabase.
 7. `pg_cron` weekly once ≥5 skills published; v1 CI runner when creator volume warrants.
 ```
+
+---
+
+## 7. Reconciliation with the Ploy Marketplace PRD (added 2026-08-07)
+
+The Ploy PRD (Korra handoff, verified 2026-08-07) implements most of this design already:
+Supabase persistence, immutable source versions + SHA-256, processing runs, Clay-table
+Claygent QA, secured idempotent callbacks, four-tab review, atomic publish, fail-closed
+posture. Its "one public type: Skill" decision supersedes our surface-based public
+taxonomy — `surface` becomes an internal facet/dependency, never a public badge.
+
+**What this design adds that the PRD predates** (its stages are all static):
+1. **Stage E — execution eval.** New processing stage after static QA: fresh agent + skill
+   + fixture pack in the sandboxed test workspace; verdict + measured credits + transcript.
+   Wire as a decoupled runner consuming a queue and writing back to Supabase (not another
+   Clay-table column) so the same runner serves ingestion, the weekly cron, and the re-run
+   button. [default decision — veto-able]
+2. **Post-publish health monitor.** The PRD's lifecycle ends at published/unlisted. Add
+   health fields to the Skill model (`health_status`, `last_health_check_at`,
+   `cost_drift_pct`, `measured_cost_per_run`) + the `eval_runs` table + pg_cron weekly runs
+   against the published version. Public page renders "last verified <date>" + measured
+   cost; admin dashboard gets health column + re-run action.
+3. **Eval policy: failed execution eval hard-blocks publication.** No reviewer override —
+   fix and re-run instead. Keeps "every published skill provably runs" true. [default]
+4. **Taxonomy v1 answers PRD open decision #9**: data-driven tags, not fixed Rep/Ops enums
+   — 9 categories + task/play type + facets (see BACKLOG.md).
+5. **Creator content in the employee-only launch** (PRD says employee ingestion only):
+   influencers submit files to us; an employee runs standard ingestion; the listing
+   proposal carries an author/byline field set in review — the Claybooks precedent.
+   Invites and the 2-week notice stay on schedule. [default]
+
+**Contract implication for the PRD's Phase 0** (its recommended first task): when fixing
+the ingestion/callback schema disagreement (PRD §13.4), version to
+`marketplace-skill-processing.v2` and include the eval fields in the same migration:
+`execution_eval` (verdict, per-case results, measured credits, transcript ref) alongside
+`source_structure_score` / `source_recommendations` — one schema change instead of two.
+
+**Work split for build week**: contracts-first from this repo — the v2 callback schemas
+(Zod + JSON), EVAL-PROTOCOL.md, and fixture packs live in `skills/` as the handoff
+artifacts; Korra/Claude-Code-in-Ploy implements against the marketplace repo; the Clay
+table and the eval runner are built from here. [default until the Ploy repo is attachable]
