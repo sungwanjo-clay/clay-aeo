@@ -145,9 +145,11 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
 
   const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries, citationRateKPI, startDate, endDate)
 
-  // Dynamic Y-axis max
+  // Dynamic Y-axis range
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
   const yMax = Math.min(100, Math.ceil(Math.max(...allVals, 1) * 1.2 / 5) * 5)
+  const nonZeroVals = allVals.filter(v => v > 0)
+  const yMin = nonZeroVals.length > 0 ? Math.max(0, Math.floor(Math.min(...nonZeroVals) / 5) * 5 - 5) : 0
 
   const filteredDomains = search
     ? domains.filter(d => d.domain.toLowerCase().includes(search.toLowerCase()))
@@ -188,7 +190,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                   tickLine={false} axisLine={false} />
                 <YAxis tickFormatter={v => `${Number(v).toFixed(0)}%`}
                   tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
-                  tickLine={false} axisLine={false} width={36} domain={[0, yMax]} />
+                  tickLine={false} axisLine={false} width={36} domain={[yMin, yMax]} />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}

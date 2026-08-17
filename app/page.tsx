@@ -322,7 +322,7 @@ export default function HomePage() {
                   tickLine={false}
                   axisLine={false}
                   width={32}
-                  domain={[0, visYMax]}
+                  domain={[30, Math.max(80, visYMax)]}
                 />
                 <Tooltip
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
