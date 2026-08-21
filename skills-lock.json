@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "clean-email-list": {
+      "source": "sungwanjo-clay/clay-skill-creator",
+      "sourceType": "github",
+      "skillPath": "skills/clay/clean-email-list/SKILL.md",
+      "computedHash": "93ec49f2780f9ab7dc18c0a6fee7176a45f31dc3c832dc223208a62bcfa3f278"
+    }
+  }
+}
