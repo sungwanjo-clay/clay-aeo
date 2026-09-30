@@ -18,13 +18,13 @@ keyword: open-roles-and-employee-count
 proof_status: partial
 proof_gaps:
   - stage: stage_p
-    reason: The purpose comes only from the template's title. Its listing page holds a video and no written description, and the author did not confirm what the numbers are meant to be used for.
+    reason: The author never confirmed what these counts are meant to be used for, so this skill says what it measures and not what the numbers should drive.
   - stage: stage_p
-    reason: The template counts sales-leadership titles and excludes analysts and associates, but nothing records why those titles were chosen, so they are shipped only as an example the installer replaces.
+    reason: The example role (sales leadership, excluding analysts and associates) has no recorded rationale, so it is shipped only as an example the installer replaces.
   - stage: stage_p
-    reason: Neither job source has a posting-age window set in the template, and nothing records whether that was deliberate. This skill requires a window rather than copying the unset one.
+    reason: Whether a job lookup with no posting-age window counts postings of any age was not verified by a run. This skill requires a window so it does not depend on the answer.
   - stage: stage_p
-    reason: The keyword and category filters on both job sources are empty in the template, and nothing records whether open roles were meant to be filtered to the same titles as the employee count.
+    reason: Whether open roles should be filtered to the same titles as the employee count is not established, so the skill asks instead of choosing.
   - stage: stage_e
     reason: Never run. No counts were observed for any company, so how far the two job sources disagree on a single company was not measured here.
   - stage: stage_e
@@ -34,12 +34,12 @@ proof_gaps:
 # Open roles and employee count (declare what was counted, then count it)
 
 The insight: **this workflow produces counts that carry no definition, so two companies' numbers
-cannot be compared unless the skill supplies one.** Read from the source template's configuration:
+cannot be compared unless the skill supplies one.** Built the obvious way, with each lookup given
+only the domain:
 
-- Both open-role lookups run on the domain **with no posting-age window**, and one of them also has
-  no keyword or category filter. Whatever each returns is "every posting this source knows about",
-  not "roles open now".
-- The two lookups are separate sources and run side by side on the same domain, so the template
+- Both open-role lookups run **with no posting-age window** and no keyword or category filter.
+  Whatever each returns is "every posting this source knows about", not "roles open now".
+- The two lookups are separate sources and run side by side on the same domain, so the workflow
   yields **two different open-role numbers** per company with nothing saying which one to believe.
 - The employee count is a **title-keyword match**: people whose current title contains one of the
   include terms and none of the exclude terms. It is not total headcount. Total size comes
@@ -49,7 +49,7 @@ What follows is the shape of this skill. It fixes the window before anything run
 job source under its own name, and labels the employee count with the exact title lists that
 produced it. A number without its definition is not delivered.
 
-Supporting evidence from outside this template: the library's `hiring-radar` measurement found
+Supporting evidence from elsewhere: the library's `hiring-radar` measurement found
 unwindowed job-count sources returning 384 to 8,945 for one company on one day. This skill did not
 reproduce that, and says so in what it does not claim.
 
@@ -63,10 +63,10 @@ means saying so in the output.
 | Input | What the installer supplies | If it is missing |
 |---|---|---|
 | **The companies** | a list of company domains or website URLs, one per company | no default: there is nothing to count |
-| **The role to count** | job-title terms to **include**, and terms to **exclude** | the source template used sales-leadership titles (Sales Manager, Sales Leader, Director of Sales, Revenue Manager) and excluded Analyst and Associate. Those are an example, not a recommendation. Ask; never run the example silently |
-| **Posting-age window** | N days since posted, for open roles | ask. The template left this unset, which means all time. If the installer has no view, 30 days is the window the library's `hiring-radar` skill uses; borrowing it must be stated in the output |
+| **The role to count** | job-title terms to **include**, and terms to **exclude** | the author's example is sales leadership: include Sales Manager, Sales Leader, Director of Sales, Revenue Manager; exclude Analyst, Associate. That is an example, not a recommendation. Ask; never run the example silently |
+| **Posting-age window** | N days since posted, for open roles | ask. Left unset, the count is not bounded to recent postings. If the installer has no view, 30 days is the window the library's `hiring-radar` skill uses; borrowing it must be stated in the output |
 | **Which job sources** | one or both of the two open-role lookups | both is fine, but they are reported in separate columns and never added or averaged |
-| **Filter open roles by role?** | yes (use the same titles as the employee count) or no (all roles) | ask. The template left the job keyword filters empty; nothing says whether that was intended |
+| **Filter open roles by role?** | yes (use the same titles as the employee count) or no (all roles) | ask. Without it, open roles count every role at the company while the employee count covers only the named titles |
 | **Connected account** | the installer's own connected account for the job-openings lookup that requires one | that source is unavailable. Run the other source and say one was skipped |
 | **Where results go** | a Clay table, a CSV, or a reply in the conversation | default to a table in the conversation, and say so |
 
@@ -80,7 +80,7 @@ Cleaning the domain list is the only free part, and it happens in the agent befo
 
 Ask for each declared input above that the installer has not already given. The role lists and the
 window decide what the numbers mean. If the installer will not give them, stop and say which counts
-cannot be produced. Never fill them in from the template's example.
+cannot be produced. Never fill them in from the example in Declared inputs.
 
 ## Step 2: Write the declaration
 
@@ -111,14 +111,14 @@ pricing. **Wait for a yes.**
 All four lookups take the domain and depend on nothing else, so they can run in parallel. Size
 comes from the company enrichment.
 
-| Output | Clay action (from the source template) | Input from the domain | Settings this skill must set |
+| Output | Clay action | Input from the domain | Settings this skill must set |
 |---|---|---|---|
 | **Company size** | `enrich-company-with-mixrank-v2`, then read its `size` field as text | company identifier | none |
 | **Open roles, source A** | `find-google-job-listings` | company URL | keywords, if open roles are filtered by role |
 | **Open roles, source B** | `get-job-openings-for-company-v2` (needs the connected account) | domain | days since posted = the window; title filter, if open roles are filtered by role |
 | **Employees in the role** | `get-counts-for-profiles-with-mixrank` | company identifier | title keywords to include and to exclude |
 
-Source A has no window setting in the template. If the window cannot be applied to it, report it
+Source A takes no posting-age setting. If the window cannot be applied to it, report it
 as `unwindowed` next to its number rather than presenting it as comparable to source B.
 
 ## Step 6: One value per cell, including "could not measure"
@@ -146,7 +146,7 @@ measured, and not measured per lookup.
 - MUST set a posting-age window, or label the count `unwindowed`.
 - MUST report each job source separately. NEVER sum, average or waterfall them into one number.
 - MUST label the employee count with its include and exclude title lists.
-- NEVER run the template's example title lists unless the installer chose them.
+- NEVER run the example title lists unless the installer chose them.
 - NEVER run a paid lookup before Step 4's approval.
 - NEVER write 0 for a lookup that did not return.
 
