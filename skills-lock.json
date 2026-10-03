@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/jonathan-kvarfordt/account-priority-buckets/SKILL.md",
       "computedHash": "6a2a93ed3200b8fda2d9d576225e524609e3e6ce9d50c13bf0ed815c329687e5"
+    },
+    "generate-personalized-gift": {
+      "source": "clay-run/clay-skill-creator",
+      "sourceType": "github",
+      "skillPath": "skills/lorcan-o-rourke/generate-personalized-gift/SKILL.md",
+      "computedHash": "349e9d6a3b943d6830c15671f19489d7357e0cf8c448da7cd830a693b3b9ad11"
     }
   }
 }
