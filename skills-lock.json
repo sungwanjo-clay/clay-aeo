@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "account-priority-buckets": {
+      "source": "clay-run/clay-skill-creator",
+      "sourceType": "github",
+      "skillPath": "skills/jonathan-kvarfordt/account-priority-buckets/SKILL.md",
+      "computedHash": "6a2a93ed3200b8fda2d9d576225e524609e3e6ce9d50c13bf0ed815c329687e5"
+    }
+  }
+}
