@@ -124,14 +124,24 @@ take 1–5 seconds. Allow up to 30 seconds before treating a request as failed.
 ## CRM Cleanup: how the page should behave
 
 **1. Input**
-- Above the fold, a large text box where visitors paste emails, one per line or comma-separated.
-  Show a live counter such as "12 / 25". Past 25, say "We'll check the first 25. Clean the
-  rest in Clay."
+
+Ask for exactly these fields. They come from the play spec's Inputs table, and nothing else
+should be added.
+
+| Field | Required | UI |
+|---|---|---|
+| `emails` | Yes | A large paste box (one per line or comma-separated) with a live counter such as "12 / 25". Past 25, say "We'll check the first 25. Clean the rest in Clay." |
+| `crm` | No | A one-tap choice: "Where does this list live?" with HubSpot, Salesforce, Spreadsheet and Other. It is used only in the CTA and the deep link, not sent to the endpoint. |
+
+- Put this helper text under the box: *"Paste up to 25 real contacts from your CRM, messy as
+  they are. Duplicates and info@ addresses are what we catch."*
 - Add a **"Try an example"** button that fills the box with about 10 sample emails, labelled as
   an example, and runs them like any other input. The results are real checks on those samples.
 - Optionally, allow dropping a CSV. Parse it in the browser, find the email column, and send the
   first 25. Tell the visitor how many rows the file had, because the remaining rows are a natural
   reason to continue in Clay.
+- Don't ask for names, company, the visitor's own email or a login. None of them change the
+  result.
 - One button: **"Check my list"**.
 
 **2. While it runs**
@@ -154,11 +164,13 @@ take 1–5 seconds. Allow up to 30 seconds before treating a request as failed.
 
 **4. CTA**
 - Place it directly under the teaser and again at the bottom of the page.
-- Label it **"Clean all {needs_cleanup} in Clay"**.
+- Label it **"Clean all {needs_cleanup} in Clay"**. If the visitor picked HubSpot or
+  Salesforce, use **"Clean all {needs_cleanup} and sync to HubSpot"** (or Salesforce).
   - If `truncated` is above 0: **"Clean all {total + truncated} in Clay."**
   - If `needs_cleanup` is 0: **"Your list looks clean. Enrich it in Clay."**
 - The link is the GTM agent deep link. Fill its prompt template with `spec_version`,
-  `headline`, the `counts`, `truncated`, and **the exact emails that were sent** (the first 25),
+  `headline`, the `counts`, `truncated`, `crm` if chosen, and **the exact emails that were sent**
+  (the first 25),
   so the GTM agent re-checks the same list and reaches the same numbers. The GTM agent will
   supply the link format and the template.
 

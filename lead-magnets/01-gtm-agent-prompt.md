@@ -58,7 +58,7 @@ Anything beyond the spec, such as finding replacement emails or syncing to a CRM
 3. **Unlock what the page held back:** every email with its bucket and the reason, and a keep
    list of the clean emails.
 4. **Offer step two:** find replacement work emails for the invalid ones, and sync the clean list
-   to HubSpot or Salesforce. A CRM write-back is the outcome we most want from a first session.
+   to their CRM. If the prompt names one (`crm`), offer that sync directly. A CRM write-back is the outcome we most want from a first session.
 
 ## The deep-link prompt (please refine and return)
 
@@ -71,6 +71,7 @@ role inboxes {{counts.role_inboxes}}, duplicates {{counts.duplicates}},
 personal {{counts.personal}}, disposable {{counts.disposable}}, clean {{counts.clean}}.
 The emails I checked: {{emails}}
 {{#if truncated}}My list has {{truncated}} more that the page didn't check.{{/if}}
+{{#if crm}}My list lives in {{crm}}.{{/if}}
 Rebuild this check in my workspace following play crm-cleanup@1 exactly, and confirm you get
 the same numbers. Then show me which emails are in each bucket and why, give me a keep list,
 and help me fix the bad ones and sync the clean list to my CRM.

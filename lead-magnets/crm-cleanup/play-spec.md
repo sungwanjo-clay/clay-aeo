@@ -15,10 +15,36 @@ we lose their trust at the moment they sign up. So the rule is simple: **any cha
 spec gets a new version number, and the workflow, the GTM agent prompt and the golden tests are
 updated together.**
 
-## Input
+## Inputs
 
-A list of email addresses. Only the first 25 are checked on the page. In Clay, the agent checks
-every email the visitor gives it. For the first 25, its counts must match the page.
+These are the exact fields the page asks for. Ploy builds the form from this table, and nothing
+else goes to the workflow.
+
+| Field | Required | Sent to | Format and limits | Why we ask |
+|---|---|---|---|---|
+| `emails` | **Yes** | Workflow and deep link | 1–25 email addresses, as an array or one string separated by new lines, commas, semicolons or spaces. Each email is at most 254 characters. Anything over 25 is dropped and reported as `truncated`. | The list being cleaned |
+| `crm` | No | Deep link only | One of `hubspot`, `salesforce`, `spreadsheet` or `other` | Lets the GTM agent offer the right sync in step two, and lets the CTA say "Clean and sync to HubSpot" |
+
+**How to get the best results** (Ploy should turn these into helper text under the input)
+
+- **Paste real contacts from the visitor's own CRM or a recent export.** Hand-typed or made-up
+  addresses mostly come back invalid, which says nothing about the visitor's actual list.
+- **Paste the full 25 if they can.** A small sample gives a noisy result, and 25 gives a
+  meaningful ratio.
+- **Paste the raw list, messy as it is.** Duplicates, info@ addresses and typos are exactly what
+  the check catches, so don't let visitors tidy it first.
+- **Use business lists.** The check is set up for B2B outreach, so personal addresses (Gmail,
+  Outlook and so on) count as needing cleanup.
+
+**Not asked:** names, company, job title, the visitor's own email, or any login. None of them
+change the result, and each one would add friction before the first result.
+
+If an input is added later, for example a purpose choice such as "cold outreach" or "CRM
+refresh" that changes which buckets count, it must be added to this table and the spec version
+bumped.
+
+In Clay, the agent checks every email the visitor gives it. For the first 25, its counts must
+match the page.
 
 ## Steps
 

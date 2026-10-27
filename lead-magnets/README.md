@@ -25,7 +25,10 @@ so the visitor sees the same numbers before and after signup.
 ```
 
 1. **Claude** writes the play spec (`vN`), builds the workflow and endpoint to match it, and
-   runs the golden tests.
+   runs the golden tests. Every play spec starts with an **Inputs** table: each field the page
+   asks for, whether it's required, where it's sent, its format and limits, and why we ask. It
+   also covers how to get the best results, and what we deliberately don't ask. Ploy builds the
+   form from that table and nothing else.
 2. **Sungwan** sends `01-gtm-agent-prompt.md` and the play spec to the GTM agent.
 3. **The GTM agent** sends back:
    - where the spec will live (a skill, or inline in the prompt)
