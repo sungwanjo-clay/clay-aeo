@@ -8,6 +8,8 @@ import { checkLimits, clientIp, hashKey, type Limit } from '@/lib/leadMagnets/ra
 export const maxDuration = 30
 
 const ROUTINE_ID = 'workflow:wf_0tnl82wiyc7iywPb4Rp'
+// Bump with lead-magnets/crm-cleanup/play-spec.md whenever the workflow logic changes.
+const SPEC_VERSION = 'crm-cleanup@1'
 const MAX_EMAILS = 25
 const MAX_BODY_BYTES = 16_000
 
@@ -98,6 +100,7 @@ export async function POST(req: Request) {
     const counts = Object.fromEntries(COUNT_FIELDS.map(f => [f, Number(outputs[f] ?? 0)]))
     return json(req, {
       magnet_id: 'crm-cleanup',
+      spec_version: SPEC_VERSION,
       status: outputs.status === 'no_data' ? 'no_data' : 'ok',
       headline: String(outputs.headline ?? ''),
       counts,

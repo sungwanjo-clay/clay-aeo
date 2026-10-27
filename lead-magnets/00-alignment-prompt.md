@@ -24,9 +24,9 @@ the data away on the page.
 | Who | Responsibility |
 |---|---|
 | **Sungwan (Clay)** | Picks the next magnet, approves each piece, connects them and ships the page. |
-| **Claude** | Writes the **page brief** for Ploy. Builds the **Clay workflow** behind each page and the **endpoint** the page calls. Defines their inputs and outputs so Ploy and the GTM agent can rely on them. |
+| **Claude** | Writes the **play spec**, the single definition of the logic that both the page and the GTM agent follow. Builds the **Clay workflow** behind each page and the **endpoint** the page calls. Writes the page brief for Ploy. |
 | **Ploy** | Builds the page in React, Astro and Tailwind. Owns the design and interactivity. Calls the endpoint, turns its output into the teaser, and links the CTA to the GTM agent. Decides how the teaser is worded and revealed. |
-| **Clay GTM agent** | Writes the **prompt the CTA carries**, and owns what happens after the click. It continues the same task on the visitor's data inside Clay. |
+| **Clay GTM agent** | Writes the **prompt the CTA carries**, and owns what happens after the click. It rebuilds the same check by following the play spec, so the visitor sees the **same numbers** as on the page, then goes further. |
 
 ## How the pieces connect
 
@@ -70,6 +70,7 @@ first 25 are checked.
 ```json
 {
   "magnet_id": "crm-cleanup",
+  "spec_version": "crm-cleanup@1",
   "status": "ok",
   "headline": "5 of 6 contacts need cleanup",
   "counts": {
@@ -90,6 +91,7 @@ first 25 are checked.
 
 | Field | Meaning |
 |---|---|
+| `spec_version` | The version of the logic that produced these numbers. Pass it into the deep link unchanged. |
 | `status` | `ok`, or `no_data` when nothing checkable was sent |
 | `headline` | A ready-made teaser line. You can reword it from the counts. |
 | `counts.total` | Emails checked, at most 25 |
@@ -155,8 +157,10 @@ take 1–5 seconds. Allow up to 30 seconds before treating a request as failed.
 - Label it **"Clean all {needs_cleanup} in Clay"**.
   - If `truncated` is above 0: **"Clean all {total + truncated} in Clay."**
   - If `needs_cleanup` is 0: **"Your list looks clean. Enrich it in Clay."**
-- The link is the GTM agent deep link with its prompt, filled with the teaser numbers. The GTM
-  agent will supply the link and prompt.
+- The link is the GTM agent deep link. Fill its prompt template with `spec_version`,
+  `headline`, the `counts`, `truncated`, and **the exact emails that were sent** (the first 25),
+  so the GTM agent re-checks the same list and reaches the same numbers. The GTM agent will
+  supply the link format and the template.
 
 **5. Copy and trust**
 - Don't promise the emails are never stored, because Clay keeps run logs. Use wording like "We
