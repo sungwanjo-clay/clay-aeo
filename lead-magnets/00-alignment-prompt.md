@@ -43,28 +43,26 @@ Page shows the teaser, then the CTA "Finish this in Clay"
 Deep link into the GTM agent, with the prompt plus the visitor's input and teaser
 ```
 
-**What the workflow returns.** It is the same shape for every magnet, so Ploy builds the
-pattern once:
+**What the workflow returns.** Every magnet's workflow returns a flat set of named counts plus
+a ready-made headline. CRM Cleanup returns:
 
 ```json
 {
-  "magnet_id": "crm-cleanup",
-  "input": "acme.com",
-  "headline": "20 of 40 contacts need cleanup",
-  "stats": [
-    { "label": "Invalid emails", "value": 10 },
-    { "label": "Role inboxes (info@, sales@)", "value": 6 },
-    { "label": "Duplicates", "value": 4 }
-  ],
-  "locked": ["Which 20 contacts", "Verified replacements", "Sync to your CRM"],
-  "status": "ok"
+  "status": "ok",
+  "headline": "5 of 6 contacts need cleanup",
+  "total": 6, "needs_cleanup": 5, "clean": 1, "invalid": 2, "risky_catch_all": 0,
+  "role_inboxes": 1, "duplicates": 1, "personal": 1, "disposable": 0, "unverified": 0
 }
 ```
 
-- `stats` hold counts only. No names, emails or rows ever come back to the page. That is the gate.
-- `locked` names what the visitor would get in Clay. Ploy shows it as blurred or locked items.
-- `status` can also be `no_data` (we found nothing for that input) or `error`. Ploy designs a
-  state for each.
+- The output holds **counts only**. No names, emails or rows ever come back to the page. That is
+  the gate. Ploy decides which counts to show and how to word them.
+- Ploy also designs what's locked, meaning what the visitor would get in Clay. For example: which
+  5 contacts they are, verified replacements, and a sync to their CRM.
+- `status` can be `ok` or `no_data`. If the call fails, the endpoint returns an error. Ploy
+  designs a state for each of these.
+- The full field list for each magnet is in its workflow README, for example
+  `lead-magnets/crm-cleanup/workflow/README.md`.
 
 **Why a server endpoint sits in the middle.** Clay workflows run asynchronously and need an API
 key, so the page can't call Clay directly from the browser. A small endpoint holds the key, starts
