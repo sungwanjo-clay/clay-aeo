@@ -66,18 +66,25 @@ The routine returns only the final node's output, so no email address leaves Cla
 `personal` counts as needing cleanup because the page targets B2B lists. Change that in
 `build_teaser.py` if a magnet is aimed at a different purpose.
 
-## Calling it from the server endpoint
+## Endpoint
 
-The endpoint holds a Clay Public API key. The key must never reach the browser.
+The public endpoint is `app/api/lead-magnets/crm-cleanup/route.ts`. It starts the routine with
+`POST /routines/{id}/run`, polls `GET /routines/run/{run_id}/results`, and returns only the
+count fields listed above. The request and response contract Ploy builds against is in
+`lead-magnets/00-alignment-prompt.md`.
 
-1. `POST https://api.clay.com/public/v0/routines/workflow:wf_0tnl82wiyc7iywPb4Rp/run`
-   with body `{ "items": [{ "id": "<request id>", "inputs": { "emails": [...] } }] }`.
-   The response contains a `routine_run_id`.
-2. Poll "Fetch progress and results for a routine run" until `status` is `complete`, then
-   return `data[0].result.structuredOutputs` to the page.
-3. Check the auth header and the exact polling path in
-   https://developers.clay.com/api-reference/routines/ before coding. The OpenAPI spec names
-   the header `clay-api-key`.
+**Environment variables (Vercel):**
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `CLAY_API_KEY` | yes | Clay Public API key for the Clay Team workspace (API and CLI → API keys in Clay) |
+| `SUPABASE_SERVICE_ROLE_KEY` | for durable limits | Lets every instance share the rate-limit counters |
+| `LEAD_MAGNET_ALLOWED_ORIGINS` | no | Comma-separated origins allowed by CORS. Defaults to `*`. |
+| `LEAD_MAGNET_RATE_LIMIT_SALT` | no | Salt for hashing visitor IPs |
+
+**Rate limits:** 5 checks per minute and 30 per day per IP, plus 120 per minute site-wide. The
+counters live in Supabase: run `supabase/lead_magnet_rate_limit.sql` once. Without it, the
+endpoint falls back to a per-instance memory limiter, which only slows abuse down.
 
 A run took about 1–2 seconds in testing. Routine runs started through the API did not need
 manual approval, but workflow runs started directly in this workspace did.
@@ -93,6 +100,5 @@ manual approval, but workflow runs started directly in this workspace did.
 
 - **Publish** the workflow. It has never been published, so the routine runs the draft, and any edit
   changes the live page immediately.
-- **Choose the workspace that pays for it.** It currently lives in Clay Team.
-- **Rate-limit the endpoint** per IP and per day, and set a daily credit ceiling, so bots can't
-  drain credits.
+- **Set the Vercel environment variables** listed above, run `supabase/lead_magnet_rate_limit.sql`,
+  and redeploy.

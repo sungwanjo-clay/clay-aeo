@@ -31,6 +31,7 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith('/api/generate-insight') ||
     pathname.startsWith('/api/refresh-cache') ||
     pathname.startsWith('/api/detect-anomalies') ||
+    pathname.startsWith('/api/lead-magnets') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {
