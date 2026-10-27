@@ -87,7 +87,7 @@ need to decide who hosts it (see the open questions below).
 **GTM agent, please confirm:**
 1. The deep-link format and how the prompt is passed, including any length limit.
 2. That the prompt survives signup, so a brand-new user lands in the agent with it.
-3. Which fields from the workflow output you want in the prompt (input, headline, stats).
+3. Which fields from the workflow output you want in the prompt (for example the input, the headline and `needs_cleanup`).
 
 **Ploy, please confirm:**
 1. In two sentences, what you understand the goal to be.
