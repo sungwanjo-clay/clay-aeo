@@ -11,7 +11,7 @@ export const maxDuration = 60
 
 const ROUTINE_ID = 'workflow:wf_0tnl82wiyc7iywPb4Rp'
 // Bump with lead-magnets/crm-cleanup/play-spec.md whenever the workflow logic changes.
-const SPEC_VERSION = 'crm-cleanup@2'
+const SPEC_VERSION = 'crm-cleanup@3'
 const MAX_EMAILS = 25
 const MAX_BODY_BYTES = 16_000
 

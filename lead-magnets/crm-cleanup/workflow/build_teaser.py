@@ -44,7 +44,8 @@ def handler(context):
     unverified = max(0, to_verify - valid - catch_all - bad)
 
     invalid = syntax_invalid + bad
-    needs_cleanup = duplicates + invalid + role + disposable + personal + catch_all
+    # crm-cleanup@3: personal is a label, verified like any other address.
+    needs_cleanup = duplicates + invalid + role + disposable + catch_all
 
     if total == 0:
         status, headline = "no_data", "We didn't find any emails to check"

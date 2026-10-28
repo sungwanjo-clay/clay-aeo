@@ -1,6 +1,13 @@
 # CRM Cleanup: Play Spec
 
-**Version:** `crm-cleanup@2`
+**Version:** `crm-cleanup@3`
+
+**Changes from `crm-cleanup@2`:** personal-provider emails are a **label, not a bucket**. They're
+counted as `personal` but still go to the mailbox check, and the result decides their bucket: a
+valid personal email is `clean`. `needs_cleanup` no longer includes `personal`. Requested by the
+GTM agent.
+
+(v2 notes follow.)
 
 **Changes from `crm-cleanup@1`:** only the headline. A list is never called clean while any
 address is unverified, and the number that couldn't be verified is added to the headline. No
@@ -61,8 +68,8 @@ Run these in order. Each email lands in exactly one bucket, at the first step th
 | 3 | Format | Must match `^[^@\s]+@[^@\s]+\.[^@\s]+$` | `invalid` |
 | 4 | Disposable | Domain is in the disposable list below | `disposable` |
 | 5 | Role inbox | Local part (anything before a `+` is used) is in the role list below | `role_inboxes` |
-| 6 | Personal | Domain is in the personal-provider list below | `personal` |
-| 7 | Mailbox check | Everything left over is checked with **ZeroBounce → Verify email** (`validate-email`), with "Only safe to send" turned off | see the mapping below |
+| 6 | Personal (label) | Domain is in the personal-provider list below. Count it as `personal`, then **continue to step 7**. | label only |
+| 7 | Mailbox check | Everything left over, personal addresses included, is checked with **ZeroBounce → Verify email** (`validate-email`), with "Only safe to send" turned off | see the mapping below |
 
 **Mailbox check mapping.** Statuses are compared lower-case, with `-` treated as `_`.
 
@@ -76,7 +83,7 @@ Run these in order. Each email lands in exactly one bucket, at the first step th
 **Totals**
 
 - `total` is the number of emails checked.
-- `needs_cleanup` = `duplicates` + `invalid` + `disposable` + `role_inboxes` + `personal` + `risky_catch_all`
+- `needs_cleanup` = `duplicates` + `invalid` + `disposable` + `role_inboxes` + `risky_catch_all` (v3: `personal` is not included)
 - `unverified` is not counted as needing cleanup.
 - `total` = `needs_cleanup` + `clean` + `unverified`. Every checked email lands in exactly one
   of these.
@@ -124,11 +131,11 @@ Both the page endpoint and the GTM agent build must produce these numbers. Lists
 reach the mailbox check, so their results are fully fixed. List A depends on two live mailbox
 results. Pass C as an array, so the padded fifth entry keeps its spaces.
 
-| List | Emails | Expected |
+| List | Emails | Expected (v3, run on the published workflow 28 Oct 2026) |
 |---|---|---|
-| A | `Jane@Acme.com, jane@acme.com, info@clay.com, bob@gmail.com, sam@stripe.com, not-an-email` | total 6 · duplicates 1 · invalid 2 (1 format + `jane@acme.com` mailbox not found) · role 1 · personal 1 · clean 1 → **"5 of 6 contacts need cleanup"** |
-| B | `info@clay.com, bob@gmail.com, bad-email` | total 3 · role 1 · personal 1 · invalid 1 → **"3 of 3 contacts need cleanup"** |
-| C | `Sales+eu@acme.com, temp@mailinator.com, x@yopmail.com, a@b, " ops@stripe.com ", Ops@Stripe.com` | total 6 · duplicates 1 · invalid 1 · role 2 · disposable 2 → **"6 of 6 contacts need cleanup"** |
+| A | `Jane@Acme.com, jane@acme.com, info@clay.com, bob@gmail.com, sam@stripe.com, not-an-email` | Fixed: duplicates 1, format 1, role 1, personal 1 (label), to_verify 3. Live: `jane@acme.com` and `bob@gmail.com` invalid, `sam@stripe.com` clean, giving **"5 of 6 contacts need cleanup"** |
+| B | `info@clay.com, bad-email, temp@mailinator.com` (replaces v2's B, which now needs a paid check) | role 1 · invalid 1 · disposable 1 → **"3 of 3 contacts need cleanup"** |
+| C | `Sales+eu@acme.com, temp@mailinator.com, x@yopmail.com, a@b, " ops@stripe.com ", Ops@Stripe.com` | duplicates 1 · invalid 1 · role 2 · disposable 2 → **"6 of 6 contacts need cleanup"** |
 
 **Headline fixtures** (synthetic, all passing in the workflow code):
 

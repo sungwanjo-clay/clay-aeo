@@ -49,9 +49,11 @@ def handler(context):
             counts["disposable"] += 1
         elif local.split("+")[0] in ROLE:
             counts["role"] += 1
-        elif domain in FREEMAIL:
-            counts["personal"] += 1
         else:
+            # crm-cleanup@3: personal is a label, not a bucket. Personal addresses
+            # are counted here and still go on to the mailbox check.
+            if domain in FREEMAIL:
+                counts["personal"] += 1
             survivors.append({"email": key})
 
     return {

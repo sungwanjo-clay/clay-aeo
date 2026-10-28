@@ -8,7 +8,7 @@
 
 const CLAY_API = 'https://api.clay.com/public/v0'
 const ROUTINE_ID = 'workflow:wf_0tnl82wiyc7iywPb4Rp'
-const SPEC_VERSION = 'crm-cleanup@2'
+const SPEC_VERSION = 'crm-cleanup@3'
 const MAX_EMAILS = 25
 const TIMEOUT_MS = 55_000
 const ALLOWED_ORIGINS = [/^https:\/\/makes\.clay\.com$/, /^https:\/\/([a-z0-9-]+\.)*clay\.com$/]

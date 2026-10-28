@@ -49,7 +49,7 @@
  },
  "personal": {
   "type": "number",
-  "description": "Personal addresses like gmail"
+  "description": "Personal-provider addresses (a label; they are still verified and not counted as cleanup)"
  },
  "disposable": {
   "type": "number",

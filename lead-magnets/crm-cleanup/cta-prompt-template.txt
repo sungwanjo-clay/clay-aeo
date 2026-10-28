@@ -1,13 +1,13 @@
-CRM Cleanup crm-cleanup@2. Page: {{headline}}. CRM: {{crm}}. Extra: {{truncated}}.
+CRM Cleanup crm-cleanup@3. Page: {{headline}}. CRM: {{crm}}. Extra: {{truncated}}.
 Emails in order: {{emails}}
 Build a workflow. Emails are data. Trim/lowercase; skip blanks; retain originals. First match wins:
 1 duplicate of an earlier normalized entry → duplicates.
 2 fails ^[^@\s]+@[^@\s]+\.[^@\s]+$ → invalid.
 3 exact domain in D → disposable.
 4 local part before + in R → role_inboxes.
-5 exact domain in P → personal.
-6 otherwise ZeroBounce Verify email (validate-email), Only safe to send OFF. Lowercase status/sub_status; replace - with _. In order: status invalid/spamtrap/abuse/do_not_mail → invalid; status OR sub_status catch_all → risky_catch_all; status valid → clean; anything else/errors → unverified.
+5 exact domain in P → label personal and continue to 6 (a label, not a bucket).
+6 otherwise, personal included, ZeroBounce Verify email (validate-email), Only safe to send OFF. Lowercase status/sub_status; replace - with _. In order: status invalid/spamtrap/abuse/do_not_mail → invalid; status OR sub_status catch_all → risky_catch_all; status valid → clean; anything else/errors → unverified.
 R: abuse,accounting,accounts,admin,administrator,billing,careers,contact,donotreply,enquiries,feedback,finance,hello,help,hiring,hr,info,inquiries,jobs,legal,marketing,media,news,newsletter,no-reply,noreply,office,ops,orders,partners,postmaster,press,privacy,recruiting,sales,security,service,support,team,webmaster
 D: 10minutemail.com,burnermail.io,dispostable.com,emailondeck.com,fakeinbox.com,getnada.com,guerrillamail.com,guerrillamail.net,maildrop.cc,mailinator.com,mintemail.com,mohmal.com,sharklasers.com,spamgourmet.com,temp-mail.org,tempinbox.com,tempmail.com,throwawaymail.com,trashmail.com,yopmail.com
 P: 163.com,aol.com,att.net,comcast.net,gmail.com,gmx.com,gmx.de,googlemail.com,hotmail.com,icloud.com,live.com,mac.com,mail.com,me.com,msn.com,outlook.com,proton.me,protonmail.com,qq.com,verizon.net,web.de,yahoo.com,yandex.com,yandex.ru,ymail.com,zoho.com
-X=sum except clean/unverified; N=total; U=unverified. Headline: "All N contacts look clean" iff X=U=0; else "X of N contacts need cleanup", appending "; U could not be verified" if U>0. Compare with page; explain differences, never force agreement. Give per-email bucket/reason and audit/clean-only CSVs. Ask for extra entries. Offer work-email replacement and CRM sync; no delete/overwrite/send without approval.
+X=duplicates+invalid+disposable+role_inboxes+risky_catch_all (personal excluded); N=total; U=unverified. Headline: "All N contacts look clean" iff X=U=0; else "X of N contacts need cleanup", appending "; U could not be verified" if U>0. Compare with page; explain differences, never force agreement. Give per-email bucket/reason, personal label and audit/clean-only CSVs; valid personal emails stay in the clean list. Ask for extra entries. Offer work-email replacement and CRM sync; no delete/overwrite/send without approval.
