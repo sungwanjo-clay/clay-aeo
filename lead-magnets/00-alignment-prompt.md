@@ -208,22 +208,49 @@ that runs it, the way the reference shows "Claygent" or "Code".
   - If `truncated` is above 0: **"Clean all {total + truncated} in Clay."**
   - If `needs_cleanup` is 0 and `unverified` is 0: **"Your list looks clean. Enrich it in Clay."**
   - If `needs_cleanup` is 0 and `unverified` is above 0: **"Review my list in Clay."**
-- **What the CTA does.** It hands the GTM agent a filled-in prompt: the template in
-  `01-gtm-agent-prompt.md`, filled with `spec_version`, `run_id`, `headline`, the `counts`,
-  `truncated`, `crm` if chosen, and **the exact emails that were sent** (the first 25, in
-  order, duplicates included). The GTM agent then re-checks the same list with its
-  `crm-cleanup` skill and reaches the same numbers.
-- **Until the deep link ships (expected mid-November), use copy-and-open:**
-  1. Clicking the CTA copies the filled-in prompt to the clipboard.
-  2. It then opens Clay's signup page in a new tab, at `{{CLAY_SIGNUP_URL}}` with
-     `utm_source=lead-magnet&utm_campaign=crm-cleanup&utm_content={run_id}`.
-  3. Show a toast: "Your cleanup is copied. Sign up, open Clay's GTM agent and paste it in to
-     see which contacts need fixing."
-  4. Keep a small "Copy again" link next to the CTA, in case the clipboard was overwritten.
-- **Build the switch now.** Put the CTA behind one config value, `CTA_MODE`, set to
-  `copy_and_open` today and `deep_link` later. When the deep link ships, only the URL builder
-  changes. The label, the prompt and the analytics stay the same.
-- In both modes, fire `cta_clicked` with `cta_mode` and `run_id`.
+- **What the CTA does.** It opens Clay signup, which redirects into Clay's GTM agent with a
+  prefilled prompt. The prompt carries the visitor's result: `spec_version`, `headline`, the
+  `counts`, `truncated`, `crm` if chosen, `run_id`, and **the exact emails that were sent** (the
+  first 25, in order, duplicates included). The GTM agent's `crm-cleanup` skill re-checks that
+  list and reaches the same numbers.
+- **Link format** (in use now):
+  `https://app.clay.com/signup?redirect_to=` + the URL-encoded string
+  `chats?sculptorPrompt=<URL-encoded prompt>&oneShot=true`. The prompt is therefore encoded
+  twice. Build it with the code below rather than by hand. It reproduces Clay's own template
+  exactly, and a full 25-email link comes to about 1,850–2,550 characters.
+
+```js
+// Builds the CRM Cleanup CTA URL from an endpoint response (reference for Ploy).
+export function buildCrmCleanupPrompt({ result, emails, crm }) {
+  const c = result.counts
+  const lines = [
+    `Use the crm-cleanup skill (${result.spec_version}).`,
+    `I ran Clay's free CRM Cleanup check on clay.com: ${result.headline}.`,
+    `Counts: invalid ${c.invalid}, catch-all ${c.risky_catch_all}, role inboxes ${c.role_inboxes}, duplicates ${c.duplicates}, personal ${c.personal}, disposable ${c.disposable}, clean ${c.clean}, unverified ${c.unverified}.`,
+    `Emails checked, in order: ${emails.join(', ')}`,
+  ]
+  if (result.truncated > 0) lines.push(`My list has ${result.truncated} more that the page didn't check.`)
+  if (crm) lines.push(`My CRM is ${crm}.`)
+  lines.push(`Check id: ${result.run_id}.`)
+  lines.push('Recheck these and confirm you get the same counts, then show each email with its bucket and reason, give me a keep list, and help me fix the bad ones and sync the clean ones to my CRM.')
+  return lines.join('\n')
+}
+
+export function buildCrmCleanupCtaUrl(input) {
+  const prompt = buildCrmCleanupPrompt(input)
+  const redirectTo = `chats?sculptorPrompt=${encodeURIComponent(prompt)}&oneShot=true`
+  return `https://app.clay.com/signup?redirect_to=${encodeURIComponent(redirectTo)}`
+}
+```
+
+- **Open it in the same tab.** Keep the prompt short: the rules live in the skill, so the
+  prompt carries only data.
+- **Keep the switch.** Put the URL builder behind one config value, `CTA_MODE`, set to
+  `signup_redirect` today. When the dedicated GTM agent deep link ships, expected
+  mid-November, add a `deep_link` mode. Only the URL builder changes; the label, the prompt
+  and the analytics stay the same.
+- Fire `cta_clicked` with `cta_mode` and `run_id`.
+- In mock mode (`?mock=1`), build the link from `example_result` so QA can follow it end to end.
 
 **4. Copy and trust**
 - Don't promise the emails are never stored, because Clay keeps run logs. Use wording like "We
