@@ -36,18 +36,20 @@ async function clayFetch(path: string, init?: RequestInit): Promise<Response> {
 
 /**
  * Starts a one-item run of `routineId` and polls until it finishes or
- * `timeoutMs` passes. Returns the routine's structured outputs.
+ * `timeoutMs` passes. Returns the routine's structured outputs. `itemId`
+ * labels the run in Clay so it can be traced back to the page request.
  */
 export async function runRoutine(
   routineId: string,
   inputs: Record<string, unknown>,
+  itemId = 'visitor',
   timeoutMs = 25_000,
 ): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs
 
   const start = await clayFetch(`/routines/${routineId}/run`, {
     method: 'POST',
-    body: JSON.stringify({ items: [{ id: 'visitor', inputs }] }),
+    body: JSON.stringify({ items: [{ id: itemId, inputs }] }),
   })
   if (!start.ok) {
     throw new ClayError(`Clay run failed to start (${start.status}): ${await start.text()}`, 'upstream')

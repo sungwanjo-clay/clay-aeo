@@ -28,11 +28,23 @@ const COUNT_FIELDS = [
   'to_verify',
 ] as const
 
+// LEAD_MAGNET_ALLOWED_ORIGINS is a comma-separated list. An entry like
+// https://*.example.com also allows every subdomain, for preview deploys.
+function originAllowed(origin: string, entry: string): boolean {
+  if (entry === origin) return true
+  const wildcard = entry.match(/^(https?:\/\/)\*\.(.+)$/)
+  if (!wildcard) return false
+  const [, scheme, suffix] = wildcard
+  return origin.startsWith(scheme) && origin.endsWith(`.${suffix}`)
+}
+
 function corsHeaders(req: Request): Record<string, string> {
   const allowed = (process.env.LEAD_MAGNET_ALLOWED_ORIGINS ?? '*')
     .split(',').map(o => o.trim()).filter(Boolean)
   const origin = req.headers.get('origin') ?? ''
-  const allowOrigin = allowed.includes('*') ? '*' : allowed.includes(origin) ? origin : ''
+  const allowOrigin = allowed.includes('*')
+    ? '*'
+    : origin && allowed.some(entry => originAllowed(origin, entry)) ? origin : ''
   return {
     ...(allowOrigin ? { 'Access-Control-Allow-Origin': allowOrigin } : {}),
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -79,6 +91,14 @@ export async function POST(req: Request) {
   if (emails.length === 0) {
     return json(req, { error: 'invalid_input', message: 'Add at least one email.' }, 400)
   }
+  // Malformed entries still count once there is a real email beside them,
+  // but a paste with no @ at all is not a list worth running.
+  if (!emails.some(e => e.includes('@'))) {
+    return json(req, {
+      error: 'no_emails',
+      message: "We couldn't find any emails in that. Try pasting a few from your CRM.",
+    }, 400)
+  }
 
   const ipKey = await hashKey(clientIp(req))
   const [perIp, global] = await Promise.all([
@@ -96,22 +116,24 @@ export async function POST(req: Request) {
   }
 
   const checked = emails.slice(0, MAX_EMAILS)
+  const runId = crypto.randomUUID()
   try {
-    const outputs = await runRoutine(ROUTINE_ID, { emails: checked })
+    const outputs = await runRoutine(ROUTINE_ID, { emails: checked }, runId)
     const counts = Object.fromEntries(COUNT_FIELDS.map(f => [f, Number(outputs[f] ?? 0)]))
     return json(req, {
       magnet_id: 'crm-cleanup',
       spec_version: SPEC_VERSION,
+      run_id: runId,
       status: outputs.status === 'no_data' ? 'no_data' : 'ok',
       headline: String(outputs.headline ?? ''),
       counts,
       truncated: emails.length - checked.length,
     })
   } catch (err) {
-    console.error('crm-cleanup run failed:', err)
+    console.error(`crm-cleanup run ${runId} failed:`, err)
     if (err instanceof ClayError && err.kind === 'timeout') {
-      return json(req, { error: 'timeout', message: 'The check took too long. Please try again.' }, 504)
+      return json(req, { error: 'timeout', message: 'The check took too long. Please try again.', run_id: runId }, 504)
     }
-    return json(req, { error: 'upstream_error', message: 'Something went wrong running the check.' }, 502)
+    return json(req, { error: 'upstream_error', message: 'Something went wrong running the check.', run_id: runId }, 502)
   }
 }

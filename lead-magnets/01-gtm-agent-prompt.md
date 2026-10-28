@@ -72,6 +72,7 @@ personal {{counts.personal}}, disposable {{counts.disposable}}, clean {{counts.c
 The emails I checked: {{emails}}
 {{#if truncated}}My list has {{truncated}} more that the page didn't check.{{/if}}
 {{#if crm}}My list lives in {{crm}}.{{/if}}
+(Check id: {{run_id}})
 Rebuild this check in my workspace following play crm-cleanup@1 exactly, and confirm you get
 the same numbers. Then show me which emails are in each bucket and why, give me a keep list,
 and help me fix the bad ones and sync the clean list to my CRM.
@@ -93,7 +94,11 @@ most 25 emails is roughly 750 characters.
    build, not the other way around, because your build is what the visitor keeps.
 3. **The deep-link format.**
    - The URL and the query parameter that carries the prompt.
-   - The prompt length limit.
+   - The prompt length limit. Ploy flagged that 25 emails plus the counts can make the URL
+     long: about 1,500 characters before encoding, and over 2,000 once encoded. Tell us whether
+     the prompt can travel in the URL, or whether it should be posted to an id first and the
+     link carry only that id. Each check already has a unique `run_id` that could serve as the
+     key, and we can host that store on our side if you can fetch from it.
    - Whether the prompt survives signup, so a brand-new user lands with it.
 4. **Your final prompt template,** with the same `{{…}}` placeholders.
 5. **Golden test results.** Run lists A, B and C from the play spec through your prompt in a
