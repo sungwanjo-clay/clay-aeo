@@ -78,12 +78,15 @@ first 25 are checked.
     "needs_cleanup": 5,
     "clean": 1,
     "invalid": 2,
+    "format_invalid": 1,
+    "mailbox_invalid": 1,
     "risky_catch_all": 0,
     "role_inboxes": 1,
     "duplicates": 1,
     "personal": 1,
     "disposable": 0,
-    "unverified": 0
+    "unverified": 0,
+    "to_verify": 2
   },
   "truncated": 0
 }
@@ -97,13 +100,16 @@ first 25 are checked.
 | `counts.total` | Emails checked, at most 25 |
 | `counts.needs_cleanup` | The sum of the problem buckets below |
 | `counts.clean` | Mailbox verified as deliverable |
-| `counts.invalid` | Malformed, mailbox not found, or a do-not-mail address such as a spam trap |
+| `counts.invalid` | `format_invalid` + `mailbox_invalid` |
+| `counts.format_invalid` | Malformed addresses, caught by the format check |
+| `counts.mailbox_invalid` | Mailbox not found, or a do-not-mail address such as a spam trap, caught by the mailbox check |
 | `counts.risky_catch_all` | The domain accepts all mail, so delivery isn't guaranteed |
 | `counts.role_inboxes` | Shared inboxes like info@ or sales@ |
 | `counts.duplicates` | The same email entered more than once |
 | `counts.personal` | Personal addresses like Gmail or Outlook |
 | `counts.disposable` | Throwaway domains like Mailinator |
 | `counts.unverified` | The verifier couldn't confirm the mailbox either way |
+| `counts.to_verify` | Emails that passed the free screens and reached the mailbox check |
 | `truncated` | Emails beyond the first 25 that weren't checked |
 
 The response never contains an email address. That is the gate. Which contacts are which lives
@@ -144,25 +150,33 @@ should be added.
   result.
 - One button: **"Check my list"**.
 
-**2. While it runs**
-- Animate four steps in order: *Removing duplicates → Checking formats → Spotting role and
-  personal inboxes → Verifying mailboxes*. These are the workflow's real steps.
-- Keep the animation on screen for about 2.5 seconds even if the response arrives sooner, so the
-  work registers.
+**2. The workflow canvas: while it runs and the teaser**
 
-**3. Teaser**
-- Use `headline` as the big line. For example: **"5 of 6 contacts need cleanup."**
-- Show a breakdown of every bucket with a count above 0: invalid, catch-all, role inboxes,
-  duplicates, personal, disposable and unverified. Show `clean` as a positive, for example
-  "1 ready to send."
-- Show a locked panel of blurred placeholder rows titled "In Clay you'll see":
-  - which 5 contacts they are and why each failed
-  - verified replacement emails for the bad ones
-  - the clean list synced to HubSpot or Salesforce
+The page's centrepiece is a live canvas showing Clay running the visitor's list, step by step.
+**Visual reference:** the attached "Clay is building your motion" screenshot. Use the same
+two-column layout:
+- the visitor's input and running summary on the left;
+- on the right, a dotted-grid canvas of white node cards joined by thin connector lines, with a
+  status dot in the header and an "x of y steps" counter;
+- done nodes with a green check, running nodes with a spinner, and queued nodes faded with
+  dashed connectors.
 
-  The rows must be visibly fake placeholders, never real emails.
+The difference from that screenshot: **the nodes are the real steps of the Clay workflow behind
+this page**, in the order the play spec runs them. Each card's footer names the Clay node type
+that runs it, the way the reference shows "Claygent" or "Code".
 
-**4. CTA**
+[INTERACTION | intent: "A two-column workflow canvas in the style of the attached Clay screenshot. Left column: before submit, the paste box, the optional 'Where does this list live?' chips and the 'Check my list' button. After submit it collapses into a one-line summary ('6 emails · HubSpot') above a 'Your cleanup so far' list of colored chips that fill in as steps finish, the headline and the CTA. Right column: a canvas card headed 'Clay is cleaning your list' with a pulsing status dot and a '{done} of 8 steps' counter. Under it, eight node cards joined by connector lines: 'Your list' at the top, a row of five screening nodes (Remove duplicates → Check format → Screen throwaway domains → Spot role inboxes → Flag personal emails, left to right with arrows, because order matters: the first step that catches an email claims it), then 'Verify mailboxes', then 'Build your cleanup report'. Below them, a faded, dashed-connector row of four locked nodes tagged 'Runs in Clay': 'See every email and why', 'Keep list', 'Find replacement emails' and 'Sync to HubSpot' (or 'Sync to your CRM'). Before input, the canvas sits idle with every node queued and gray, so the visitor can see the plan before running anything; 'Try an example' runs it for real on labelled sample emails. On submit the POST fires immediately. While it is in flight, the nodes switch to a working state one after another, about 350 ms apart, each with a spinner and its working line, and the verify node keeps a spinner until the response lands. When the response arrives, the nodes resolve top to bottom, one beat (about 300 ms) each, as long as at least 2.5 seconds have passed since submit. Each node flips to a green check with its real count from the response, pushes its chip into the left-hand list, and solidifies the connector to the next node. The verify node shows one small dot per email in counts.to_verify filling in before its result line appears. A node with a 0 count still resolves, as a muted '0 found'. 'Build your cleanup report' shows the headline, the header switches to 'Your list is checked', and the locked row lights up with a soft glow and a lock icon while the CTA 'Clean all {needs_cleanup} in Clay' becomes prominent beside it. Afterwards, clicking any done node opens a small popover saying what the step checks (for example, the first few role-inbox names) and its count, never an email address. Clicking a locked node explains what it delivers in Clay and repeats the CTA. A 'Run again' link resets to the input. On an error, the node that was working turns to a red 'Stopped' state with the endpoint's message and a 'Try again' button, and the CTA stays visible. Under about 768 px wide, the canvas becomes a single vertical column of nodes, with the summary and CTA pinned to the bottom of the screen." | insight: "A list's value is set by its worst segment. Cleaning is triage that runs cheap screens first, so only real candidates reach the mailbox check, and every email ends up in exactly one bucket. Seeing the steps run on your own list makes the 'Runs in Clay' steps feel like the natural next move, not an upsell." | data: {"header": {"title_running": "Clay is cleaning your list", "title_done": "Your list is checked", "counter": "{done} of 8 steps"}, "nodes": [{"id": "list", "name": "Your list", "type_label": "Trigger", "working": "Reading {n} emails…", "done": "{counts.total} emails received", "note_if_truncated": "+{truncated} more waiting in Clay"}, {"id": "duplicates", "name": "Remove duplicates", "type_label": "Code · Free checks", "working": "Comparing every email…", "done": "{counts.duplicates} duplicates", "chip": "Duplicates"}, {"id": "format", "name": "Check format", "type_label": "Code · Free checks", "working": "Checking each address is well formed…", "done": "{counts.format_invalid} malformed", "chip": "Malformed"}, {"id": "disposable", "name": "Screen throwaway domains", "type_label": "Code · Free checks", "working": "Matching against throwaway domains…", "done": "{counts.disposable} throwaway", "chip": "Throwaway"}, {"id": "role", "name": "Spot role inboxes", "type_label": "Code · Free checks", "working": "Looking for info@, sales@, support@…", "done": "{counts.role_inboxes} role inboxes", "chip": "Role inboxes"}, {"id": "personal", "name": "Flag personal emails", "type_label": "Code · Free checks", "working": "Looking for Gmail, Outlook, iCloud…", "done": "{counts.personal} personal", "chip": "Personal"}, {"id": "verify", "name": "Verify mailboxes", "type_label": "Enrich · ZeroBounce · runs once per email", "working": "Pinging mailboxes…", "done": "{counts.clean} valid · {counts.mailbox_invalid} not found · {counts.risky_catch_all} catch-all · {counts.unverified} unconfirmed", "progress_dots": "{counts.to_verify}", "chips": ["Not found", "Catch-all"]}, {"id": "report", "name": "Build your cleanup report", "type_label": "Code", "working": "Adding it up…", "done": "{headline}"}], "locked_nodes": [{"name": "See every email and why", "type_label": "Runs in Clay", "does": "Each email with its bucket and the reason, e.g. 'mailbox not found'"}, {"name": "Keep list", "type_label": "Runs in Clay", "does": "The {counts.clean} sendable emails, ready to export"}, {"name": "Find replacement emails", "type_label": "Runs in Clay", "does": "New work emails for the {counts.invalid} bad ones"}, {"name": "Sync to {crm or 'your CRM'}", "type_label": "Runs in Clay", "does": "Write the cleaned list back to your CRM"}], "example_result": {"headline": "5 of 6 contacts need cleanup", "counts": {"total": 6, "duplicates": 1, "format_invalid": 1, "disposable": 0, "role_inboxes": 1, "personal": 1, "to_verify": 2, "clean": 1, "mailbox_invalid": 1, "risky_catch_all": 0, "unverified": 0, "needs_cleanup": 5}}} | label: "Your list running through Clay's CRM Cleanup workflow, step by step"]
+
+**Rules for the canvas:**
+- **Every number on a node comes from the endpoint response.** Map each node to its field, as
+  in `data.nodes`. The working lines are copy, not results. Never show a count before the
+  response arrives.
+- **Never show an email address on the canvas,** in a popover or in the locked nodes. Locked
+  nodes may use visibly fake blurred rows as decoration.
+- **The canvas is the teaser.** There is no separate results block. The headline sits in the
+  report node and at the top of the left column.
+
+**3. CTA**
 - Place it directly under the teaser and again at the bottom of the page.
 - Label it **"Clean all {needs_cleanup} in Clay"**. If the visitor picked HubSpot or
   Salesforce, use **"Clean all {needs_cleanup} and sync to HubSpot"** (or Salesforce).
@@ -174,12 +188,12 @@ should be added.
   so the GTM agent re-checks the same list and reaches the same numbers. The GTM agent will
   supply the link format and the template.
 
-**5. Copy and trust**
+**4. Copy and trust**
 - Don't promise the emails are never stored, because Clay keeps run logs. Use wording like "We
   only use these emails to run this check."
 - Never show a count that didn't come from the endpoint.
 
-**6. Analytics**
+**5. Analytics**
 Fire these events:
 - `input_started`
 - `example_used`

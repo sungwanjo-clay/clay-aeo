@@ -23,8 +23,9 @@ const GLOBAL_LIMITS: Limit[] = [
 
 // The only workflow fields the page ever sees.
 const COUNT_FIELDS = [
-  'total', 'needs_cleanup', 'clean', 'invalid', 'risky_catch_all', 'role_inboxes',
-  'duplicates', 'personal', 'disposable', 'unverified',
+  'total', 'needs_cleanup', 'clean', 'invalid', 'format_invalid', 'mailbox_invalid',
+  'risky_catch_all', 'role_inboxes', 'duplicates', 'personal', 'disposable', 'unverified',
+  'to_verify',
 ] as const
 
 function corsHeaders(req: Request): Record<string, string> {

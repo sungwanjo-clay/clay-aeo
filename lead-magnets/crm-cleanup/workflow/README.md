@@ -43,6 +43,9 @@ The routine returns only the final node's output, so no email address leaves Cla
   "needs_cleanup": 5,
   "clean": 1,
   "invalid": 2,
+  "format_invalid": 1,
+  "mailbox_invalid": 1,
+  "to_verify": 2,
   "risky_catch_all": 0,
   "role_inboxes": 1,
   "duplicates": 1,
@@ -59,7 +62,8 @@ The routine returns only the final node's output, so no email address leaves Cla
 | `headline` | A ready-made teaser line. Ploy may reword it from the numbers. |
 | `needs_cleanup` | duplicates + invalid + role + disposable + personal + catch-all |
 | `clean` | Mailbox verified as deliverable |
-| `invalid` | Malformed, mailbox not found, or a do-not-mail address such as a spam trap |
+| `invalid` | `format_invalid` (malformed) + `mailbox_invalid` (mailbox not found, or do-not-mail such as a spam trap) |
+| `to_verify` | Emails that reached the mailbox check. The page uses it to draw one dot per check. |
 | `risky_catch_all` | The domain accepts all mail, so delivery isn't guaranteed |
 | `unverified` | The verifier couldn't confirm the mailbox either way |
 

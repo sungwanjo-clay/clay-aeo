@@ -1,1 +1,66 @@
-{"status": {"type": "string", "description": "ok or no_data"}, "headline": {"type": "string", "description": "One-line teaser for the page"}, "total": {"type": "number", "description": "Emails checked"}, "needs_cleanup": {"type": "number", "description": "Emails that need cleanup"}, "clean": {"type": "number", "description": "Verified sendable emails"}, "invalid": {"type": "number", "description": "Malformed or undeliverable emails"}, "risky_catch_all": {"type": "number", "description": "Catch-all domains, delivery not guaranteed"}, "role_inboxes": {"type": "number", "description": "Role inboxes like info@"}, "duplicates": {"type": "number", "description": "Duplicate emails"}, "personal": {"type": "number", "description": "Personal addresses like gmail"}, "disposable": {"type": "number", "description": "Disposable-domain emails"}, "unverified": {"type": "number", "description": "Emails the verifier could not confirm"}, "truncated": {"type": "number", "description": "Emails over the 25 cap, not checked"}}
+{
+ "status": {
+  "type": "string",
+  "description": "ok or no_data"
+ },
+ "headline": {
+  "type": "string",
+  "description": "One-line teaser for the page"
+ },
+ "total": {
+  "type": "number",
+  "description": "Emails checked"
+ },
+ "needs_cleanup": {
+  "type": "number",
+  "description": "Emails that need cleanup"
+ },
+ "clean": {
+  "type": "number",
+  "description": "Verified sendable emails"
+ },
+ "invalid": {
+  "type": "number",
+  "description": "Malformed or undeliverable emails"
+ },
+ "format_invalid": {
+  "type": "number",
+  "description": "Emails with a malformed address"
+ },
+ "mailbox_invalid": {
+  "type": "number",
+  "description": "Emails the mailbox check marked undeliverable or do-not-mail"
+ },
+ "to_verify": {
+  "type": "number",
+  "description": "Emails that reached the mailbox check"
+ },
+ "risky_catch_all": {
+  "type": "number",
+  "description": "Catch-all domains, delivery not guaranteed"
+ },
+ "role_inboxes": {
+  "type": "number",
+  "description": "Role inboxes like info@"
+ },
+ "duplicates": {
+  "type": "number",
+  "description": "Duplicate emails"
+ },
+ "personal": {
+  "type": "number",
+  "description": "Personal addresses like gmail"
+ },
+ "disposable": {
+  "type": "number",
+  "description": "Disposable-domain emails"
+ },
+ "unverified": {
+  "type": "number",
+  "description": "Emails the verifier could not confirm"
+ },
+ "truncated": {
+  "type": "number",
+  "description": "Emails over the 25 cap, not checked"
+ }
+}
