@@ -208,11 +208,22 @@ that runs it, the way the reference shows "Claygent" or "Code".
   - If `truncated` is above 0: **"Clean all {total + truncated} in Clay."**
   - If `needs_cleanup` is 0 and `unverified` is 0: **"Your list looks clean. Enrich it in Clay."**
   - If `needs_cleanup` is 0 and `unverified` is above 0: **"Review my list in Clay."**
-- The link is the GTM agent deep link. Fill its prompt template with `spec_version`,
-  `run_id`, `headline`, the `counts`, `truncated`, `crm` if chosen, and **the exact emails that were sent**
-  (the first 25),
-  so the GTM agent re-checks the same list and reaches the same numbers. The GTM agent will
-  supply the link format and the template.
+- **What the CTA does.** It hands the GTM agent a filled-in prompt: the template in
+  `01-gtm-agent-prompt.md`, filled with `spec_version`, `run_id`, `headline`, the `counts`,
+  `truncated`, `crm` if chosen, and **the exact emails that were sent** (the first 25, in
+  order, duplicates included). The GTM agent then re-checks the same list with its
+  `crm-cleanup` skill and reaches the same numbers.
+- **Until the deep link ships (expected mid-November), use copy-and-open:**
+  1. Clicking the CTA copies the filled-in prompt to the clipboard.
+  2. It then opens Clay's signup page in a new tab, at `{{CLAY_SIGNUP_URL}}` with
+     `utm_source=lead-magnet&utm_campaign=crm-cleanup&utm_content={run_id}`.
+  3. Show a toast: "Your cleanup is copied. Sign up, open Clay's GTM agent and paste it in to
+     see which contacts need fixing."
+  4. Keep a small "Copy again" link next to the CTA, in case the clipboard was overwritten.
+- **Build the switch now.** Put the CTA behind one config value, `CTA_MODE`, set to
+  `copy_and_open` today and `deep_link` later. When the deep link ships, only the URL builder
+  changes. The label, the prompt and the analytics stay the same.
+- In both modes, fire `cta_clicked` with `cta_mode` and `run_id`.
 
 **4. Copy and trust**
 - Don't promise the emails are never stored, because Clay keeps run logs. Use wording like "We

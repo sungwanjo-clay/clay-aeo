@@ -8,6 +8,7 @@ finish the job.
 | `00-alignment-prompt.md` | **Ploy**: the goal, the endpoint contract, and how each page should behave |
 | `01-gtm-agent-prompt.md` | **GTM agent**: the handoff, the "numbers must match" rule, and what to send back |
 | `<magnet>/play-spec.md` | **Everyone**: the single definition of the logic, with a version and golden tests |
+| `<magnet>/skill/` | **GTM agent**: the play spec packaged as a skill (`SKILL.md`), with the canonical logic in `reference.py` |
 | `<magnet>/workflow/` | The pre-signup Clay workflow's code and contract |
 
 ## The flow for each magnet
@@ -31,7 +32,7 @@ so the visitor sees the same numbers before and after signup.
    form from that table and nothing else.
 2. **Sungwan** sends `01-gtm-agent-prompt.md` and the play spec to the GTM agent.
 3. **The GTM agent** sends back:
-   - where the spec will live (a skill, or inline in the prompt)
+   - confirmation that the skill is installed (the spec ships as a GTM agent skill)
    - any step it can't match exactly
    - the deep-link format
    - its prompt template
