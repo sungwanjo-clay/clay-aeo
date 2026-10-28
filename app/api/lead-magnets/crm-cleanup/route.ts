@@ -5,11 +5,13 @@ import { checkLimits, clientIp, hashKey, type Limit } from '@/lib/leadMagnets/ra
 // emails, runs the Clay workflow and returns counts only, never the emails.
 // Contract: lead-magnets/crm-cleanup/workflow/README.md
 
-export const maxDuration = 30
+// A failed mailbox check is retried by the provider, which has taken up to a
+// minute, so allow well beyond the usual 1-5 seconds.
+export const maxDuration = 60
 
 const ROUTINE_ID = 'workflow:wf_0tnl82wiyc7iywPb4Rp'
 // Bump with lead-magnets/crm-cleanup/play-spec.md whenever the workflow logic changes.
-const SPEC_VERSION = 'crm-cleanup@1'
+const SPEC_VERSION = 'crm-cleanup@2'
 const MAX_EMAILS = 25
 const MAX_BODY_BYTES = 16_000
 
@@ -118,7 +120,7 @@ export async function POST(req: Request) {
   const checked = emails.slice(0, MAX_EMAILS)
   const runId = crypto.randomUUID()
   try {
-    const outputs = await runRoutine(ROUTINE_ID, { emails: checked }, runId)
+    const outputs = await runRoutine(ROUTINE_ID, { emails: checked }, runId, 55_000)
     const counts = Object.fromEntries(COUNT_FIELDS.map(f => [f, Number(outputs[f] ?? 0)]))
     return json(req, {
       magnet_id: 'crm-cleanup',

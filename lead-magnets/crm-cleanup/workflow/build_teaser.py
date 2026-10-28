@@ -48,11 +48,14 @@ def handler(context):
 
     if total == 0:
         status, headline = "no_data", "We didn't find any emails to check"
-    elif needs_cleanup == 0:
+    elif needs_cleanup == 0 and unverified == 0:
         status, headline = "ok", "All %d contacts look clean" % total
     else:
+        # crm-cleanup@2: never call a list clean while some mailboxes are unconfirmed.
         status = "ok"
         headline = "%d of %d contacts need cleanup" % (needs_cleanup, total)
+        if unverified > 0:
+            headline += "; %d could not be verified" % unverified
 
     return {
         "status": status,

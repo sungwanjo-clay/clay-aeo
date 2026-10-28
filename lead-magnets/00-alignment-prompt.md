@@ -79,7 +79,7 @@ first 25 are checked.
 ```json
 {
   "magnet_id": "crm-cleanup",
-  "spec_version": "crm-cleanup@1",
+  "spec_version": "crm-cleanup@2",
   "run_id": "33a948f2-9590-4e05-b4ed-888eeb132a2e",
   "status": "ok",
   "headline": "5 of 6 contacts need cleanup",
@@ -137,7 +137,9 @@ only in Clay.
 | `504` | `timeout` | Same as `502` |
 
 **Limits.** 5 checks per minute and 30 per day per visitor IP, plus a site-wide cap. Most checks
-take 1–5 seconds. Allow up to 30 seconds before treating a request as failed.
+take 1–5 seconds. A failed mailbox check can make one take about a minute while the provider
+retries, so allow **60 seconds** before treating a request as failed. After 10 seconds, change the
+verify node's working line to "Still checking mailboxes… some servers are slow to answer."
 
 ## CRM Cleanup: how the page should behave
 
@@ -179,6 +181,17 @@ that runs it, the way the reference shows "Claygent" or "Code".
 
 [INTERACTION | intent: "A two-column workflow canvas in the style of the attached Clay screenshot. Left column: before submit, the paste box, the optional 'Where does this list live?' chips and the 'Check my list' button. After submit it collapses into a one-line summary ('6 emails · HubSpot') above a 'Your cleanup so far' list of colored chips that fill in as steps finish, the headline and the CTA. Right column: a canvas card headed 'Clay is cleaning your list' with a pulsing status dot and a '{done} of 8 steps' counter. Under it, eight node cards joined by connector lines: 'Your list' at the top, a row of five screening nodes (Remove duplicates → Check format → Screen throwaway domains → Spot role inboxes → Flag personal emails, left to right with arrows, because order matters: the first step that catches an email claims it), then 'Verify mailboxes', then 'Build your cleanup report'. Below them, a faded, dashed-connector row of four locked nodes tagged 'Runs in Clay': 'See every email and why', 'Keep list', 'Find replacement emails' and a sync node whose label follows the visitor's crm choice ('Sync to HubSpot', 'Sync to Salesforce', 'Export to a sheet' for Spreadsheet, 'Sync to your CRM' for Other or no choice). Before input, the canvas sits idle with every node queued and gray, so the visitor can see the plan before running anything; 'Try an example' runs it for real on labelled sample emails. On submit the POST fires immediately. While it is in flight, the nodes switch to a working state one after another, about 350 ms apart, each with a spinner and its working line, and the verify node keeps a spinner until the response lands. When the response arrives, the nodes resolve top to bottom, one beat (about 300 ms) each, as long as at least 2.5 seconds have passed since submit. Each node flips to a green check with its real count from the response, pushes its chip into the left-hand list, and solidifies the connector to the next node. The verify node shows one small dot per email in counts.to_verify filling in before its result line appears. A node with a 0 count still resolves, as a muted '0 found'. 'Build your cleanup report' shows the headline, the header switches to 'Your list is checked', and the locked row lights up with a soft glow and a lock icon while the CTA 'Clean all {needs_cleanup} in Clay' becomes prominent beside it. Afterwards, clicking any done node opens a small popover saying what the step checks (for example, the first few role-inbox names) and its count, never an email address. Clicking a locked node explains what it delivers in Clay and repeats the CTA. A 'Run again' link resets to the input. On an error, the node that was working turns to a red 'Stopped' state with the endpoint's message and a 'Try again' button, and the CTA stays visible. Under about 768 px wide, the canvas becomes a single vertical column of nodes, with the summary and CTA pinned to the bottom of the screen." | insight: "A list's value is set by its worst segment. Cleaning is triage that runs cheap screens first, so only real candidates reach the mailbox check, and every email ends up in exactly one bucket. Seeing the steps run on your own list makes the 'Runs in Clay' steps feel like the natural next move, not an upsell." | data: {"header": {"title_running": "Clay is cleaning your list", "title_done": "Your list is checked", "counter": "{done} of 8 steps"}, "nodes": [{"id": "list", "name": "Your list", "type_label": "Trigger", "working": "Reading {n} emails…", "done": "{counts.total} emails received", "note_if_truncated": "+{truncated} more waiting in Clay"}, {"id": "duplicates", "name": "Remove duplicates", "type_label": "Code · Free checks", "working": "Comparing every email…", "done": "{counts.duplicates} duplicates", "chip": "Duplicates"}, {"id": "format", "name": "Check format", "type_label": "Code · Free checks", "working": "Checking each address is well formed…", "done": "{counts.format_invalid} malformed", "chip": "Malformed"}, {"id": "disposable", "name": "Screen throwaway domains", "type_label": "Code · Free checks", "working": "Matching against throwaway domains…", "done": "{counts.disposable} throwaway", "chip": "Throwaway"}, {"id": "role", "name": "Spot role inboxes", "type_label": "Code · Free checks", "working": "Looking for info@, sales@, support@…", "done": "{counts.role_inboxes} role inboxes", "chip": "Role inboxes"}, {"id": "personal", "name": "Flag personal emails", "type_label": "Code · Free checks", "working": "Looking for Gmail, Outlook, iCloud…", "done": "{counts.personal} personal", "chip": "Personal"}, {"id": "verify", "name": "Verify mailboxes", "type_label": "Enrich · ZeroBounce · runs once per email", "working": "Pinging mailboxes…", "done": "{counts.clean} valid · {counts.mailbox_invalid} not found · {counts.risky_catch_all} catch-all · {counts.unverified} unconfirmed", "progress_dots": "{counts.to_verify}", "chips": ["Not found", "Catch-all"]}, {"id": "report", "name": "Build your cleanup report", "type_label": "Code", "working": "Adding it up…", "done": "{headline}"}], "locked_nodes": [{"name": "See every email and why", "type_label": "Runs in Clay", "does": "Each email with its bucket and the reason, e.g. 'mailbox not found'"}, {"name": "Keep list", "type_label": "Runs in Clay", "does": "The {counts.clean} sendable emails, ready to export"}, {"name": "Find replacement emails", "type_label": "Runs in Clay", "does": "New work emails for the {counts.invalid} bad ones"}, {"name_by_crm": {"hubspot": "Sync to HubSpot", "salesforce": "Sync to Salesforce", "spreadsheet": "Export to a sheet", "other": "Sync to your CRM", "none": "Sync to your CRM"}, "type_label": "Runs in Clay", "does": "Write the cleaned list back to your CRM, or export it"}], "example_result": {"headline": "5 of 6 contacts need cleanup", "counts": {"total": 6, "duplicates": 1, "format_invalid": 1, "disposable": 0, "role_inboxes": 1, "personal": 1, "to_verify": 2, "clean": 1, "mailbox_invalid": 1, "risky_catch_all": 0, "unverified": 0, "needs_cleanup": 5}}} | label: "Your list running through Clay's CRM Cleanup workflow, step by step"]
 
+**Unverified addresses (`crm-cleanup@2`):**
+- Show the headline exactly as the endpoint returns it. For example: "5 of 6 contacts need
+  cleanup; 1 could not be verified."
+- If `counts.unverified` is above 0:
+  - show it as its own count on the verify node and in the left-hand list;
+  - add this line under it: "These addresses could not be verified. They are not included in
+    the cleanup count.";
+  - don't use a green all-clear state anywhere.
+- If `needs_cleanup` is 0 and `unverified` is above 0, the CTA is **"Review my list in Clay"**,
+  never "Clean all 0 in Clay".
+
 **Rules for the canvas:**
 - **Every number on a node comes from the endpoint response.** Map each node to its field, as
   in `data.nodes`. The working lines are copy, not results. Never show a count before the
@@ -193,7 +206,8 @@ that runs it, the way the reference shows "Claygent" or "Code".
 - Label it **"Clean all {needs_cleanup} in Clay"**. If the visitor picked HubSpot or
   Salesforce, use **"Clean all {needs_cleanup} and sync to HubSpot"** (or Salesforce).
   - If `truncated` is above 0: **"Clean all {total + truncated} in Clay."**
-  - If `needs_cleanup` is 0: **"Your list looks clean. Enrich it in Clay."**
+  - If `needs_cleanup` is 0 and `unverified` is 0: **"Your list looks clean. Enrich it in Clay."**
+  - If `needs_cleanup` is 0 and `unverified` is above 0: **"Review my list in Clay."**
 - The link is the GTM agent deep link. Fill its prompt template with `spec_version`,
   `run_id`, `headline`, the `counts`, `truncated`, `crm` if chosen, and **the exact emails that were sent**
   (the first 25),

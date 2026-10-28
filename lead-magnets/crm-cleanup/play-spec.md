@@ -1,6 +1,10 @@
 # CRM Cleanup: Play Spec
 
-**Version:** `crm-cleanup@1`
+**Version:** `crm-cleanup@2`
+
+**Changes from `crm-cleanup@1`:** only the headline. A list is never called clean while any
+address is unverified, and the number that couldn't be verified is added to the headline. No
+bucket, check order, list or mailbox setting changed. Proposed by the GTM agent.
 
 This is the single source of truth for what "cleaning a list" means in the CRM Cleanup lead
 magnet. Two things must follow it exactly:
@@ -74,9 +78,17 @@ Run these in order. Each email lands in exactly one bucket, at the first step th
 - `total` is the number of emails checked.
 - `needs_cleanup` = `duplicates` + `invalid` + `disposable` + `role_inboxes` + `personal` + `risky_catch_all`
 - `unverified` is not counted as needing cleanup.
-- Headline:
-  - "{needs_cleanup} of {total} contacts need cleanup"
-  - "All {total} contacts look clean" when `needs_cleanup` is 0
+- `total` = `needs_cleanup` + `clean` + `unverified`. Every checked email lands in exactly one
+  of these.
+- Diagnostics, which are not extra buckets:
+  - `format_invalid`: format failures
+  - `mailbox_invalid`: mailbox results mapped to invalid
+  - `to_verify`: emails that reached the mailbox check
+  - `invalid` = `format_invalid` + `mailbox_invalid`
+- Headline, with the numbers filled in:
+  1. If `needs_cleanup` is 0 and `unverified` is 0: "All {total} contacts look clean"
+  2. Otherwise: "{needs_cleanup} of {total} contacts need cleanup"
+  3. If `unverified` is above 0, append "; {unverified} could not be verified"
 
 **Lists** (copied from `workflow/free_checks.py`, which is the canonical copy)
 
@@ -110,7 +122,7 @@ None of step two may change the step-one counts.
 
 Both the page endpoint and the GTM agent build must produce these numbers. Lists B and C never
 reach the mailbox check, so their results are fully fixed. List A depends on two live mailbox
-results.
+results. Pass C as an array, so the padded fifth entry keeps its spaces.
 
 | List | Emails | Expected |
 |---|---|---|
@@ -118,5 +130,25 @@ results.
 | B | `info@clay.com, bob@gmail.com, bad-email` | total 3 · role 1 · personal 1 · invalid 1 → **"3 of 3 contacts need cleanup"** |
 | C | `Sales+eu@acme.com, temp@mailinator.com, x@yopmail.com, a@b, " ops@stripe.com ", Ops@Stripe.com` | total 6 · duplicates 1 · invalid 1 · role 2 · disposable 2 → **"6 of 6 contacts need cleanup"** |
 
-Mailbox results can change over time, for example if a company deletes an inbox. When that
-happens, the agent should say so: "On clay.com this showed as valid; it now bounces."
+**Headline fixtures** (synthetic, all passing in the workflow code):
+
+| total | needs_cleanup | unverified | Headline |
+|---|---|---|---|
+| 3 | 0 | 0 | All 3 contacts look clean |
+| 3 | 0 | 3 | 0 of 3 contacts need cleanup; 3 could not be verified |
+| 3 | 0 | 1 | 0 of 3 contacts need cleanup; 1 could not be verified |
+| 6 | 4 | 2 | 4 of 6 contacts need cleanup; 2 could not be verified |
+| 6 | 5 | 0 | 5 of 6 contacts need cleanup |
+
+**Parity runs on the saved workflow** (`crm-cleanup@2`, 28 Oct 2026):
+- **B and C** matched the expected numbers exactly.
+- **A** matched every free check: duplicates 1, format 1, role 1, personal 1, to_verify 2.
+  `jane@acme.com` came back mailbox not found, as before. The ZeroBounce call for
+  `sam@stripe.com` failed with a provider error, so it counted as unverified. The headline was
+  "5 of 6 contacts need cleanup; 1 could not be verified".
+
+Results for A therefore depend on live mailbox checks. Never force them to the example.
+
+Mailbox results can change between the page and the agent's recheck. Only say a particular
+mailbox changed when row-level evidence from both runs supports it. Aggregate counts alone
+don't show the cause.
