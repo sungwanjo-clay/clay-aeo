@@ -1,51 +1,11 @@
 # Lead Magnets
 
-Free tools on clay.com that show a gated teaser and deep-link visitors into Clay's GTM agent to
-finish the job.
-
-| File | For |
+| File | Send to |
 |---|---|
-| `00-alignment-prompt.md` | **Ploy**: the goal, the endpoint contract, and how each page should behave |
-| `01-gtm-agent-prompt.md` | **GTM agent**: the handoff, the "numbers must match" rule, and what to send back |
-| `<magnet>/play-spec.md` | **Everyone**: the single definition of the logic, with a version and golden tests |
-| `<magnet>/skill/` | **GTM agent**: the play spec packaged as a skill (`SKILL.md`), with the canonical logic in `reference.py` |
-| `<magnet>/workflow/` | The pre-signup Clay workflow's code and contract |
+| `ploy-prompt.md` | **Ploy:** build the CRM Cleanup page and its server route |
+| `gtm-agent-prompt.md` | **GTM agent:** write the prompt the page's CTA sends |
 
-## The flow for each magnet
+When the GTM agent returns its prompt template, pass it to Ploy for the CTA.
 
-The play spec sits at the centre. The page's workflow and the GTM agent's build both follow it,
-so the visitor sees the same numbers before and after signup.
-
-```
-            ┌──────────── play-spec.md (vN) ────────────┐
-            ▼                                            ▼
-  Claude: workflow + endpoint                 GTM agent: deep-link prompt + build
-            │                                            │
-            └──────► Ploy: page fills the prompt ◄───────┘
-                     with spec_version, counts and the exact emails
-```
-
-1. **Claude** writes the play spec (`vN`), builds the workflow and endpoint to match it, and
-   runs the golden tests. Every play spec starts with an **Inputs** table: each field the page
-   asks for, whether it's required, where it's sent, its format and limits, and why we ask. It
-   also covers how to get the best results, and what we deliberately don't ask. Ploy builds the
-   form from that table and nothing else.
-2. **Sungwan** sends `01-gtm-agent-prompt.md` and the play spec to the GTM agent.
-3. **The GTM agent** sends back:
-   - confirmation that the skill is installed (the spec ships as a GTM agent skill)
-   - any step it can't match exactly
-   - the deep-link format
-   - its prompt template
-   - its golden-test results from a fresh workspace
-4. **Claude** compares the GTM agent's golden results with the endpoint's.
-   - If a step can't be matched, Claude changes the workflow to match what the agent can build,
-     because the agent's build is what the visitor keeps. That bumps the spec to `vN+1`, and the
-     loop goes back to step 2.
-5. **Claude** adds the deep-link format and prompt template to `00-alignment-prompt.md`, and
-   Sungwan sends it to **Ploy**.
-6. **Before launch,** Sungwan signs up as a brand-new user through the live page with golden lists
-   B and C. The page and the GTM agent must show identical counts.
-
-**Changing the logic later.** Change the play spec first and bump its version. Then update the
-workflow, the endpoint's `SPEC_VERSION`, and the GTM agent's skill or prompt together, and re-run
-the golden tests.
+Background, for reference: the Clay workflow behind the page is in `crm-cleanup/workflow/`
+(published), and the full logic is in `crm-cleanup/play-spec.md`.
