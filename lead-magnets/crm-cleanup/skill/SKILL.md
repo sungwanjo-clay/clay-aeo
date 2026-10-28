@@ -25,8 +25,13 @@ Follow the steps, lists and mapping below exactly. Don't substitute another veri
 the checks, or add checks that change the counts. Anything extra comes **after** the matching
 counts and must never change them.
 
-The reference implementation in `reference.py` beside this file is the canonical logic. Use it
-verbatim in a code node rather than re-deriving it.
+The reference implementation in `reference.py` beside this file is the canonical logic, including
+the counting. Use it verbatim in code nodes rather than re-deriving any of it:
+- a first code node calls `screen()` and passes on the normalised value of every row whose
+  bucket is `None`;
+- the ZeroBounce node repeats over that list;
+- a final code node calls `summarize(emails, mailbox_results)`, which returns the audit rows,
+  the counts and the headline.
 
 ## Inputs
 
@@ -45,8 +50,9 @@ emails and 5 needed cleanup. Let's see exactly which ones and fix them."
 
 ## Steps 1–6: free screens (code node, zero credits)
 
-Run `screen()` from `reference.py` over the emails, in order. Each entry lands in exactly one
-bucket, at the first step that catches it:
+Run `screen()` from `reference.py` over the emails, in order. Blank or whitespace-only entries
+aren't contacts: they are skipped and not counted, as on the page. Every other entry lands in
+exactly one bucket, at the first step that catches it:
 
 1. **Normalise:** trim whitespace and lower-case, keeping the original value.
 2. **Duplicates:** a normalised value already seen earlier goes to `duplicates`. The first
@@ -60,13 +66,26 @@ bucket, at the first step that catches it:
 ## Step 7: mailbox check (paid)
 
 Every entry still unbucketed goes to **ZeroBounce → Verify email** (`validate-email`), with
-**"Only safe to send" off**. Run it once per email, in list mode.
+**"Only safe to send" off**. Send the **normalised** value (trimmed and lower-cased). Run the node
+once per email, in list mode, with failures ignored rather than failing the run. When nothing is
+left to check, the node runs on an empty list, and the totals still come out right.
+
+`to_verify` is the number of emails sent to this check.
+
+**Result shape.** Each list-mode result is the action's output, for example
+`{"status": "invalid", "sub_status": "mailbox_not_found", "address": "...", "free_email": false}`.
+A failed check, an error or a missing result counts as no result. If fewer results come back than
+were sent, the missing ones are `unverified`. `summarize()` handles all of this.
 
 Before running, state the cost: the number of emails × the per-check price from the action
-catalog (about 0.1 credits each). If the workspace's plan or credits don't allow it, Clay will
+catalog (about 0.1 credits each). Don't quote the routine's own cost estimate: it ignores the
+once-per-email fan-out and reads as 0. If the workspace's plan or credits don't allow it, Clay will
 prompt an upgrade. Don't switch to another provider.
 
 Map each result with `mailbox_bucket()`. Statuses are lower-cased, with `-` treated as `_`.
+**Keep the order of the table below.** With "Only safe to send" off, ZeroBounce reports a
+catch-all as `status: valid` with `sub_status: catch-all`. If the `valid` check runs first,
+catch-alls are miscounted as clean.
 
 | ZeroBounce result | Bucket |
 |---|---|
@@ -84,7 +103,8 @@ choose to re-check it later.
 - `needs_cleanup` = `duplicates` + `invalid` + `disposable` + `role_inboxes` + `personal` + `risky_catch_all`
 - `total` = `needs_cleanup` + `clean` + `unverified`. Check this before reporting. If it doesn't
   hold, an entry was dropped.
-- `invalid` = `format_invalid` + `mailbox_invalid`
+- `invalid` = `format_invalid` (caught by the format screen) + `mailbox_invalid` (mapped to invalid
+  by the mailbox check). `summarize()` splits them by the row's reason.
 - Headline: use `headline()`. "All N contacts look clean" only when `needs_cleanup` and
   `unverified` are both 0. Otherwise "X of N contacts need cleanup", with "; U could not be
   verified" appended when `unverified` is above 0.
@@ -121,6 +141,12 @@ send emails without the visitor's explicit approval.
 ## Golden tests
 
 Run these after any change. B and C are fully deterministic. A depends on live mailbox checks.
+`summarize()` asserts `total = needs_cleanup + clean + unverified` on every run.
+
+**Independent parity test (28 Oct 2026).** A separate agent was given only this skill and no
+access to the page's workflow. It built the check from scratch in Clay and ran all three lists.
+Every count and headline matched the page workflow. Its notes on ambiguities are folded into
+this version.
 
 | List | Emails | Expected |
 |---|---|---|
