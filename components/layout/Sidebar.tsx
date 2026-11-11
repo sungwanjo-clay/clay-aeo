@@ -10,6 +10,7 @@ import {
   List,
   Bot,
   LogOut,
+  TrendingUp,
 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { href: '/sentiment',   label: 'Sentiment',        icon: MessageSquare },
   { href: '/mcp',         label: 'MCP & Claygent',   icon: Bot },
   { href: '/prompts',     label: 'Prompts',          icon: List },
+  { href: '/plg',         label: 'PLG Metrics',      icon: TrendingUp },
 ]
 
 export default function Sidebar() {

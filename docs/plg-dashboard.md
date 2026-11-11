@@ -1,0 +1,53 @@
+# PLG Weekly Metrics: Workspaces tab (`/plg`)
+
+Live version of the "New workspaces & pacing" mock. Data refreshes nightly from Snowflake.
+
+```
+Snowflake ──(Vercel cron 11:30 UTC → /api/plg/refresh)──▶ Supabase plg_* tables
+                                                              │
+/plg page ──fetch /api/plg/dashboard?preset=…&compare=…&grain=…┘ (RPCs, service role only)
+```
+
+## Setup (one time)
+
+1. Run `supabase/plg_schema.sql` in the Supabase SQL editor (safe to re-run).
+2. Add the Vercel env vars:
+   - `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USERNAME`, `SNOWFLAKE_PRIVATE_KEY` (PEM, key-pair auth; literal `\n` is fine), optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_ROLE`. `SNOWFLAKE_PASSWORD` works instead of a key.
+   - `SUPABASE_SERVICE_ROLE_KEY` (already used by `/api/refresh-cache`). The PLG data is **not** readable with the anon key.
+   - `CRON_SECRET` (already set for the other crons).
+3. Backfill once while signed in: `GET /api/plg/refresh?from=2025-10-01`. After that the cron re-pulls the trailing ~6 weeks every night, so late restatements flow in.
+
+The Snowflake role needs `SELECT` on `DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION`, `DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION_METRICS`, `DBT.PROD.CUSTOMERS` and `FIVETRAN.SALESFORCE.ACCOUNT`.
+
+## Where things live
+
+| What | File |
+|---|---|
+| Quarter calendar, goals, channel groups, tier fallback, guardrail thresholds | `lib/plg/config.ts` |
+| Goals override (no deploy needed) | Supabase `plg_goals` (rows win over config) |
+| Snowflake SQL | `lib/plg/snowflake.ts` |
+| Nightly ETL, restatement log, reconciliation | `lib/plg/etl.ts` |
+| All dashboard math (pure, no I/O) | `lib/plg/compute.ts` |
+| UI | `components/plg/*` |
+
+To add Q1 2027, insert `plg_goals` rows with the new `quarter_start` / `quarter_end` (scope `quarter` / `tier` / `group`).
+
+## Data definitions (verified against Snowflake via Sigma, Nov 2026)
+
+- **Source**: workspace-level `FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION`, `ATTRIBUTION_WINDOW = '90_days'`, `ATTRIBUTION_TYPE = 'first_touch'`. At that grain the table labels rows `first_touch`; the metrics table labels the same rows `blended`. It reconciles exactly with the metrics table under the five required filters (Nov 2–8: 10,129 both, identical per-channel counts). The ETL re-checks this every night per day (`plg_daily_reconciliation`), and any mismatch shows in the Data quality strip.
+- **Tier**: workspace → `CUSTOMERS.DOMAIN` → SFDC `ACCOUNT.DOMAIN_C` → `SALES_TIER_C` (`Tier 1`–`Tier 4`). If a domain maps to several accounts, the best tier wins. Unmatched domains (about 67% of workspaces, almost all personal email) are stored as `Unassigned` and shown as Tier 4 (`UNASSIGNED_TIER_BUCKET`).
+- **Domain quality**: `CUSTOMER_DOMAIN_QUALITY_SEGMENT`; the independent cross-check is `CUSTOMERS.CUSTOMER_DOMAIN_SEGMENT` (hover the HQ share tile).
+- Pace and tier status = actual ÷ goal prorated (weekly / 7 per day) over the selected dates. Projection = QTD actual + selected-range run rate × days left in the quarter of the latest data day, rounded to 100.
+- Commentary is always the last complete Mon–Sun week vs the week before, generated from movers with |Δ| ≥ 30. It describes what moved, never why.
+
+## Local development without Supabase
+
+`PLG_FIXTURE_PATH=/path/to/facts.json npm run dev` serves `/plg` from a JSON file of fact rows. This only works outside production, and the page shows a **FIXTURE DATA** pill. `npx tsx scripts/plg-check.ts facts.json 2026-11-02` prints the acceptance-checklist numbers for a week.
+
+## Open items to confirm before go-live
+
+1. **Quarter calendar.** Config uses Q4 = Nov 1 – Jan 31 per the build prompt. The prompt's reference numbers ("QTD 63,400 of 69,231, week 6 of 13" for Nov 2–8) imply a quarter that started Mon Sep 28.
+2. **Tier source.** `SALES_TIER_C` gives Tier 1/2/3/4 = 124 / 717 / 244 / 9,044 for Nov 2–8. The reference was 318 / 878 / 2,428 / 6,576, so the Tier 3 weekly goal of 2,600 can't be hit under this definition. Confirm the intended field and the unassigned bucket.
+3. **Goal owner**, plus whether the illustrative goals in `plg_goals` are current.
+4. **Cron time.** 11:30 UTC assumes dbt prod has finished by then.
+5. Social video / Startup program tabs are placeholders.
