@@ -4,7 +4,7 @@ import { Fragment, useState } from 'react'
 import type { DashboardPayload } from '@/lib/plg/load'
 import type { ChannelRowData } from '@/lib/plg/compute'
 import { paceStatus } from '@/lib/plg/compute'
-import { TIERS } from '@/lib/plg/config'
+import { DISPLAY_TIERS, UNASSIGNED, UNMATCHED_LABEL } from '@/lib/plg/config'
 import { PaceBar } from './TierPacing'
 import { Card, H2, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtSigned } from './ui'
 
@@ -30,7 +30,7 @@ function Cells({ r, mode, kind, prevLabel }: { r: ChannelRowData; mode: Mode; ki
         )}
       </td>
       <td className="px-2.5 py-4 text-right">{showGoal && r.vsGoal != null ? fmtPct(r.vsGoal, 0) : ''}</td>
-      {r.tiers.map((n, i) => <td key={TIERS[i]} className="px-2.5 py-4 text-right">{tierCell(n)}</td>)}
+      {r.tiers.map((n, i) => <td key={DISPLAY_TIERS[i]} className="px-2.5 py-4 text-right">{tierCell(n)}</td>)}
     </>
   )
 }
@@ -52,7 +52,7 @@ export default function ChannelTable({ v }: { v: DashboardPayload }) {
           options={[{ id: 'counts', label: 'Counts' }, { id: 'pct', label: '% of row' }]} />
       </div>
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[1040px] border-collapse text-[15px]" style={{ fontFamily: T.mono, color: T.ink }}>
+        <table className="w-full min-w-[1120px] border-collapse text-[15px]" style={{ fontFamily: T.mono, color: T.ink }}>
           <thead>
             <tr style={{ color: T.muted, letterSpacing: '0.12em', borderBottom: `1px solid ${T.border}` }}>
               <th className={`${th} text-left`}>Channel</th>
@@ -63,7 +63,7 @@ export default function ChannelTable({ v }: { v: DashboardPayload }) {
               <th className={`${th} text-right`}>Goal</th>
               <th className={th} />
               <th className={`${th} text-right`}>vs goal</th>
-              {TIERS.map(x => <th key={x} className={`${th} text-right`}>{x}</th>)}
+              {DISPLAY_TIERS.map(x => <th key={x} className={`${th} text-right`} title={x === UNASSIGNED ? 'Customer domain matches no SFDC account with a Sales Tier (mostly personal email)' : undefined}>{x === UNASSIGNED ? UNMATCHED_LABEL : x}</th>)}
             </tr>
           </thead>
           <tbody>

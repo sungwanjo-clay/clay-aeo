@@ -35,7 +35,7 @@ To add Q1 2027, insert `plg_goals` rows with the new `quarter_start` / `quarter_
 ## Data definitions (verified against Snowflake via Sigma, Nov 2026)
 
 - **Source**: workspace-level `FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION`, `ATTRIBUTION_WINDOW = '90_days'`, `ATTRIBUTION_TYPE = 'first_touch'`. At that grain the table labels rows `first_touch`; the metrics table labels the same rows `blended`. It reconciles exactly with the metrics table under the five required filters (Nov 2–8: 10,129 both, identical per-channel counts). The ETL re-checks this every night per day (`plg_daily_reconciliation`), and any mismatch shows in the Data quality strip.
-- **Tier**: workspace → `CUSTOMERS.DOMAIN` → SFDC `ACCOUNT.DOMAIN_C` → `SALES_TIER_C` (`Tier 1`–`Tier 4`). If a domain maps to several accounts, the best tier wins. Unmatched domains (about 67% of workspaces, almost all personal email) are stored as `Unassigned` and shown as Tier 4 (`UNASSIGNED_TIER_BUCKET`).
+- **Tier**: workspace → `CUSTOMERS.DOMAIN` → SFDC `ACCOUNT.DOMAIN_C` → `SALES_TIER_C` (`Tier 1`–`Tier 4`). If a domain maps to several accounts, the best tier wins. Unmatched domains (about 67% of workspaces, almost all personal email) are stored as `Unassigned` and shown as their own **Unmatched** row/column (report-only, no goal).
 - **Domain quality**: `CUSTOMER_DOMAIN_QUALITY_SEGMENT`; the independent cross-check is `CUSTOMERS.CUSTOMER_DOMAIN_SEGMENT` (hover the HQ share tile).
 - Pace and tier status = actual ÷ goal prorated (weekly / 7 per day) over the selected dates. Projection = QTD actual + selected-range run rate × days left in the quarter of the latest data day, rounded to 100.
 - Commentary is always the last complete Mon–Sun week vs the week before, generated from movers with |Δ| ≥ 30. It describes what moved, never why.
@@ -46,8 +46,8 @@ To add Q1 2027, insert `plg_goals` rows with the new `quarter_start` / `quarter_
 
 ## Open items to confirm before go-live
 
-1. **Quarter calendar.** Config uses Q4 = Nov 1 – Jan 31 per the build prompt. The prompt's reference numbers ("QTD 63,400 of 69,231, week 6 of 13" for Nov 2–8) imply a quarter that started Mon Sep 28.
-2. **Tier source.** `SALES_TIER_C` gives Tier 1/2/3/4 = 124 / 717 / 244 / 9,044 for Nov 2–8. The reference was 318 / 878 / 2,428 / 6,576, so the Tier 3 weekly goal of 2,600 can't be hit under this definition. Confirm the intended field and the unassigned bucket.
+1. ~~Quarter calendar~~ Confirmed: Q4 = Nov 1 – Jan 31.
+2. **Tier source / goals.** `SALES_TIER_C` gives Tier 1/2/3/4/Unmatched = 124 / 717 / 244 / 2,237 / 6,807 for Nov 2–8. The reference was 318 / 878 / 2,428 / 6,576, so the Tier 3 (2,600/wk) and Tier 4 (7,538/wk) goals look calibrated to a different definition.
 3. **Goal owner**, plus whether the illustrative goals in `plg_goals` are current.
 4. **Cron time.** 11:30 UTC assumes dbt prod has finished by then.
 5. Social video / Startup program tabs are placeholders.

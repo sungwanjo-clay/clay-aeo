@@ -14,12 +14,14 @@ export type Tier = (typeof TIERS)[number]
 
 /**
  * Workspaces whose customer domain doesn't match an SFDC account with a
- * SALES_TIER_C are stored as 'Unassigned' by the ETL. This decides which
- * displayed tier they roll into. Mostly personal (gmail etc.) domains.
- * OPEN ITEM: confirm with data-eng. Set to null to drop them from tier
- * columns (tier columns would then not sum to the channel total).
+ * SALES_TIER_C are stored as 'Unassigned' by the ETL and shown as their own
+ * "Unmatched" row/column (report-only, no goal). Mostly personal (gmail etc.)
+ * domains. Tier columns therefore always sum to the channel total.
  */
-export const UNASSIGNED_TIER_BUCKET: Tier | null = 'Tier 4'
+export const UNASSIGNED = 'Unassigned'
+export const UNMATCHED_LABEL = 'Unmatched'
+export const DISPLAY_TIERS = [...TIERS, UNASSIGNED] as const
+export type DisplayTier = (typeof DISPLAY_TIERS)[number]
 
 export interface QuarterGoals {
   /** Display label, e.g. 'Q4'. */

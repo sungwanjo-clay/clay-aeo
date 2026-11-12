@@ -4,8 +4,8 @@
  * checked against reference numbers (scripts/plg-check.ts).
  */
 import {
-  CHANNEL_DISPLAY, CHANNEL_GROUPS, GUARDRAILS, KNOWN_INCIDENTS, PACING, TIERS, UNASSIGNED_TIER_BUCKET,
-  groupForCategory, type ChannelGroupId, type QuarterGoals, type Tier,
+  CHANNEL_DISPLAY, CHANNEL_GROUPS, UNMATCHED_LABEL, GUARDRAILS, KNOWN_INCIDENTS, PACING, TIERS, DISPLAY_TIERS, UNASSIGNED,
+  groupForCategory, type ChannelGroupId, type DisplayTier, type QuarterGoals, type Tier,
 } from './config'
 import {
   addDays, daysBetween, firstOfMonth, fmtRange, fmtRangeCompact, fmtShort, maxDate, minDate, mondayOf,
@@ -41,11 +41,14 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 export const pctChange = (cur: number, prev: number): number | null => (prev > 0 ? (cur - prev) / prev : null)
 const safeDiv = (a: number, b: number): number | null => (b > 0 ? a / b : null)
 
-/** Map a stored sales_tier to a displayed tier (or null = not shown). */
-export function displayTier(t: string): Tier | null {
-  if ((TIERS as readonly string[]).includes(t)) return t as Tier
-  return UNASSIGNED_TIER_BUCKET
+/** Map a stored sales_tier to a displayed tier column; anything unrecognised is Unmatched. */
+export function displayTierIndex(t: string): number {
+  const i = (TIERS as readonly string[]).indexOf(t)
+  return i >= 0 ? i : DISPLAY_TIERS.indexOf(UNASSIGNED)
 }
+const zeroTiers = () => DISPLAY_TIERS.map(() => 0)
+/** Weekly goal for a displayed tier; Unmatched has none (report-only). */
+const tierGoal = (q: QuarterGoals, t: DisplayTier): number | undefined => (t === UNASSIGNED ? undefined : q.tierWeekly[t as Tier])
 
 // ── Goals ───────────────────────────────────────────────────────────────────
 
@@ -111,7 +114,7 @@ export interface ChannelRowData {
   deltaPct: number | null
   goal: number | null
   vsGoal: number | null
-  tiers: number[] // aligned with TIERS
+  tiers: number[] // aligned with DISPLAY_TIERS
 }
 
 interface ChannelAgg { category: string; channel: string; n: number; tiers: number[] }
@@ -119,10 +122,9 @@ interface ChannelAgg { category: string; channel: string; n: number; tiers: numb
 function aggregateChannels(s: RangeSummary): Map<string, ChannelAgg> {
   const m = new Map<string, ChannelAgg>()
   for (const r of s.channels) {
-    const a = m.get(r.ch) ?? { category: r.c, channel: r.ch, n: 0, tiers: [0, 0, 0, 0] }
+    const a = m.get(r.ch) ?? { category: r.c, channel: r.ch, n: 0, tiers: zeroTiers() }
     a.n += r.n
-    const t = displayTier(r.t)
-    if (t) a.tiers[TIERS.indexOf(t)] += r.n
+    a.tiers[displayTierIndex(r.t)] += r.n
     m.set(r.ch, a)
   }
   return m
@@ -133,11 +135,8 @@ export function totalOf(s: RangeSummary): number {
 }
 
 export function tierTotals(s: RangeSummary): number[] {
-  const out = [0, 0, 0, 0]
-  for (const r of s.channels) {
-    const t = displayTier(r.t)
-    if (t) out[TIERS.indexOf(t)] += r.n
-  }
+  const out = zeroTiers()
+  for (const r of s.channels) out[displayTierIndex(r.t)] += r.n
   return out
 }
 
@@ -185,7 +184,7 @@ export interface DashboardInputs {
 }
 
 export interface TierPace {
-  tier: Tier; actual: number; goal: number | null; pct: number | null
+  tier: DisplayTier; label: string; actual: number; goal: number | null; pct: number | null
   status: PaceStatus | null; prevActual: number; deltaPct: number | null
 }
 export interface Projection {
@@ -229,11 +228,11 @@ export function buildDashboard(i: DashboardInputs) {
   const goalMix = q ? safeDiv(q.tierWeekly['Tier 1'] + q.tierWeekly['Tier 2'], tierTotalWeekly(q)) : null
 
   // ── Tier pacing (actual ÷ prorated goal for the selected dates) ────────────
-  const tiers: TierPace[] = TIERS.map((t, idx) => {
-    const g = goalForRange(i.quarters, i.start, i.end, qq => qq.tierWeekly[t])
+  const tiers: TierPace[] = DISPLAY_TIERS.map((t, idx) => {
+    const g = goalForRange(i.quarters, i.start, i.end, qq => tierGoal(qq, t))
     const pct = g ? tCur[idx] / g : null
     return {
-      tier: t, actual: tCur[idx], goal: g, pct,
+      tier: t, label: t === UNASSIGNED ? UNMATCHED_LABEL : t, actual: tCur[idx], goal: g, pct,
       status: pct != null ? paceStatus(pct) : null,
       prevActual: tPrev[idx], deltaPct: pctChange(tCur[idx], tPrev[idx]),
     }
@@ -349,19 +348,19 @@ export function buildChannelTable(
       const a = c.get(k); const b = p.get(k)
       const category = a?.category ?? b?.category ?? 'undefined'
       if (groupForCategory(category) !== g.id) continue
-      children.push(mkRow(k, CHANNEL_DISPLAY[k] ?? k, a?.n ?? 0, b?.n ?? 0, a?.tiers ?? [0, 0, 0, 0], null))
+      children.push(mkRow(k, CHANNEL_DISPLAY[k] ?? k, a?.n ?? 0, b?.n ?? 0, a?.tiers ?? zeroTiers(), null))
     }
     children.sort((x, y) => y.cur - x.cur || y.prev - x.prev || x.label.localeCompare(y.label))
     const gGoal = goalForRange(quarters, start, end, q => q.groupWeekly[g.id])
     const row = mkRow(g.id, g.label,
       sum(children.map(r => r.cur)), sum(children.map(r => r.prev)),
-      TIERS.map((_, idx) => sum(children.map(r => r.tiers[idx]))),
+      DISPLAY_TIERS.map((_, idx) => sum(children.map(r => r.tiers[idx]))),
       gGoal && gGoal > 0 ? gGoal : null)
     return { id: g.id, row, children }
   }).filter(g => g.children.length)
 
   const total = mkRow('total', 'Total', sum(groups.map(g => g.row.cur)), sum(groups.map(g => g.row.prev)),
-    TIERS.map((_, idx) => sum(groups.map(g => g.row.tiers[idx]))), totalGoal)
+    DISPLAY_TIERS.map((_, idx) => sum(groups.map(g => g.row.tiers[idx]))), totalGoal)
   return { groups, total }
 }
 

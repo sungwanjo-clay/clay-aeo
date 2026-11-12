@@ -27,7 +27,7 @@ async function main() {
   const pr = v.kpis.projection
   console.log(`PROJECTED ${pr?.label} FINISH  ${n(pr?.value)} (${pct(pr?.pctOfGoal, 0)} of ${n(pr?.quarterGoal)}) · QTD ${n(pr?.qtdActual)} · need ${n(pr?.neededPerWeek)}/wk`)
   console.log(`TIER 1-2 SHARE      ${pct(v.kpis.tier12.share)} (${n(v.kpis.tier12.count)}) · goal mix ${pct(v.kpis.tier12.goalMix)}`)
-  console.log('Tier pacing        ', v.tiers.map(t => `${t.tier} ${n(t.actual)}/${n(t.goal)} ${pct(t.pct, 0)} ${t.status}`).join(' | '))
+  console.log('Tier pacing        ', v.tiers.map(t => `${t.label} ${n(t.actual)}/${n(t.goal)} ${pct(t.pct, 0)} ${t.status}`).join(' | '))
   for (const g of v.table.groups) {
     const r = g.row
     console.log(`  ${r.label.padEnd(26)} ${n(r.cur).padStart(6)} ${sg(r.delta).padStart(6)} ${pct(r.deltaPct).padStart(7)} goal ${n(r.goal).padStart(6)} ${pct(r.vsGoal, 0).padStart(5)} tiers ${r.tiers.map(n).join('/')}`)
