@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import DashboardView, { paramsFor, type DashboardTab } from '@/components/plg/DashboardView'
 import SocialView, { ChannelPills, ModeToggle, type SocialChannel } from '@/components/plg/social/SocialView'
-import { buildSocial, parseSocialRows, taggedVideos, type SocialMode, type YtChannelDoc } from '@/lib/plg/social/compute'
+import { buildSocial, channelFallbacks, parseSocialRows, taggedVideos, type SocialMode, type YtChannelDoc } from '@/lib/plg/social/compute'
 import { CHANNELS } from '@/lib/plg/social/config'
 import { socialSql } from '@/lib/plg/social/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
@@ -117,14 +117,15 @@ function App() {
   // Social tab: routed on the hash (#social, #social-peter) so links can point at it.
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
-    return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social' ? { tab: 'social', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+    return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' }
+      : h === 'social' ? { tab: 'social', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
   // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
-  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'cohort' })
+  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'cohort', payton: 'cohort' })
 
   // Capabilities
   useEffect(() => {
@@ -234,7 +235,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const go = useCallback((tab: DashboardTab, channel: SocialChannel) => {
-    const hash = tab === 'social' ? (channel === 'peter' ? '#social-peter' : '#social') : ''
+    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : ''
     try { history.replaceState(null, '', hash || location.pathname + location.search) } catch { /* sandboxed */ }
     setRoute({ tab, channel })
   }, [])
@@ -242,7 +243,7 @@ function App() {
   // One query serves both sub-tabs; it waits for the YouTube documents (video → campaign lookup).
   const socialSqlText = useMemo(() => {
     if (!socialRanges || !dataEnd || route.tab !== 'social' || yt == null) return null
-    return socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd) })
+    return socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd), fallbacks: channelFallbacks(yt, dataEnd) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, yt, dataEnd])
   useEffect(() => {
@@ -304,7 +305,9 @@ function App() {
     <DashboardView
       tab={route.tab}
       onTab={t => go(t, route.channel)}
-      socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)' : 'YouTube channels · Peter Kang, plus untagged YouTube traffic'}
+      socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)'
+        : route.channel === 'payton' ? 'Payton’s YouTube channel, Not My Business (@itsnotmybusiness)'
+        : 'YouTube channels · Peter Kang and Payton, plus untagged YouTube traffic'}
       social={<div className="flex flex-col gap-6 sm:gap-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <ChannelPills value={route.channel} onChange={c => go('social', c)} />

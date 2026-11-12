@@ -17,9 +17,17 @@ Each video is measured as **Impressions → Views → Site visits → New worksp
 | Tier | `CUSTOMERS.DOMAIN` → `DBT.STAGING.STG_SALESFORCE__ACCOUNT.SALES_TIER_C`, best tier per domain, business domains only (`CUSTOMER_DOMAIN_SEGMENT = 'other'`). Personal, academic or no SFDC account → Untiered | | |
 | Persona | **Source TBD** (candidate: `ONBOARDING_SURVEY.TEAMS`) | | |
 
-- The email steps (captures 20%, qualified 40%, opens 50%, clicks 40%) appear only for videos whose link goes to the startup offer page (`OFFER_PAGE_PATTERNS`). No current Peter video does, so they are hidden.
+- The email steps (captures 20%, qualified 40%, opens 50%, clicks 40%) appear only for videos whose link goes to the startup offer page (`OFFER_PAGE_PATTERNS`). Payton's video links `cohorts.clay.com/wedge`, so her tab shows them; no current Peter video does. Captures come from `SEGMENT.VERCEL.FORM_SUBMITTED` on `/wedge`. Qualified, opens and clicks read "Not connected". While they are, the new-workspace goal is a placeholder: 10% of captures.
 - "If at goal" = extra new workspaces if a step hit its goal while every other step stays at today's rate.
 - Biggest leak = the step with the largest "If at goal" impact, among steps with data. The impression → view step is excluded until it is connected.
+
+## Per-channel matching (no UTM changes needed)
+
+Each creator tags links their own way, so matching is configured per channel in `lib/plg/social/config.ts`:
+
+- **Peter Kang:** `utm_source=youtube` + `utm_campaign` (`pk_yt_…`) from the description → video.
+- **Payton (Not My Business):** her link is `cohorts.clay.com/wedge?utm_source=other&utm_medium=marketingcontentowned&utm_campaign=not-my-business`. The Vercel pageview and first-touch models drop `utm_campaign` on cohorts.clay.com, so the fallback matches `utm_medium=marketingcontentowned` + `/wedge` + a YouTube referrer. Form submits keep the campaign. With one linked video, traffic goes to that video; otherwise to the channel. Upstream fix: keep `utm_campaign` on cohorts.clay.com pageviews.
+- **Payton's views** read "Not connected": the Analytics API returns 403 without Viewer access to her channel. Lifetime public views come from the Data API.
 
 ## Video ↔ campaign lookup
 

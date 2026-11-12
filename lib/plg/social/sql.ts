@@ -7,10 +7,12 @@
  *   ws     new workspaces (first touch) + activated ≤7d, paid, expanded, churned, tier split
  *   plan   new workspaces by current plan (column d), with paid / expanded / churned
  *   ex     existing workspaces influenced (tagged visitor's user already in a workspace before the visit), tier split
- *   vday / wsday   per-day series for the trend (calendar), key = 'tagged' | 'untagged'
+ *   form   distinct offer-page (/wedge) form submitters; campaign from the form event, else the visitor's key
+ *   vday / wsday   per-day series for the trend (calendar), by key
  *
  * Rules
- *   tagged     utm_source ILIKE youtube AND utm_campaign maps to a video (lookup built from descriptions)
+ *   tagged     utm_campaign maps to a video (lookup built from descriptions), plus the channel's
+ *              requireSource if set; else the channel's fallback rule (see config.ts)
  *   unmapped   utm_campaign ILIKE '<prefix>%' but in no current description: flagged, never assigned to a video
  *   untagged   YouTube referrer or utm_source, no utm_campaign, not an affiliate (Rewardful ?via=) referral
  *   tier       CUSTOMERS.DOMAIN → STG_SALESFORCE__ACCOUNT.SALES_TIER_C (best tier per domain), business
@@ -27,6 +29,7 @@ const T = {
   accounts: 'c5f1715b-69c1-4033-ad5c-8281a21d2cd5',  // DBT.STAGING.STG_SALESFORCE__ACCOUNT
   roles: 'a7defd23-614d-4c68-ad31-b807b7a164b0',     // FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES
   credits: '990653ed-fe9f-4d3c-a674-f4278de7049f',   // DBT.PROD.CREDIT_PACK_INVOICES
+  forms: '794d9f65-d34c-4173-94d1-1b0709c1b040',     // SEGMENT.VERCEL.FORM_SUBMITTED (offer page captures)
 }
 const t = (id: string) => `"connection"."${id}"`
 const d = (x: ISODate) => {
@@ -35,29 +38,37 @@ const d = (x: ISODate) => {
 }
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`
 
-export interface TaggedVideo { videoId: string; campaign: string; cohortStart: ISODate; cohortEnd: ISODate }
+export interface TaggedVideo { videoId: string; campaign: string; cohortStart: ISODate; cohortEnd: ISODate; requireSource: string | null }
+/** Channel-level rule for traffic whose campaign Snowflake lost; `key` is a video id or 'ch:<channel>'. */
+export interface ChannelFallback { key: string; cohortStart: ISODate; cohortEnd: ISODate; pageview: string; firstTouch: string }
 export interface SocialQuery {
   cur: [ISODate, ISODate]
   prev: [ISODate, ISODate]
   /** Videos whose description link carries a utm_campaign (from the YouTube sync). */
   tagged: TaggedVideo[]
+  fallbacks: ChannelFallback[]
 }
 
 export function socialSql(q: SocialQuery): string {
-  const dates = [q.cur[0], q.cur[1], q.prev[0], q.prev[1], ...q.tagged.flatMap(v => [v.cohortStart, v.cohortEnd])].sort()
+  const dates = [q.cur[0], q.cur[1], q.prev[0], q.prev[1], ...q.tagged.flatMap(v => [v.cohortStart, v.cohortEnd]), ...q.fallbacks.flatMap(f => [f.cohortStart, f.cohortEnd])].sort()
   const lo = dates[0]; const hi = dates[dates.length - 1]
   const bucket = (col: string) =>
     `CASE WHEN ${col} BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} THEN 'cur' WHEN ${col} BETWEEN ${d(q.prev[0])} AND ${d(q.prev[1])} THEN 'prev' END`
   const prefixes = CHANNELS.map(c => c.campaignPrefix).filter(Boolean) as string[]
   const prefixMatch = (col: string) => prefixes.length ? `(${prefixes.map(p => `${col} LIKE ${lit(`${p}%`)}`).join(' OR ')})` : 'FALSE'
   // Lookup table; a sentinel row keeps the CTE valid when no video is tagged.
-  const vmap = [...q.tagged, { videoId: '__none__', campaign: '__none__', cohortStart: '1970-01-01', cohortEnd: '1970-01-01' }]
-    .map(v => `SELECT ${lit(v.campaign.toLowerCase())} AS "camp", ${lit(v.videoId)} AS "vid", ${d(v.cohortStart)} AS "cs", ${d(v.cohortEnd)} AS "ce"`)
+  const vmap = [...q.tagged, { videoId: '__none__', campaign: '__none__', cohortStart: '1970-01-01', cohortEnd: '1970-01-01', requireSource: null }]
+    .map(v => `SELECT ${lit(v.campaign.toLowerCase())} AS "camp", ${lit(v.videoId)} AS "vid", ${d(v.cohortStart)} AS "cs", ${d(v.cohortEnd)} AS "ce", ${lit(v.requireSource ?? '')} AS "src"`)
     .join(' UNION ALL ')
+  // Channel fallbacks: key + cohort window when the per-video campaign match fails.
+  const fb = (alias: 'p' | 'f') => q.fallbacks.map(f => ({ ...f, pred: alias === 'p' ? f.pageview : f.firstTouch }))
+  const fbKey = (alias: 'p' | 'f') => fb(alias).map(f => `WHEN ${f.pred} THEN ${lit(f.key)}`).join(' ')
+  const fbWin = (alias: 'p' | 'f', which: 'cohortStart' | 'cohortEnd') => fb(alias).map(f => `WHEN ${f.pred} THEN ${d(f[which])}`).join(' ')
+  const fbAny = (alias: 'p' | 'f') => fb(alias).length ? fb(alias).map(f => f.pred).join(' OR ') : 'FALSE'
   const tierCols = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Untiered']
     .map((tn, i) => `SUM(CASE WHEN "tier" = '${tn}' THEN 1 ELSE 0 END) AS "t${i + 1}"`).join(', ')
   const zeroT = `0 AS "x", 0 AS "c", 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"`
-  const keyExpr = (camp: string) => `CASE WHEN vm."vid" IS NOT NULL THEN vm."vid"
+  const keyExpr = (camp: string, alias: 'p' | 'f') => `CASE WHEN vm."vid" IS NOT NULL THEN vm."vid" ${fbKey(alias)}
               WHEN ${camp} <> '' AND ${prefixMatch(camp)} THEN 'unmapped:' || ${camp}
               WHEN ${camp} = '' THEN 'untagged' ELSE 'other' END`
 
@@ -65,12 +76,13 @@ export function socialSql(q: SocialQuery): string {
 pv AS (
   SELECT p."ANONYMOUS_ID" AS "aid", p."USER_ID" AS "uid", p."TIMESTAMP_UTC" AS "ts", CAST(p."TIMESTAMP_UTC" AS date) AS "day",
          CASE WHEN p."REFERRER" = 'affiliate' AND COALESCE(p."UTM_CAMPAIGN", '') = '' THEN 'affiliate'
-              ELSE ${keyExpr(`LOWER(COALESCE(p."UTM_CAMPAIGN", ''))`)} END AS "key",
-         vm."cs", vm."ce"
+              ELSE ${keyExpr(`LOWER(COALESCE(p."UTM_CAMPAIGN", ''))`, 'p')} END AS "key",
+         COALESCE(vm."cs", CASE ${fbWin('p', 'cohortStart') || 'WHEN FALSE THEN NULL'} END) AS "cs",
+         COALESCE(vm."ce", CASE ${fbWin('p', 'cohortEnd') || 'WHEN FALSE THEN NULL'} END) AS "ce"
   FROM ${t(T.pageviews)} p
-  LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(p."UTM_CAMPAIGN", '')) AND p."UTM_SOURCE" ILIKE '%youtube%'
+  LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(p."UTM_CAMPAIGN", '')) AND (vm."src" = '' OR p."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
   WHERE CAST(p."TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
-    AND (p."REFERRER_RAW" ILIKE '%youtu%' OR p."UTM_SOURCE" ILIKE '%youtu%')
+    AND (p."REFERRER_RAW" ILIKE '%youtu%' OR p."UTM_SOURCE" ILIKE '%youtu%' OR vm."vid" IS NOT NULL OR ${fbAny('p')})
 ),
 cu AS (
   SELECT "WORKSPACE_ID" AS "wid", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg",
@@ -91,11 +103,13 @@ wtier AS (
 ),
 ft AS (
   SELECT f."WORKSPACE_ID" AS "wid", CAST(f."CREATED_AT_UTC" AS date) AS "day",
-         ${keyExpr(`LOWER(COALESCE(f."UTM_CAMPAIGN", ''))`)} AS "key", vm."cs", vm."ce"
+         ${keyExpr(`LOWER(COALESCE(f."UTM_CAMPAIGN", ''))`, 'f')} AS "key",
+         COALESCE(vm."cs", CASE ${fbWin('f', 'cohortStart') || 'WHEN FALSE THEN NULL'} END) AS "cs",
+         COALESCE(vm."ce", CASE ${fbWin('f', 'cohortEnd') || 'WHEN FALSE THEN NULL'} END) AS "ce"
   FROM ${t(T.firstTouch)} f
-  LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(f."UTM_CAMPAIGN", '')) AND f."UTM_SOURCE" ILIKE '%youtube%'
+  LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(f."UTM_CAMPAIGN", '')) AND (vm."src" = '' OR f."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
   WHERE CAST(f."CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
-    AND (f."UTM_SOURCE" ILIKE '%youtu%' OR f."RAW_REFERRER" ILIKE '%youtu%' OR f."REFERRER" ILIKE '%youtu%')
+    AND (f."UTM_SOURCE" ILIKE '%youtu%' OR f."RAW_REFERRER" ILIKE '%youtu%' OR f."REFERRER" ILIKE '%youtu%' OR vm."vid" IS NOT NULL OR ${fbAny('f')})
     AND COALESCE(f."CHANNEL", '') <> 'Affiliate'
 ),
 fx AS (
@@ -111,6 +125,15 @@ fx AS (
   LEFT JOIN cp ON cp."wid" = ft."wid"
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = ft."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
+fsub AS (
+  SELECT f."ANONYMOUS_ID" AS "aid", CAST(f."TIMESTAMP" AS date) AS "day",
+         COALESCE(vf."vid", pk."key") AS "key", COALESCE(vf."cs", pk."cs") AS "cs", COALESCE(vf."ce", pk."ce") AS "ce"
+  FROM ${t(T.forms)} f
+  LEFT JOIN vmap vf ON vf."camp" = LOWER(COALESCE(f."CONTEXT_CAMPAIGN_NAME", ''))
+  LEFT JOIN (SELECT "aid", MIN("key") AS "key", MIN("cs") AS "cs", MIN("ce") AS "ce" FROM pv WHERE "cs" IS NOT NULL GROUP BY "aid") pk ON pk."aid" = f."ANONYMOUS_ID"
+  WHERE f."CONTEXT_PAGE_PATH" ILIKE '/wedge%' AND CAST(f."TIMESTAMP" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
+),
+fs2 AS (SELECT * FROM fsub WHERE "key" IS NOT NULL),
 tv AS (
   SELECT "uid", "key", "cs", "ce", "day", "ts" FROM pv WHERE "uid" IS NOT NULL AND "cs" IS NOT NULL
 ),
@@ -126,9 +149,15 @@ UNION ALL
 SELECT 'vis', 'coh', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
 FROM pv WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
-SELECT 'vday', '', CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, CAST("day" AS string), COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+SELECT 'vday', '', "key", CAST("day" AS string), COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
 FROM pv WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
-GROUP BY CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, "day"
+GROUP BY "key", "day"
+UNION ALL
+SELECT 'form', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+FROM fs2 WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
+UNION ALL
+SELECT 'form', 'coh', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+FROM fs2 WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
 SELECT 'ws', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
 FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
@@ -142,9 +171,9 @@ UNION ALL
 SELECT 'plan', 'coh', "key", "plan", COUNT(DISTINCT "wid"), 0, SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
 FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "plan"
 UNION ALL
-SELECT 'wsday', '', CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, CAST("day" AS string), COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
+SELECT 'wsday', '', "key", CAST("day" AS string), COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
 FROM fx WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
-GROUP BY CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, "day"
+GROUP BY "key", "day"
 UNION ALL
 SELECT 'ex', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, ${tierCols}
 FROM exx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"

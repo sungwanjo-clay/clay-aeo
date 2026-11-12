@@ -20,6 +20,7 @@ import { resolve } from 'node:path'
 // Creator channels on the Social tab. Add Payton / Eric / the Clay brand channel here once confirmed.
 const CHANNELS = [
   { id: 'UC1C7lmXOfNHlS2cORnPbgaA', key: 'peter' },
+  { id: 'UCinB0eB_WDaCTESqfQf_40A', key: 'payton' },
 ]
 const since = process.argv[2] ?? '2026-07-01'
 const today = new Date().toISOString().slice(0, 10)
@@ -50,6 +51,14 @@ async function get(url) {
 }
 const analytics = (ch, params) =>
   get(`https://youtubeanalytics.googleapis.com/v2/reports?${new URLSearchParams({ ids: `channel==${ch}`, startDate: since, endDate: today, ...params })}`)
+/** Analytics without Viewer access returns 403: keep going with Data API metadata only. */
+async function tryAnalytics(ch, params, state) {
+  if (!state.analyticsAccess) return { rows: [] }
+  try { return await analytics(ch, params) } catch (e) {
+    if (e instanceof AccessError) { state.analyticsAccess = false; state.analyticsError = e.message; return { rows: [] } }
+    throw e
+  }
+}
 
 /**
  * Every link in the description, classified. video_id → utm_campaign comes
@@ -99,15 +108,16 @@ for (const ch of CHANNELS) {
     const v = await get(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${ids.slice(i, i + 50).join(',')}`)
     vids.push(...v.items)
   }
-  const daily = (await analytics(ch.id, { metrics: 'views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewPercentage', dimensions: 'day', sort: 'day' })).rows ?? []
+  const state = { analyticsAccess: true, analyticsError: null }
+  const daily = (await tryAnalytics(ch.id, { metrics: 'views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewPercentage', dimensions: 'day', sort: 'day' }, state)).rows ?? []
   const videos = []
   for (const v of vids) {
     const published = v.snippet.publishedAt.slice(0, 10)
     const metrics = 'views,estimatedMinutesWatched,averageViewPercentage,subscribersGained'
-    const rows = published > today ? [] : ((await analytics(ch.id, { metrics, dimensions: 'day', sort: 'day', filters: `video==${v.id}` })).rows ?? [])
+    const rows = published > today ? [] : ((await tryAnalytics(ch.id, { metrics, dimensions: 'day', sort: 'day', filters: `video==${v.id}` }, state)).rows ?? [])
     // Exact first-28-day cohort (averageViewPercentage is not additive across days).
     const cohortEnd = [addDays(published, 27), today].sort()[0]
-    const coh = published > today ? null : ((await analytics(ch.id, { metrics, startDate: published, endDate: cohortEnd, filters: `video==${v.id}` })).rows ?? [])[0] ?? null
+    const coh = published > today ? null : ((await tryAnalytics(ch.id, { metrics, startDate: published, endDate: cohortEnd, filters: `video==${v.id}` }, state)).rows ?? [])[0] ?? null
     videos.push({
       id: v.id, title: v.snippet.title, published, durationSec: isoDur(v.contentDetails.duration),
       lifetimeViews: Number(v.statistics.viewCount ?? 0), ...parseLinks(v.snippet.description ?? ''),
@@ -120,10 +130,12 @@ for (const ch of CHANNELS) {
     channelId: ch.id, key: ch.key, title: info.snippet.title, handle: info.snippet.customUrl,
     subscribers: Number(info.statistics.subscriberCount), lifetimeViews: Number(info.statistics.viewCount),
     videoCount: Number(info.statistics.videoCount), since, fetchedAt: new Date().toISOString(),
+    analyticsAccess: state.analyticsAccess,
     // [day, views, minutes, subsGained, subsLost, avgViewPct]
     daily: daily.map(r => [r[0], r[1], r[2], r[3], r[4], r[5]]), videos,
   }
   writeFileSync(resolve(outDir, `${ch.id}.json`), JSON.stringify(doc))
+  if (!state.analyticsAccess) console.warn(`${ch.key}: no Analytics access (${state.analyticsError}); stored Data API metadata only`)
   console.log(`${ch.key}: ${daily.length} days, ${videos.length} videos → dist/youtube/${ch.id}.json (${(JSON.stringify(doc).length / 1024).toFixed(0)} KB)`)
  } catch (e) {
   failures++

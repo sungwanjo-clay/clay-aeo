@@ -3,11 +3,11 @@
 import { useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { SocialMode, SocialViewModel as SV } from '@/lib/plg/social/compute'
-import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
+import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, NO_ANALYTICS, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
 import { fmtShort } from '@/lib/plg/dates'
 import { Card, Delta, Eyebrow, H2, Pill, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned } from '../ui'
 
-export type SocialChannel = 'all' | 'peter'
+export type SocialChannel = 'all' | 'peter' | 'payton'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
 const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
@@ -66,7 +66,7 @@ export function ModeToggle({ value, onChange }: { value: SocialMode; onChange: (
   )
 }
 
-function PeterKpis({ s }: { s: SV }) {
+function CreatorKpis({ s }: { s: SV }) {
   const k = s.kpis
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
@@ -79,7 +79,9 @@ function PeterKpis({ s }: { s: SV }) {
       <Tile label="Paid" value={fmtInt(k.paid.cur)}>
         <Delta value={k.paid.delta}>{fmtPctSigned(k.paid.delta)}</Delta> vs previous period<br />{fmtPct(k.paid.rate, 1)} of new workspaces · {fmtInt(k.paid.churned)} churned
       </Tile>
-      <Tile label="Impressions" value={<NC inline />} muted>{k.views.cur == null ? 'views pending' : `${fmtInt(k.views.cur)} views`}</Tile>
+      <Tile label="Impressions" value={<NC inline />} muted>
+        {!k.views.known ? <>Views: <NC inline /> · {fmtInt(k.lifetimeViews)} lifetime public views</> : k.views.cur == null ? 'views pending' : `${fmtInt(k.views.cur)} views`}
+      </Tile>
     </div>
   )
 }
@@ -99,7 +101,7 @@ function Kpis({ s }: { s: SV }) {
       <Tile label="Views" value={k.views.cur == null ? 'pending' : fmtK(k.views.cur)} muted={k.views.cur == null}>
         <Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous · {fmtPct(k.views.avgPct, 0)} avg viewed · {fmtInt(k.views.minutes / 60)} watch hrs
         {s.mode === 'calendar' && s.yt.lagging && <> · first {s.yt.days} days (YouTube lags)</>}
-        {s.mode === 'cohort' && <> · {fmtInt(k.cohortVideos)} videos published in range{k.pendingVideos ? `, ${k.pendingVideos} not reported by YouTube yet` : ''}</>}
+        {s.mode === 'cohort' && <> · {fmtInt(k.cohortVideos)} videos in their first {COHORT_DAYS} days during these dates{k.pendingVideos ? `, ${k.pendingVideos} not reported by YouTube yet` : ''}</>}
       </Tile>
       <Tile label="Tagged site visits" value={fmtInt(k.visits.cur)}>
         <Delta value={k.visits.delta}>{fmtPctSigned(k.visits.delta)}</Delta> vs previous
@@ -114,7 +116,7 @@ function Leak({ s }: { s: SV }) {
   return (
     <div className="flex flex-col gap-1">
       <Eyebrow>Biggest leak</Eyebrow>
-      <p className="text-[26px] font-bold" style={{ color: '#3B1405', letterSpacing: '-0.02em' }}>{s.leak.id === 'visits' ? 'View → site visit' : 'Site visit → new workspace'}</p>
+      <p className="text-[26px] font-bold" style={{ color: '#3B1405', letterSpacing: '-0.02em' }}>{({ visits: s.showEmailSteps ? 'View → offer page' : 'View → site visit', captures: 'Offer page → email capture', ws: s.showEmailSteps ? 'Email capture → new workspace' : 'Site visit → new workspace' } as Record<string, string>)[s.leak.id] ?? s.leak.label}</p>
       <p className="text-[15px]" style={{ color: '#3B1405' }}>+{fmtInt(s.leak.impact)} new workspaces if this step hit goal</p>
     </div>
   )
@@ -122,7 +124,8 @@ function Leak({ s }: { s: SV }) {
 
 const TREND_NAMES = { views: 'Views', visits: 'Tagged visits', untagged: 'Untagged visits', ws: 'New workspaces (tagged)', ws_untagged: 'New workspaces (untagged)' } as const
 function Trend({ s }: { s: SV }) {
-  const [metric, setMetric] = useState<(typeof s.trend)[number]['metric']>('views')
+  const [metric, setMetric] = useState<(typeof s.trend)[number]['metric']>(s.yt.viewsKnown ? 'views' : 'visits')
+  const viewsNc = metric === 'views' && !s.yt.viewsKnown
   const tr = s.trend.find(x => x.metric === metric) ?? s.trend[0]
   const data = tr.cur.map((p, i) => ({ label: fmtShort(p.d), cur: p.v, prev: tr.prev[i]?.v ?? null }))
   const cur = sum(tr.cur.map(p => p.v ?? 0)); const prev = sum(tr.prev.map(p => p.v ?? 0))
@@ -132,7 +135,7 @@ function Trend({ s }: { s: SV }) {
         <div>
           <H2>Trend</H2>
           <p className="text-[15px] mt-1" style={{ color: T.muted }}>
-            <span style={{ ...mono, color: T.ink }}>{fmtInt(cur)}</span> <Delta value={prev ? (cur - prev) / prev : null}>{fmtPctSigned(prev ? (cur - prev) / prev : null)}</Delta> vs previous period ({fmtInt(prev)})
+            <span style={{ ...mono, color: T.ink }}>{viewsNc ? <NC inline /> : fmtInt(cur)}</span> <Delta value={prev ? (cur - prev) / prev : null}>{fmtPctSigned(prev ? (cur - prev) / prev : null)}</Delta> vs previous period ({fmtInt(prev)})
           </p>
         </div>
         <label className="flex items-center gap-3 text-[15px]" style={{ color: T.muted }}>Metric
@@ -141,7 +144,7 @@ function Trend({ s }: { s: SV }) {
           </select>
         </label>
       </div>
-      <div className="h-[220px]">
+      {viewsNc ? <p className="h-[220px] flex items-center justify-center text-[15px]" style={{ color: T.faint, fontStyle: 'italic' }} title={NO_ANALYTICS}>Views: Not connected</p> : <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="#ECEAE5" />
@@ -152,7 +155,7 @@ function Trend({ s }: { s: SV }) {
             <Line dataKey="prev" stroke="#7A7770" strokeDasharray="4 4" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
-      </div>
+      </div>}
       <p className="text-[13px]" style={{ color: T.muted }}>Every table below follows the range.</p>
     </Card>
   )
@@ -180,7 +183,7 @@ function ChannelsTable({ s }: { s: SV }) {
               <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3 font-semibold whitespace-nowrap">{r.label} <span className="font-normal text-[13px]" style={{ color: T.muted }}>{r.handle}</span></td>
                 <td className={num}><NC /></td><td className={num}><NC /></td>
-                <td className={num} style={mono}>{fmtInt(r.views)}</td>
+                <td className={num} style={mono}>{r.analytics ? fmtInt(r.views) : <NC />}</td>
                 <td className={num} style={mono}>{fmtInt(r.visits)}</td>
                 <td className={num} style={mono}>{fmtInt(r.newWs)}</td>
                 <td className={num}><Tiers t={r.tiersNew} /></td>
@@ -229,7 +232,8 @@ function Funnel({ s }: { s: SV }) {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Funnel by step: where to push</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Each step’s conversion is scored against its own goal. Impact holds every other step at today’s rate, so the steps are directly comparable.</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each step’s conversion is scored against its own goal. Impact holds every other step at today’s rate, so the steps are directly comparable.{s.showEmailSteps && ' Email steps: Qualified emails, opens and clicks are not connected yet.'}</p>
+      {s.channel?.fallbackNote && <p className="text-[13px]" style={{ color: T.faint }}>{s.channel.fallbackNote}</p>}
       <div className="overflow-x-auto -mx-5 sm:mx-0">
         <table className="w-full min-w-[820px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
@@ -239,19 +243,20 @@ function Funnel({ s }: { s: SV }) {
           <tbody>{s.steps.map((st, i) => {
             const stageHead = i === 0 || s.steps[i - 1].stage !== st.stage
             const below = st.rate != null && st.goal != null && st.rate < st.goal
+            const blank = !!st.notConnected && st.id !== 'views'
             return [
               stageHead && <tr key={`h-${st.id}`}><td colSpan={7} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
               <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}`, background: s.leak?.id === st.id ? '#FFF4EC' : undefined }}>
                 <td className="px-3 py-3">
                   <p className="font-semibold">{st.label} {s.leak?.id === st.id && <Pill tone="behind">Biggest leak</Pill>}</p>
-                  <p className="text-[13px]" style={{ color: T.muted }}>{st.lever} · {st.source}</p>
+                  <p className="text-[13px]" style={{ color: T.muted }}>{st.lever} · {st.source}{st.goalNote && ` · goal ${st.goalNote}`}</p>
                 </td>
-                <td className={num} style={mono}>{st.id === 'impr' ? <NC /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
-                <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{st.id === 'impr' ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
-                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{st.id === 'views' ? <NC /> : st.id === 'impr' ? '' : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={mono}>{blank ? <NC /> : st.cur == null ? (st.id === 'views' && !s.yt.viewsKnown ? <NC /> : <span style={{ color: T.faint }}>pending</span>) : fmtInt(st.cur)}</td>
+                <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{blank ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
+                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{st.id === 'views' || (blank && st.goal != null) ? <NC /> : blank ? '' : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
                 <td className={num} style={{ ...mono, color: T.muted }}>{st.goal != null ? fmtPct(st.goal, 0) : ''}</td>
-                <td className={num} style={{ ...mono, color: T.muted }}>{st.id === 'views' || st.id === 'impr' ? '' : fmtPct(st.prevRate, st.prevRate != null && st.prevRate < 0.1 ? 1 : 0)}</td>
-                <td className={num} style={mono}>{st.id === 'views' ? <NC /> : st.impact ? `+${fmtInt(st.impact)} WS` : st.id === 'impr' ? '' : '–'}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{st.id === 'views' || blank ? '' : fmtPct(st.prevRate, st.prevRate != null && st.prevRate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={mono}>{st.id === 'views' || (blank && st.goal != null) || st.impact == null ? <NC /> : st.impact ? `+${fmtInt(st.impact)} WS` : blank ? '' : '–'}</td>
               </tr>,
             ]
           })}</tbody>
@@ -265,8 +270,9 @@ function VideoTable({ s }: { s: SV }) {
   const [sort, setSort] = useState<'workspaces' | 'visit' | 'newest'>('workspaces')
   const rows = [...s.videos].sort((a, b) =>
     sort === 'newest' ? b.published.localeCompare(a.published)
-      : sort === 'visit' ? (b.visitRate ?? -1) - (a.visitRate ?? -1) || b.views - a.views
-        : (b.newWs ?? -1) - (a.newWs ?? -1) || b.views - a.views)
+      : sort === 'visit' ? (b.visitRate ?? -1) - (a.visitRate ?? -1) || (b.views ?? b.lifetimeViews) - (a.views ?? a.lifetimeViews)
+        : (b.newWs ?? -1) - (a.newWs ?? -1) || (b.views ?? b.lifetimeViews) - (a.views ?? a.lifetimeViews))
+  const showCapture = s.videos.some(v => v.offerPage && v.tagged)
   const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
   const rateCell = (r: number | null, goal: number) => (
     <span style={{ color: r != null && r < goal ? T.neg : T.ink }}>{fmtPct(r, r != null && r < 0.1 ? 1 : 0)}</span>
@@ -282,7 +288,9 @@ function VideoTable({ s }: { s: SV }) {
         <table className="w-full min-w-[860px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
             <th className={`${th} text-left`}>Video</th><th className={`${th} text-right`}>Impr.</th><th className={`${th} text-right`}>View %</th>
-            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Visit %</th><th className={`${th} text-right`}>New WS %</th><th className={`${th} text-right`}>New WS</th>
+            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Visit %</th>
+            {showCapture && <th className={`${th} text-right`}>Capture %</th>}
+            <th className={`${th} text-right`}>New WS %</th><th className={`${th} text-right`}>New WS</th>
           </tr></thead>
           <tbody>{rows.map(v => (
             <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -291,15 +299,18 @@ function VideoTable({ s }: { s: SV }) {
                   <span className="text-[12px] pt-1 w-10 shrink-0 text-right" style={{ color: T.faint, ...mono }}>{dur(v.durationSec)}</span>
                   <span>
                     <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="font-semibold hover:underline">{v.title}</a>
-                    <span className="block text-[13px]" style={{ color: T.muted, ...mono }}>{fmtShort(v.published)} · Peter Kang{!v.cohortComplete && ` · day ${v.cohortDay} of ${COHORT_DAYS}`}</span>
+                    <span className="block text-[13px]" style={{ color: T.muted, ...mono }}>{fmtShort(v.published)} · {v.channel}{!v.cohortComplete && ` · day ${v.cohortDay} of ${COHORT_DAYS}`}</span>
                   </span>
                 </div>
               </td>
               <td className={num}><NC /></td>
               <td className={num}><NC /></td>
-              <td className={num} style={mono}>{v.views ? fmtInt(v.views) : <span style={{ color: T.faint }}>pending</span>}</td>
-              <td className={num} style={mono}>{rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
-              <td className={num} style={mono}>{rateCell(v.wsRate, STEP_GOALS.newWorkspace)}</td>
+              <td className={num} style={mono}>{!v.analytics
+                ? <span title={`${fmtInt(v.lifetimeViews)} lifetime public views (Data API)`}><NC /></span>
+                : v.views ? fmtInt(v.views) : <span style={{ color: T.faint }}>pending</span>}</td>
+              <td className={num} style={mono}>{!v.analytics && v.tagged ? <NC /> : rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
+              {showCapture && <td className={num} style={mono}>{v.offerPage ? rateCell(v.captureRate, STEP_GOALS.capture) : '–'}</td>}
+              <td className={num} style={mono}>{rateCell(v.wsRate, v.offerPage ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace)}</td>
               <td className={num} style={mono}>{v.newWs != null ? fmtInt(v.newWs) : '–'}</td>
             </tr>))}</tbody>
         </table>
@@ -377,9 +388,9 @@ function Discuss() {
 }
 
 export default function SocialView({ s, loading }: { s: SV; loading: boolean }) {
-  const body = s.scope === 'peter' ? (
+  const body = s.scope !== 'all' ? (
     <>
-      <PeterKpis s={s} />
+      <CreatorKpis s={s} />
       <Leak s={s} />
       <Trend s={s} />
       <Funnel s={s} />
