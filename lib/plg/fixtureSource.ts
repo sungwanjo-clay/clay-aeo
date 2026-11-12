@@ -42,6 +42,7 @@ export function fixtureSource(path: string): PlgSource {
       return {
         channels: [...group(rows, f => `${f.channel_category}\u0000${f.channel}\u0000${f.sales_tier}`)]
           .map(([k, n]) => { const [c, ch, t] = k.split('\u0000'); return { c, ch, t, n } }),
+        hqTiers: [...group(rows.filter(f => f.quality_segment === 'non-personal: high quality'), f => f.sales_tier)].map(([t, n]) => ({ t, n })),
         mcp: [...group(rows.filter(f => f.channel === 'OAuth: MCP'), f => f.subchannel)].map(([s2, n]) => ({ s: s2, n })),
         quality: [...group(rows, f => f.quality_segment)].map(([q, n]) => ({ q, n })),
         domain: [],

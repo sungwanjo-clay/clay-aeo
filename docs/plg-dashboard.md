@@ -23,21 +23,21 @@ The Snowflake role needs `SELECT` on `DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBU
 
 | What | File |
 |---|---|
-| Quarter calendar, goals, channel groups, tier fallback, guardrail thresholds | `lib/plg/config.ts` |
+| Quarter calendar, HQ tier goals, channel groups, guardrail thresholds | `lib/plg/config.ts` |
 | Goals override (no deploy needed) | Supabase `plg_goals` (rows win over config) |
 | Snowflake SQL | `lib/plg/snowflake.ts` |
 | Nightly ETL, restatement log, reconciliation | `lib/plg/etl.ts` |
 | All dashboard math (pure, no I/O) | `lib/plg/compute.ts` |
 | UI | `components/plg/*` |
 
-To add Q1 2027, insert `plg_goals` rows with the new `quarter_start` / `quarter_end` (scope `quarter` / `tier` / `group`).
+Goals (from the Q4 PLG Planning sheet) are **quarterly, per tier, on HQ workspaces only** (`CUSTOMER_DOMAIN_QUALITY_SEGMENT = 'non-personal: high quality'`), with Tier 4 including unmatched domains: Q4 = Tier 1 2,009 · Tier 2 11,207 · Tier 3 5,232 · Tier 4 / unmatched 34,952 = 53,400. There are no channel or MCP goals. Pace, projection, tier pacing, Tier 1–2 share and the cumulative chart all use HQ workspaces; the channel table shows all workspaces. To add Q1 2027, add rows with scope `tier`, key `Tier 1` … `Tier 4 / unmatched` and the quarterly value (Supabase `plg_goals`, or the artifact store doc `config/goals` = `{rows: [...]}`).
 
 ## Data definitions (verified against Snowflake via Sigma, Nov 2026)
 
 - **Source**: workspace-level `FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION`, `ATTRIBUTION_WINDOW = '90_days'`, `ATTRIBUTION_TYPE = 'first_touch'`. At that grain the table labels rows `first_touch`; the metrics table labels the same rows `blended`. It reconciles exactly with the metrics table under the five required filters (Nov 2–8: 10,129 both, identical per-channel counts). The ETL re-checks this every night per day (`plg_daily_reconciliation`), and any mismatch shows in the Data quality strip.
 - **Tier**: workspace → `CUSTOMERS.DOMAIN` → SFDC `ACCOUNT.DOMAIN_C` → `SALES_TIER_C` (`Tier 1`–`Tier 4`). If a domain maps to several accounts, the best tier wins. Unmatched domains (about 67% of workspaces, almost all personal email) are stored as `Unassigned` and shown as their own **Unmatched** row/column (report-only, no goal).
 - **Domain quality**: `CUSTOMER_DOMAIN_QUALITY_SEGMENT`; the independent cross-check is `CUSTOMERS.CUSTOMER_DOMAIN_SEGMENT` (hover the HQ share tile).
-- Pace and tier status = actual ÷ goal prorated (weekly / 7 per day) over the selected dates. Projection = QTD actual + selected-range run rate × days left in the quarter of the latest data day, rounded to 100.
+- Pace and tier status = HQ actual ÷ quarterly goal prorated evenly per day over the selected dates. Projection = HQ QTD actual + selected-range HQ run rate × days left in the quarter of the latest data day, rounded to 100. Days outside a configured quarter have no goal.
 - Commentary is always the last complete Mon–Sun week vs the week before, generated from movers with |Δ| ≥ 30. It describes what moved, never why.
 
 ## Local development without Supabase
@@ -47,8 +47,7 @@ To add Q1 2027, insert `plg_goals` rows with the new `quarter_start` / `quarter_
 ## Open items to confirm before go-live
 
 1. ~~Quarter calendar~~ Confirmed: Q4 = Nov 1 – Jan 31.
-2. **Tier source / goals.** `SALES_TIER_C` gives Tier 1/2/3/4/Unmatched = 124 / 717 / 244 / 2,237 / 6,807 for Nov 2–8. The reference was 318 / 878 / 2,428 / 6,576, so the Tier 3 (2,600/wk) and Tier 4 (7,538/wk) goals look calibrated to a different definition.
-3. **Goal owner**, plus whether the illustrative goals in `plg_goals` are current.
+2. ~~Goals~~ Confirmed: HQ tier goals from the Q4 PLG Planning sheet. Real Q3 HQ totals (44,946) match the sheet's Q3 pacing (45,468); per-tier splits differ somewhat (e.g. Tier 2 8,071 vs 9,606), so check the sheet used the same SFDC tier field.
 4. **Cron time.** 11:30 UTC assumes dbt prod has finished by then.
 5. Social video / Startup program tabs are placeholders.
 

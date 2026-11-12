@@ -37,7 +37,7 @@ export default function CumulativeChart({ v, onZoom }: { v: DashboardPayload; on
   return (
     <Card className="p-5 sm:p-10 flex flex-col gap-6 min-w-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <H2>Cumulative workspaces vs goal</H2>
+        <H2>Cumulative HQ workspaces vs goal</H2>
         <p className="text-[15px] sm:text-[16px]" style={{ color: T.muted }}>
           {v.cumulative.goalTotal != null ? <>Goal <span style={{ fontFamily: T.mono }}>{fmtInt(v.cumulative.goalTotal)}</span> for these dates</> : 'No goal for these dates'}
         </p>

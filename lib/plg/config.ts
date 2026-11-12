@@ -23,42 +23,35 @@ export const UNMATCHED_LABEL = 'Unmatched'
 export const DISPLAY_TIERS = [...TIERS, UNASSIGNED] as const
 export type DisplayTier = (typeof DISPLAY_TIERS)[number]
 
+/**
+ * Goals are set on HQ workspaces only (CUSTOMER_DOMAIN_QUALITY_SEGMENT =
+ * 'non-personal: high quality'), per tier, per quarter. Source: "Q4 PLG
+ * Planning" sheet. Tier 4 includes unmatched domains. No channel goals.
+ */
+export const GOAL_SEGMENT = 'non-personal: high quality'
+export const GOAL_TIERS = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4 / unmatched'] as const
+export type GoalTier = (typeof GOAL_TIERS)[number]
+
 export interface QuarterGoals {
   /** Display label, e.g. 'Q4'. */
   label: string
   /** Inclusive ISO dates (UTC). */
   start: string
   end: string
-  /** Total new-workspace goal for the whole quarter. */
-  quarterGoal: number
-  /** Weekly goals; prorated per day (weekly / 7) for any date range. */
-  tierWeekly: Record<Tier, number>
-  /** Weekly goals at channel-group level. Groups without a goal are report-only. */
-  groupWeekly: Partial<Record<ChannelGroupId, number>>
+  /** Whole-quarter HQ-workspace goal per tier; prorated evenly per day for any date range. */
+  tierQuarter: Record<GoalTier, number>
 }
 
-/**
- * Quarter calendar + goals. Q4 = Nov 1 – Jan 31.
- * OPEN ITEM: confirm exact quarter dates and current targets with the plan owner.
- */
 export const DEFAULT_QUARTERS: QuarterGoals[] = [
-  {
-    label: 'Q3',
-    start: '2026-08-01',
-    end: '2026-10-31',
-    quarterGoal: 150_000,
-    tierWeekly: { 'Tier 1': 400, 'Tier 2': 1_000, 'Tier 3': 2_600, 'Tier 4': 7_538 },
-    groupWeekly: { oauth: 3_000, organic: 6_000, paid: 400 },
-  },
   {
     label: 'Q4',
     start: '2026-11-01',
     end: '2027-01-31',
-    quarterGoal: 150_000,
-    tierWeekly: { 'Tier 1': 400, 'Tier 2': 1_000, 'Tier 3': 2_600, 'Tier 4': 7_538 },
-    groupWeekly: { oauth: 3_000, organic: 6_000, paid: 400 },
+    tierQuarter: { 'Tier 1': 2_009, 'Tier 2': 11_207, 'Tier 3': 5_232, 'Tier 4 / unmatched': 34_952 }, // = 53,400
   },
 ]
+
+export const quarterTotal = (q: QuarterGoals) => GOAL_TIERS.reduce((a, t) => a + q.tierQuarter[t], 0)
 
 // ── Channel grouping ─────────────────────────────────────────────────────────
 

@@ -23,17 +23,17 @@ async function main() {
 
   console.log(`Range ${v.range.label} vs ${v.range.prevLabel}`)
   console.log(`NEW WORKSPACES      ${n(v.kpis.total)} · ${sg(v.kpis.total - v.kpis.prevTotal)} · ${pct(v.kpis.deltaPct)}`)
-  console.log(`PACE VS GOAL        ${pct(v.kpis.paceVsGoal)} (${n(v.kpis.total)} of ${n(v.kpis.goal)})`)
+  console.log(`HQ PACE VS GOAL     ${pct(v.kpis.paceVsGoal)} (${n(v.kpis.hqTotal)} HQ of ${n(v.kpis.goal)})`)
   const pr = v.kpis.projection
   console.log(`PROJECTED ${pr?.label} FINISH  ${n(pr?.value)} (${pct(pr?.pctOfGoal, 0)} of ${n(pr?.quarterGoal)}) · QTD ${n(pr?.qtdActual)} · need ${n(pr?.neededPerWeek)}/wk`)
   console.log(`TIER 1-2 SHARE      ${pct(v.kpis.tier12.share)} (${n(v.kpis.tier12.count)}) · goal mix ${pct(v.kpis.tier12.goalMix)}`)
   console.log('Tier pacing        ', v.tiers.map(t => `${t.label} ${n(t.actual)}/${n(t.goal)} ${pct(t.pct, 0)} ${t.status}`).join(' | '))
   for (const g of v.table.groups) {
     const r = g.row
-    console.log(`  ${r.label.padEnd(26)} ${n(r.cur).padStart(6)} ${sg(r.delta).padStart(6)} ${pct(r.deltaPct).padStart(7)} goal ${n(r.goal).padStart(6)} ${pct(r.vsGoal, 0).padStart(5)} tiers ${r.tiers.map(n).join('/')}`)
+    console.log(`  ${r.label.padEnd(26)} ${n(r.cur).padStart(6)} ${sg(r.delta).padStart(6)} ${pct(r.deltaPct).padStart(7)} tiers ${r.tiers.map(n).join('/')}`)
   }
   const t = v.table.total
-  console.log(`  ${'TOTAL'.padEnd(26)} ${n(t.cur).padStart(6)} ${sg(t.delta).padStart(6)} ${pct(t.deltaPct).padStart(7)} goal ${n(t.goal).padStart(6)} ${pct(t.vsGoal, 0).padStart(5)} tiers ${t.tiers.map(n).join('/')}`)
+  console.log(`  ${'TOTAL'.padEnd(26)} ${n(t.cur).padStart(6)} ${sg(t.delta).padStart(6)} ${pct(t.deltaPct).padStart(7)} tiers ${t.tiers.map(n).join('/')}`)
   console.log('MCP                ', v.mcp.rows.slice(0, 4).map(r => `${r.platform} ${n(r.cur)} (${sg(r.delta)})`).join(', '),
     `· share ${pct(v.mcp.share)} from ${pct(v.mcp.prevShare)}`)
   console.log('Domain quality     ', v.quality.rows.map(r => `${r.label} ${n(r.cur)}`).join(', '))

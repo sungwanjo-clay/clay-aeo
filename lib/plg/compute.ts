@@ -4,8 +4,8 @@
  * checked against reference numbers (scripts/plg-check.ts).
  */
 import {
-  CHANNEL_DISPLAY, CHANNEL_GROUPS, UNMATCHED_LABEL, GUARDRAILS, KNOWN_INCIDENTS, PACING, TIERS, DISPLAY_TIERS, UNASSIGNED,
-  groupForCategory, type ChannelGroupId, type DisplayTier, type QuarterGoals, type Tier,
+  CHANNEL_DISPLAY, CHANNEL_GROUPS, GOAL_TIERS, GUARDRAILS, KNOWN_INCIDENTS, PACING, TIERS, DISPLAY_TIERS,
+  UNASSIGNED, groupForCategory, quarterTotal, type ChannelGroupId, type GoalTier, type QuarterGoals,
 } from './config'
 import {
   addDays, daysBetween, firstOfMonth, fmtRange, fmtRangeCompact, fmtShort, maxDate, minDate, mondayOf,
@@ -16,12 +16,14 @@ import {
 
 export interface RangeSummary {
   channels: { c: string; ch: string; t: string; n: number }[]
+  /** Tier counts restricted to HQ workspaces (the population goals are set on). */
+  hqTiers: { t: string; n: number }[]
   mcp: { s: string; n: number }[]
   quality: { q: string; n: number }[]
   domain: { s: string; n: number }[]
 }
 export interface DailyPoint { d: ISODate; n: number; unattr: number | null; hq: number | null; lowq: number | null }
-export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'quarter' | 'tier' | 'group'; key: string; value: number }
+export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'tier'; key: string; value: number }
 export interface Meta {
   min_day: ISODate | null
   max_day: ISODate | null
@@ -47,28 +49,34 @@ export function displayTierIndex(t: string): number {
   return i >= 0 ? i : DISPLAY_TIERS.indexOf(UNASSIGNED)
 }
 const zeroTiers = () => DISPLAY_TIERS.map(() => 0)
-/** Weekly goal for a displayed tier; Unmatched has none (report-only). */
-const tierGoal = (q: QuarterGoals, t: DisplayTier): number | undefined => (t === UNASSIGNED ? undefined : q.tierWeekly[t as Tier])
+
+/** HQ counts per goal tier (Tier 4 includes unmatched), aligned with GOAL_TIERS. */
+export function hqGoalTierTotals(s: RangeSummary): number[] {
+  const out = GOAL_TIERS.map(() => 0)
+  for (const r of s.hqTiers ?? []) {
+    const i = (TIERS as readonly string[]).indexOf(r.t)
+    out[i >= 0 && i < 3 ? i : 3] += r.n
+  }
+  return out
+}
 
 // ── Goals ───────────────────────────────────────────────────────────────────
 
-/** Merge Supabase goal rows over code defaults, keyed by quarter start. */
+/** Merge goal rows (scope 'tier', key = GOAL_TIERS entry, value = quarterly HQ goal) over code defaults. */
 export function resolveQuarters(defaults: QuarterGoals[], rows: GoalRow[]): QuarterGoals[] {
   const byStart = new Map<string, QuarterGoals>(defaults.map(q => [q.start, structuredClone(q)]))
   for (const r of rows) {
+    if (r.scope !== 'tier' || !(GOAL_TIERS as readonly string[]).includes(r.key)) continue
     const start = String(r.start).slice(0, 10)
     let q = byStart.get(start)
     if (!q) {
-      q = { label: r.label, start, end: String(r.end).slice(0, 10), quarterGoal: 0,
-            tierWeekly: { 'Tier 1': 0, 'Tier 2': 0, 'Tier 3': 0, 'Tier 4': 0 }, groupWeekly: {} }
+      q = { label: r.label, start, end: String(r.end).slice(0, 10),
+            tierQuarter: { 'Tier 1': 0, 'Tier 2': 0, 'Tier 3': 0, 'Tier 4 / unmatched': 0 } }
       byStart.set(start, q)
     }
     q.label = r.label
     q.end = String(r.end).slice(0, 10)
-    const v = Number(r.value)
-    if (r.scope === 'quarter') q.quarterGoal = v
-    else if (r.scope === 'tier' && (TIERS as readonly string[]).includes(r.key)) q.tierWeekly[r.key as Tier] = v
-    else if (r.scope === 'group') q.groupWeekly[r.key as ChannelGroupId] = v
+    q.tierQuarter[r.key as GoalTier] = Number(r.value)
   }
   return [...byStart.values()].sort((a, b) => a.start.localeCompare(b.start))
 }
@@ -78,8 +86,8 @@ export function quarterFor(quarters: QuarterGoals[], d: ISODate): QuarterGoals |
 }
 
 /**
- * Prorated goal for a date range: each day contributes weekly/7 from the
- * quarter that contains it. Returns null if any day has no configured goal.
+ * Prorated goal for a date range: each day contributes quarterGoal / days-in-
+ * quarter from the quarter that contains it. Null if any day has no goal.
  */
 export function goalForRange(
   quarters: QuarterGoals[], start: ISODate, end: ISODate, pick: (q: QuarterGoals) => number | undefined,
@@ -89,9 +97,9 @@ export function goalForRange(
     const s = maxDate(start, q.start)
     const e = minDate(end, q.end)
     if (s > e) continue
-    const weekly = pick(q)
-    if (weekly == null) return null
-    total += (weekly / 7) * daysBetween(s, e)
+    const quarterly = pick(q)
+    if (quarterly == null) return null
+    total += (quarterly / daysBetween(q.start, q.end)) * daysBetween(s, e)
   }
   // Uncovered days → unknown goal
   const covered = quarters.reduce((acc, q) => {
@@ -101,7 +109,6 @@ export function goalForRange(
   return covered === daysBetween(start, end) ? total : null
 }
 
-const tierTotalWeekly = (q: QuarterGoals) => sum(TIERS.map(t => q.tierWeekly[t]))
 
 // ── Aggregations over a summary ─────────────────────────────────────────────
 
@@ -112,8 +119,6 @@ export interface ChannelRowData {
   prev: number
   delta: number
   deltaPct: number | null
-  goal: number | null
-  vsGoal: number | null
   tiers: number[] // aligned with DISPLAY_TIERS
 }
 
@@ -140,11 +145,8 @@ export function tierTotals(s: RangeSummary): number[] {
   return out
 }
 
-function mkRow(key: string, label: string, cur: number, prev: number, tiers: number[], goal: number | null): ChannelRowData {
-  return {
-    key, label, cur, prev, delta: cur - prev, deltaPct: pctChange(cur, prev),
-    goal, vsGoal: goal != null && goal > 0 ? cur / goal : null, tiers,
-  }
+function mkRow(key: string, label: string, cur: number, prev: number, tiers: number[]): ChannelRowData {
+  return { key, label, cur, prev, delta: cur - prev, deltaPct: pctChange(cur, prev), tiers }
 }
 
 // ── Pacing status ───────────────────────────────────────────────────────────
@@ -184,7 +186,7 @@ export interface DashboardInputs {
 }
 
 export interface TierPace {
-  tier: DisplayTier; label: string; actual: number; goal: number | null; pct: number | null
+  tier: GoalTier; label: string; actual: number; goal: number | null; pct: number | null
   status: PaceStatus | null; prevActual: number; deltaPct: number | null
 }
 export interface Projection {
@@ -197,44 +199,47 @@ export function buildDashboard(i: DashboardInputs) {
   const total = totalOf(i.cur)
   const prevTotal = totalOf(i.prev)
 
-  // ── KPI: pace vs goal for the selected dates ───────────────────────────────
-  const goal = goalForRange(i.quarters, i.start, i.end, tierTotalWeekly)
+  // ── Goals are on HQ workspaces ─────────────────────────────────────────────
+  const hqCur = hqGoalTierTotals(i.cur)
+  const hqPrev = hqGoalTierTotals(i.prev)
+  const hqTotal = sum(hqCur)
+  const hqPrevTotal = sum(hqPrev)
+  const goal = goalForRange(i.quarters, i.start, i.end, quarterTotal)
 
   // ── KPI: projected quarter finish (always the quarter containing dataEnd) ─
   const q = quarterFor(i.quarters, i.dataEnd)
   let projection: Projection | null = null
   if (q) {
-    const qtdActual = sum(i.recentDaily.filter(p => p.d >= q.start && p.d <= i.dataEnd).map(p => p.n))
-    const ratePerDay = total / days
+    const qGoal = quarterTotal(q)
+    const qtdActual = sum(i.recentDaily.filter(p => p.d >= q.start && p.d <= i.dataEnd).map(p => p.hq ?? 0))
+    const ratePerDay = hqTotal / days
     const daysRemaining = Math.max(0, daysBetween(addDays(i.dataEnd, 1), q.end))
     const raw = qtdActual + ratePerDay * daysRemaining
     const weeksRemaining = daysRemaining / 7
     projection = {
       label: q.label,
       value: Math.round(raw / 100) * 100,
-      pctOfGoal: safeDiv(raw, q.quarterGoal),
-      quarterGoal: q.quarterGoal,
+      pctOfGoal: safeDiv(raw, qGoal),
+      quarterGoal: qGoal,
       qtdActual,
-      neededPerWeek: weeksRemaining > 0 ? Math.max(0, (q.quarterGoal - qtdActual) / weeksRemaining) : null,
+      neededPerWeek: weeksRemaining > 0 ? Math.max(0, (qGoal - qtdActual) / weeksRemaining) : null,
       ratePerDay,
       daysRemaining,
     }
   }
 
-  // ── KPI: tier 1–2 share ────────────────────────────────────────────────────
-  const tCur = tierTotals(i.cur)
-  const tPrev = tierTotals(i.prev)
-  const t12 = tCur[0] + tCur[1]
-  const goalMix = q ? safeDiv(q.tierWeekly['Tier 1'] + q.tierWeekly['Tier 2'], tierTotalWeekly(q)) : null
+  // ── KPI: tier 1–2 share of HQ ──────────────────────────────────────────────
+  const t12 = hqCur[0] + hqCur[1]
+  const goalMix = q ? safeDiv(q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'], quarterTotal(q)) : null
 
-  // ── Tier pacing (actual ÷ prorated goal for the selected dates) ────────────
-  const tiers: TierPace[] = DISPLAY_TIERS.map((t, idx) => {
-    const g = goalForRange(i.quarters, i.start, i.end, qq => tierGoal(qq, t))
-    const pct = g ? tCur[idx] / g : null
+  // ── Tier pacing (HQ actual ÷ prorated goal for the selected dates) ─────────
+  const tiers: TierPace[] = GOAL_TIERS.map((t, idx) => {
+    const g = goalForRange(i.quarters, i.start, i.end, qq => qq.tierQuarter[t])
+    const pct = g ? hqCur[idx] / g : null
     return {
-      tier: t, label: t === UNASSIGNED ? UNMATCHED_LABEL : t, actual: tCur[idx], goal: g, pct,
+      tier: t, label: t, actual: hqCur[idx], goal: g, pct,
       status: pct != null ? paceStatus(pct) : null,
-      prevActual: tPrev[idx], deltaPct: pctChange(tCur[idx], tPrev[idx]),
+      prevActual: hqPrev[idx], deltaPct: pctChange(hqCur[idx], hqPrev[idx]),
     }
   })
 
@@ -242,7 +247,7 @@ export function buildDashboard(i: DashboardInputs) {
   const cumulative = buildCumulative(i)
 
   // ── Channel × tier table ───────────────────────────────────────────────────
-  const table = buildChannelTable(i.cur, i.prev, i.quarters, i.start, i.end, goal)
+  const table = buildChannelTable(i.cur, i.prev)
 
   // ── MCP by platform ────────────────────────────────────────────────────────
   const mcp = buildMcp(i.cur, i.prev, total, prevTotal)
@@ -274,9 +279,10 @@ export function buildDashboard(i: DashboardInputs) {
     },
     kpis: {
       total, prevTotal, deltaPct: pctChange(total, prevTotal),
-      goal, paceVsGoal: goal ? total / goal : null,
+      hqTotal, hqPrevTotal, hqDeltaPct: pctChange(hqTotal, hqPrevTotal),
+      goal, paceVsGoal: goal ? hqTotal / goal : null,
       projection,
-      tier12: { share: safeDiv(t12, total), count: t12, goalMix },
+      tier12: { share: safeDiv(t12, hqTotal), count: t12, goalMix },
     },
     cumulative,
     tiers,
@@ -306,11 +312,12 @@ function bucketStart(d: ISODate, grain: Grain): ISODate {
 }
 
 function buildCumulative(i: DashboardInputs) {
-  const curBy = new Map(i.curDaily.map(p => [p.d, p.n]))
-  const prevBy = new Map(i.prevDaily.map(p => [p.d, p.n]))
+  // HQ workspaces, the population the goal is set on.
+  const curBy = new Map(i.curDaily.map(p => [p.d, p.hq ?? 0]))
+  const prevBy = new Map(i.prevDaily.map(p => [p.d, p.hq ?? 0]))
   const days = daysBetween(i.start, i.end)
   const prevDays = daysBetween(i.prevStart, i.prevEnd)
-  const dailyGoal = (d: ISODate) => goalForRange(i.quarters, d, d, tierTotalWeekly)
+  const dailyGoal = (d: ISODate) => goalForRange(i.quarters, d, d, quarterTotal)
 
   type Pt = { key: ISODate; label: string; start: ISODate; end: ISODate; actual: number; prev: number | null; goal: number | null }
   const points: Pt[] = []
@@ -331,13 +338,11 @@ function buildCumulative(i: DashboardInputs) {
     if (last && last.key === b) points[points.length - 1] = pt
     else points.push(pt)
   }
-  const goalTotal = goalForRange(i.quarters, i.start, i.end, tierTotalWeekly)
+  const goalTotal = goalForRange(i.quarters, i.start, i.end, quarterTotal)
   return { points, goalTotal }
 }
 
-export function buildChannelTable(
-  cur: RangeSummary, prev: RangeSummary, quarters: QuarterGoals[], start: ISODate, end: ISODate, totalGoal: number | null,
-) {
+export function buildChannelTable(cur: RangeSummary, prev: RangeSummary) {
   const c = aggregateChannels(cur)
   const p = aggregateChannels(prev)
   const keys = new Set([...c.keys(), ...p.keys()])
@@ -348,19 +353,17 @@ export function buildChannelTable(
       const a = c.get(k); const b = p.get(k)
       const category = a?.category ?? b?.category ?? 'undefined'
       if (groupForCategory(category) !== g.id) continue
-      children.push(mkRow(k, CHANNEL_DISPLAY[k] ?? k, a?.n ?? 0, b?.n ?? 0, a?.tiers ?? zeroTiers(), null))
+      children.push(mkRow(k, CHANNEL_DISPLAY[k] ?? k, a?.n ?? 0, b?.n ?? 0, a?.tiers ?? zeroTiers()))
     }
     children.sort((x, y) => y.cur - x.cur || y.prev - x.prev || x.label.localeCompare(y.label))
-    const gGoal = goalForRange(quarters, start, end, q => q.groupWeekly[g.id])
     const row = mkRow(g.id, g.label,
       sum(children.map(r => r.cur)), sum(children.map(r => r.prev)),
-      DISPLAY_TIERS.map((_, idx) => sum(children.map(r => r.tiers[idx]))),
-      gGoal && gGoal > 0 ? gGoal : null)
+      DISPLAY_TIERS.map((_, idx) => sum(children.map(r => r.tiers[idx]))))
     return { id: g.id, row, children }
   }).filter(g => g.children.length)
 
   const total = mkRow('total', 'Total', sum(groups.map(g => g.row.cur)), sum(groups.map(g => g.row.prev)),
-    DISPLAY_TIERS.map((_, idx) => sum(groups.map(g => g.row.tiers[idx]))), totalGoal)
+    DISPLAY_TIERS.map((_, idx) => sum(groups.map(g => g.row.tiers[idx]))))
   return { groups, total }
 }
 
@@ -457,7 +460,7 @@ export function buildCommentary(
   const top = movers.filter(m => Math.abs(m.delta) >= GUARDRAILS.commentaryMinAbsDelta)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 5)
 
-  const table = buildChannelTable(week.cur, week.prev, quarters, week.start, week.end, null)
+  const table = buildChannelTable(week.cur, week.prev)
   const groupRow = (id: ChannelGroupId) => table.groups.find(g => g.id === id)?.row
 
   // Cluster same-direction movers within a group into one bullet, largest first.
@@ -507,16 +510,17 @@ export function buildCommentary(
   // Tier furthest behind QTD pace.
   const q = quarterFor(quarters, dataEnd)
   if (q) {
-    const qt = tierTotals(qtd)
-    const paced = TIERS.map((t, idx) => {
-      const g = goalForRange(quarters, q.start, dataEnd, qq => qq.tierWeekly[t])
+    const qt = hqGoalTierTotals(qtd)
+    const paced = GOAL_TIERS.map((t, idx) => {
+      const g = goalForRange(quarters, q.start, dataEnd, qq => qq.tierQuarter[t])
       return { t, idx, actual: qt[idx], goal: g, pct: g ? qt[idx] / g : null }
     }).filter(x => x.pct != null)
     const worst = paced.sort((a, b) => a.pct! - b.pct!)[0]
     if (worst && worst.pct! < PACING.onTrack) {
-      // Which channels moved this tier most week over week
+      // Which channels moved this tier most week over week (all workspaces; Tier 4 includes unmatched)
+      const tierCount = (x: ChannelAgg | undefined) => !x ? 0 : worst.idx < 3 ? x.tiers[worst.idx] : x.tiers[3] + x.tiers[4]
       const tierMovers = [...new Set([...c.keys(), ...p.keys()])].map(k => {
-        const a = c.get(k)?.tiers[worst.idx] ?? 0; const b = p.get(k)?.tiers[worst.idx] ?? 0
+        const a = tierCount(c.get(k)); const b = tierCount(p.get(k))
         return { label: CHANNEL_DISPLAY[k] ?? k, delta: a - b, cur: a }
       }).sort((a, b) => a.delta - b.delta)
       const largest = [...tierMovers].sort((a, b) => b.cur - a.cur).slice(0, 2)
@@ -524,7 +528,7 @@ export function buildCommentary(
       bullets.push({
         kind: 'tier',
         lead: `${worst.t} is furthest behind pace`,
-        body: `QTD ${fmtInt(worst.actual)} of ${fmtInt(worst.goal!)} expected (${Math.round(worst.pct! * 100)}%). ` +
+        body: `QTD ${fmtInt(worst.actual)} HQ workspaces of ${fmtInt(worst.goal!)} expected (${Math.round(worst.pct! * 100)}%). ` +
           `Largest ${worst.t} sources this week: ${largest.map(m => `${m.label} ${fmtInt(m.cur)}`).join(', ')}.` +
           (dropping.length ? ` Biggest ${worst.t} declines: ${dropping.map(m => `${m.label} ${fmtSigned(m.delta)}`).join(', ')}.` : ''),
       })
@@ -546,7 +550,7 @@ function buildDiscuss(
   const worst = tiers.filter(t => t.pct != null).sort((a, b) => a.pct! - b.pct!)[0]
   const declining = [...table.groups].filter(g => g.id !== 'unattributed').sort((a, b) => a.row.delta - b.row.delta)[0]
   const out = [
-    worst ? `${worst.tier} is furthest behind pace (${Math.round(worst.pct! * 100)}% of goal). Which channel owns the gap?`
+    worst ? `${worst.label} is furthest behind pace (${Math.round(worst.pct! * 100)}% of goal). Which channel owns the gap?`
       : 'Which tier is furthest behind pace, and which channel owns the gap?',
   ]
   if (declining && declining.row.delta < 0) {
@@ -554,7 +558,7 @@ function buildDiscuss(
     out.push(`Is the ${declining.row.label} decline a one-time dip or a trend? What's the plan for ${worstKids.join(' and ')}?`)
   }
   if (projection?.neededPerWeek != null) {
-    out.push(`Do we need ${fmtInt(projection.neededPerWeek)}/wk to hit the ${projection.label} goal, or do we re-forecast?`)
+    out.push(`Do we need ${fmtInt(projection.neededPerWeek)} HQ workspaces/wk to hit the ${projection.label} goal, or do we re-forecast?`)
   }
   return out
 }

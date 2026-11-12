@@ -12,6 +12,7 @@
  */
 import type { DailyPoint, RangeSummary } from './compute'
 import type { ISODate } from './dates'
+import { GOAL_SEGMENT } from './config'
 import { DAILY_KEYS, SUMMARY_KEYS, type DashboardPlan, type DailyKey, type SummaryKey } from './plan'
 
 export const SIGMA = {
@@ -108,7 +109,7 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
   const ix = Object.fromEntries(tbl.columns.map((c, i) => [c, i]))
   const col = (r: unknown[], c: string) => String(r[ix[c]] ?? '')
 
-  const summaries = Object.fromEntries(SUMMARY_KEYS.map(k => [k, { channels: [], mcp: [], quality: [], domain: [] } as RangeSummary])) as Record<SummaryKey, RangeSummary>
+  const summaries = Object.fromEntries(SUMMARY_KEYS.map(k => [k, { channels: [], hqTiers: [], mcp: [], quality: [], domain: [] } as RangeSummary])) as Record<SummaryKey, RangeSummary>
   const add = <T extends { n: number }>(arr: T[], match: (x: T) => boolean, mk: () => T, n: number) => {
     const hit = arr.find(match)
     if (hit) hit.n += n
@@ -136,6 +137,7 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
       const c = col(r, 'cat'); const ch = col(r, 'ch'); const tier = col(r, 'tier'); const q = col(r, 'q'); const sub = col(r, 'sub')
       add(s.channels, x => x.c === c && x.ch === ch && x.t === tier, () => ({ c, ch, t: tier, n: 0 }), n)
       add(s.quality, x => x.q === q, () => ({ q, n: 0 }), n)
+      if (q === GOAL_SEGMENT) add(s.hqTiers, x => x.t === tier, () => ({ t: tier, n: 0 }), n)
       if (ch === 'OAuth: MCP') add(s.mcp, x => x.s === (sub || 'OAuth: MCP: undefined'), () => ({ s: sub || 'OAuth: MCP: undefined', n: 0 }), n)
     }
   }

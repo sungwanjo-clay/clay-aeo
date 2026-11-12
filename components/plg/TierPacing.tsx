@@ -22,7 +22,7 @@ export default function TierPacing({ v }: { v: DashboardPayload }) {
     <Card className="p-5 sm:p-10 flex flex-col gap-5">
       <H2>Pacing by tier</H2>
       <p className="text-[16px] leading-relaxed" style={{ color: T.muted }}>
-        Actual ÷ goal for the selected dates. On track ≥{PACING.onTrack * 100}%, at risk {PACING.atRisk * 100}–{PACING.onTrack * 100}%, behind &lt;{PACING.atRisk * 100}%.
+        HQ workspaces ÷ quarterly goal prorated to the selected dates. On track ≥{PACING.onTrack * 100}%, at risk {PACING.atRisk * 100}–{PACING.onTrack * 100}%, behind &lt;{PACING.atRisk * 100}%.
       </p>
       <ul className="flex flex-col">
         {v.tiers.map(t => (
@@ -46,7 +46,7 @@ export default function TierPacing({ v }: { v: DashboardPayload }) {
         ))}
       </ul>
       <p className="text-[14px]" style={{ color: T.muted }}>
-        Bar scale 0–{PACING.barMax * 100}% of goal. Tick = 100%. Tier = SFDC account Sales Tier via customer domain; Unmatched = no SFDC account for the domain (mostly personal email); no goal.
+        Bar scale 0–{PACING.barMax * 100}% of goal. Tick = 100%. HQ = non-personal, high-quality domain. Tier = SFDC Sales Tier of the customer domain; Tier 4 includes domains with no SFDC account.
       </p>
     </Card>
   )

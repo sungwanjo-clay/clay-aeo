@@ -66,34 +66,32 @@ create table if not exists plg_etl_runs (
 );
 
 -- ── Goals (configurable without a deploy) ───────────────────────────────────
--- One row per (quarter, scope, key):
---   scope 'quarter', key 'total'          → value = whole-quarter goal
---   scope 'tier',    key 'Tier 1'..'Tier 4' → value = weekly goal
---   scope 'group',   key 'oauth'|'organic'|'paid' → value = weekly goal
--- Rows here override the defaults in lib/plg/config.ts. To add Q1 2027, insert
--- rows with the new quarter_start/quarter_end; nothing else changes.
+-- Quarterly goals on HQ workspaces (quality = 'non-personal: high quality'),
+-- one row per (quarter, tier). key: 'Tier 1' | 'Tier 2' | 'Tier 3' |
+-- 'Tier 4 / unmatched'. Source: Q4 PLG Planning sheet. No channel goals.
+-- Rows here override the defaults in lib/plg/config.ts.
 
 create table if not exists plg_goals (
   quarter_label text    not null,
   quarter_start date    not null,
   quarter_end   date    not null,
-  scope         text    not null check (scope in ('quarter', 'tier', 'group')),
+  scope         text    not null check (scope in ('tier')),
   key           text    not null,
   value         numeric not null,
   updated_at    timestamptz not null default now(),
   primary key (quarter_start, scope, key)
 );
 
+delete from plg_goals where scope <> 'tier' or key not in ('Tier 1', 'Tier 2', 'Tier 3', 'Tier 4 / unmatched');
+alter table plg_goals drop constraint if exists plg_goals_scope_check;
+alter table plg_goals add constraint plg_goals_scope_check check (scope in ('tier'));
+
 insert into plg_goals (quarter_label, quarter_start, quarter_end, scope, key, value) values
-  ('Q4', '2026-11-01', '2027-01-31', 'quarter', 'total',   150000),
-  ('Q4', '2026-11-01', '2027-01-31', 'tier',    'Tier 1',     400),
-  ('Q4', '2026-11-01', '2027-01-31', 'tier',    'Tier 2',    1000),
-  ('Q4', '2026-11-01', '2027-01-31', 'tier',    'Tier 3',    2600),
-  ('Q4', '2026-11-01', '2027-01-31', 'tier',    'Tier 4',    7538),
-  ('Q4', '2026-11-01', '2027-01-31', 'group',   'oauth',     3000),
-  ('Q4', '2026-11-01', '2027-01-31', 'group',   'organic',   6000),
-  ('Q4', '2026-11-01', '2027-01-31', 'group',   'paid',       400)
-on conflict do nothing;
+  ('Q4', '2026-11-01', '2027-01-31', 'tier', 'Tier 1',              2009),
+  ('Q4', '2026-11-01', '2027-01-31', 'tier', 'Tier 2',             11207),
+  ('Q4', '2026-11-01', '2027-01-31', 'tier', 'Tier 3',              5232),
+  ('Q4', '2026-11-01', '2027-01-31', 'tier', 'Tier 4 / unmatched', 34952)
+on conflict (quarter_start, scope, key) do update set value = excluded.value, updated_at = now();
 
 alter table plg_daily_facts          enable row level security;
 alter table plg_daily_domain_segment enable row level security;
@@ -166,6 +164,14 @@ language sql stable security definer set search_path = public as $$
         select channel_category, channel, sales_tier, sum(n)::int as n
         from plg_daily_facts where day between p_start and p_end
         group by 1, 2, 3
+      ) x), '[]'::jsonb),
+    'hqTiers', coalesce((
+      select jsonb_agg(jsonb_build_object('t', sales_tier, 'n', n))
+      from (
+        select sales_tier, sum(n)::int as n
+        from plg_daily_facts
+        where day between p_start and p_end and quality_segment = 'non-personal: high quality'
+        group by 1
       ) x), '[]'::jsonb),
     'mcp', coalesce((
       select jsonb_agg(jsonb_build_object('s', subchannel, 'n', n))

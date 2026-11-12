@@ -3,9 +3,7 @@
 import { Fragment, useState } from 'react'
 import type { DashboardPayload } from '@/lib/plg/load'
 import type { ChannelRowData } from '@/lib/plg/compute'
-import { paceStatus } from '@/lib/plg/compute'
 import { DISPLAY_TIERS, UNASSIGNED, UNMATCHED_LABEL } from '@/lib/plg/config'
-import { PaceBar } from './TierPacing'
 import { Card, H2, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtSigned } from './ui'
 
 type Mode = 'counts' | 'pct'
@@ -16,20 +14,12 @@ function Cells({ r, mode, kind, prevLabel }: { r: ChannelRowData; mode: Mode; ki
   const onDark = kind === 'total'
   const dc = (n: number | null) => (onDark ? '#FFFFFF' : deltaColor(n))
   const tierCell = (n: number) => (mode === 'pct' ? fmtPct(r.cur ? n / r.cur : null, 0) : fmtInt(n))
-  const showGoal = kind !== 'child'
   return (
     <>
       <td className="px-2.5 py-4 text-right">{fmtInt(r.cur)}</td>
       <td className="px-2.5 py-4 text-right" title={`${prevLabel}: ${fmtInt(r.prev)}`}>{fmtInt(r.prev)}</td>
       <td className="px-2.5 py-4 text-right" style={{ color: dc(r.delta) }}>{r.delta === 0 ? '0' : fmtSigned(r.delta)}</td>
       <td className="px-2.5 py-4 text-right" style={{ color: dc(r.deltaPct) }}>{fmtPctSigned(r.deltaPct)}</td>
-      <td className="px-2.5 py-4 text-right">{showGoal ? (r.goal != null ? fmtInt(r.goal) : '–') : ''}</td>
-      <td className="px-2.5 py-4">
-        {showGoal && r.vsGoal != null && kind !== 'total' && (
-          <PaceBar pct={r.vsGoal} status={paceStatus(r.vsGoal)} width="110px" />
-        )}
-      </td>
-      <td className="px-2.5 py-4 text-right">{showGoal && r.vsGoal != null ? fmtPct(r.vsGoal, 0) : ''}</td>
       {r.tiers.map((n, i) => <td key={DISPLAY_TIERS[i]} className="px-2.5 py-4 text-right">{tierCell(n)}</td>)}
     </>
   )
@@ -45,14 +35,14 @@ export default function ChannelTable({ v }: { v: DashboardPayload }) {
         <div className="flex flex-col gap-2">
           <H2>New workspaces by channel and tier</H2>
           <p className="text-[16px]" style={{ color: T.muted }}>
-            Blended attribution. Goals set at channel-group level and prorated to the selected dates.
+            Blended attribution, all new workspaces. Tier = SFDC Sales Tier of the customer domain.
           </p>
         </div>
         <Segmented ariaLabel="Tier columns" value={mode} onChange={setMode}
           options={[{ id: 'counts', label: 'Counts' }, { id: 'pct', label: '% of row' }]} />
       </div>
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[1120px] border-collapse text-[15px]" style={{ fontFamily: T.mono, color: T.ink }}>
+        <table className="w-full min-w-[900px] border-collapse text-[15px]" style={{ fontFamily: T.mono, color: T.ink }}>
           <thead>
             <tr style={{ color: T.muted, letterSpacing: '0.12em', borderBottom: `1px solid ${T.border}` }}>
               <th className={`${th} text-left`}>Channel</th>
@@ -60,9 +50,6 @@ export default function ChannelTable({ v }: { v: DashboardPayload }) {
               <th className={`${th} text-right`}>{prevLabel}</th>
               <th className={`${th} text-right`}>Δ</th>
               <th className={`${th} text-right`}>%</th>
-              <th className={`${th} text-right`}>Goal</th>
-              <th className={th} />
-              <th className={`${th} text-right`}>vs goal</th>
               {DISPLAY_TIERS.map(x => <th key={x} className={`${th} text-right`} title={x === UNASSIGNED ? 'Customer domain matches no SFDC account with a Sales Tier (mostly personal email)' : undefined}>{x === UNASSIGNED ? UNMATCHED_LABEL : x}</th>)}
             </tr>
           </thead>
