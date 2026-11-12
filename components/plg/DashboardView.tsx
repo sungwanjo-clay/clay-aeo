@@ -12,9 +12,10 @@ import { DomainQuality, McpByPlatform } from './McpAndQuality'
 import { Commentary, DataQualityStrip, Discuss, RestatementBanner } from './Narrative'
 import { Eyebrow, Pill, Segmented, T } from './ui'
 
+export type DashboardTab = 'workspaces' | 'social'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
-  { id: 'social', label: 'Social video', disabled: true, title: 'Coming soon' },
+  { id: 'social', label: 'Social video' },
   { id: 'startup', label: 'Startup program', disabled: true, title: 'Coming soon' },
 ] as const
 
@@ -42,7 +43,7 @@ function freshness(v: DashboardPayload, refreshedAt?: number | string | null) {
   return `${through} · refreshed ${t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
 }
 
-export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote }: {
+export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle }: {
   v: DashboardPayload
   loading: boolean
   error: string | null
@@ -51,20 +52,27 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
   refreshedAt?: number | string | null
   /** Tooltip for the freshness pill. */
   sourceNote?: string
+  /** Active tab; the Social tab is offered only when onTab is given. */
+  tab?: DashboardTab
+  onTab?: (t: DashboardTab) => void
+  /** Rendered in place of the Workspaces sections when tab === 'social'. */
+  social?: React.ReactNode
+  socialSubtitle?: string
 }) {
   const update = onChange
   const presetLabel = v.params.preset ? PRESETS.find(p => p.id === v.params.preset)?.label : 'Custom dates'
+  const isSocial = tab === 'social' && !!onTab
 
   return (
     <div className="px-4 py-6 sm:px-10 sm:py-8 xl:px-16 flex flex-col gap-6 sm:gap-8" style={{ background: T.page, minHeight: '100%' }}>
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-3 min-w-0">
-          <Eyebrow>PLG weekly metrics · Workspaces</Eyebrow>
+          <Eyebrow>{isSocial ? 'PLG weekly metrics · Social · YouTube' : 'PLG weekly metrics · Workspaces'}</Eyebrow>
           <h1 className="text-[40px] sm:text-[60px] leading-[1.05] font-bold" style={{ color: T.ink, letterSpacing: '-0.04em' }}>
-            New workspaces &amp; pacing
+            {isSocial ? <>Video → offer → workspace</> : <>New workspaces &amp; pacing</>}
           </h1>
-          <p className="text-[17px]" style={{ color: T.muted }}>Blended attribution, cut by channel and tier</p>
+          <p className="text-[17px]" style={{ color: T.muted }}>{isSocial ? socialSubtitle : 'Blended attribution, cut by channel and tier'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {v.source === 'fixture'
@@ -76,10 +84,12 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         </div>
       </header>
 
-      <Segmented ariaLabel="Dashboard section" size="lg" value="workspaces" onChange={() => {}}
-        options={TABS.map(t => ({ ...t }))} />
+      <Segmented ariaLabel="Dashboard section" size="lg" value={isSocial ? 'social' : 'workspaces'}
+        onChange={id => onTab && (id === 'workspaces' || id === 'social') && onTab(id)}
+        options={TABS.map(t => ({ ...t, disabled: t.id === 'social' ? !onTab : 'disabled' in t ? t.disabled : false,
+          title: t.id === 'social' && !onTab ? 'Available in the claude.ai version' : 'title' in t ? t.title : undefined }))} />
 
-      <RestatementBanner v={v} />
+      {!isSocial && <RestatementBanner v={v} />}
 
       <FilterCard
         state={{ preset: v.params.preset, start: v.range.start, end: v.range.end, compare: v.params.compare, grain: v.params.grain }}
@@ -88,7 +98,7 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         onChange={update}
       />
 
-      <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {isSocial ? social : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <KpiTiles v={v} />
 
@@ -107,7 +117,7 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         <Commentary v={v} />
         <Discuss v={v} />
         <DataQualityStrip v={v} />
-      </div>
+      </div>}
     </div>
   )
 }

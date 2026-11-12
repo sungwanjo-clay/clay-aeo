@@ -12,7 +12,11 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import DashboardView, { paramsFor } from '@/components/plg/DashboardView'
+import DashboardView, { paramsFor, type DashboardTab } from '@/components/plg/DashboardView'
+import SocialView, { ChannelPills, type SocialChannel } from '@/components/plg/social/SocialView'
+import { buildSocial, parseSocialRows, type YtChannelDoc } from '@/lib/plg/social/compute'
+import { CHANNELS } from '@/lib/plg/social/config'
+import { socialSql } from '@/lib/plg/social/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
 import { T } from '@/components/plg/ui'
 import { resolveQuarters, type GoalRow, type Meta } from '@/lib/plg/compute'
@@ -110,6 +114,15 @@ function App() {
   const [problem, setProblem] = useState<Problem>(null)
   const [restatements, setRestatements] = useState<Meta['restatements']>([])
   const [attempt, setAttempt] = useState(0)
+  // Social tab: routed on the hash (#social, #social-peter) so links can point at it.
+  const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
+    const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
+    return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social' ? { tab: 'social', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+  }
+  const [route, setRoute] = useState(readHash)
+  const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
+  const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
+  const [socialProblem, setSocialProblem] = useState<Problem>(null)
 
   // Capabilities
   useEffect(() => {
@@ -118,6 +131,9 @@ function App() {
     window.claude.use('db').then(async d => {
       if (!d) return
       setDb(d)
+      Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
+        .then(snaps => setYt(snaps.filter(x => x?.exists).map(x => x.data() as YtChannelDoc)))
+        .catch(() => setYt([]))
       try {
         const snap = await d.doc('config/goals').get()
         const rows = snap.exists ? (snap.data()?.rows as GoalRow[] | undefined) : undefined
@@ -209,6 +225,43 @@ function App() {
     } catch (e) { handleError(e) }
   }, [mcp, handleError])
 
+  // ── Social video tab ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const onHash = () => setRoute(readHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  const go = useCallback((tab: DashboardTab, channel: SocialChannel) => {
+    const hash = tab === 'social' ? (channel === 'peter' ? '#social-peter' : '#social') : ''
+    try { history.replaceState(null, '', hash || location.pathname + location.search) } catch { /* sandboxed */ }
+    setRoute({ tab, channel })
+  }, [])
+  const socialRanges = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
+  const socialSqlText = useMemo(() => (socialRanges && route.tab === 'social' ? socialSql(route.channel, socialRanges) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, route.channel])
+  useEffect(() => {
+    if (!mcp || !socialSqlText) return
+    const key = socialSqlText
+    const input = { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: socialSqlText } }
+    const unsub = mcp.watchTool(SIGMA.server, 'query', input, (ev: any) => {
+      if (ev.type === 'error') { setSocialProblem({ code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' }); return }
+      setSocialProblem(null)
+      setSocialResult({ key, payload: ev.result?.payload })
+    }, { cache: CACHE })
+    return unsub
+  }, [mcp, socialSqlText])
+  const socialView = useMemo(() => {
+    if (!socialResult || !socialRanges) return null
+    try {
+      return {
+        s: buildSocial({ scope: route.channel, ranges: socialRanges, rows: parseSocialRows(socialResult.payload), yt: yt ?? [] }),
+        stale: socialResult.key !== socialSqlText,
+      }
+    } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socialResult, yt, route.channel, socialSqlText])
+
   const v = view && 'v' in view ? view.v : null
   if (!v) {
     const shown: Problem = mcp === null ? { code: 'no_runtime', message: '' } : problem
@@ -235,8 +288,17 @@ function App() {
   }
 
   const stale = !!(view && 'stale' in view && view.stale)
+  const socialPane = route.tab !== 'social' ? null
+    : socialProblem && !socialView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(socialProblem).title}: {problemCopy(socialProblem).body}</p>
+    : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for YouTube traffic… first load takes 10–30 seconds.</p>
+    : 'error' in socialView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {socialView.error}</p>
+    : <SocialView s={socialView.s} loading={socialView.stale} />
   return (
     <DashboardView
+      tab={route.tab}
+      onTab={t => go(t, route.channel)}
+      socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)' : 'All YouTube traffic to Clay · Peter Kang, Clay brand channel, affiliates'}
+      social={<div className="flex flex-col gap-6 sm:gap-8"><ChannelPills value={route.channel} onChange={c => go('social', c)} />{socialPane}</div>}
       v={v}
       loading={stale}
       error={problem && problem.code !== 'no_runtime' ? problemCopy(problem).title : null}
