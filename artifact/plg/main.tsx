@@ -308,7 +308,7 @@ function App() {
       social={<div className="flex flex-col gap-6 sm:gap-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <ChannelPills value={route.channel} onChange={c => go('social', c)} />
-          <ModeToggle value={modes[route.channel]} onChange={m => setModes(prev => ({ ...prev, [route.channel]: m }))} />
+          {route.channel === 'all' && <ModeToggle value={modes.all} onChange={m => setModes(prev => ({ ...prev, all: m }))} />}
         </div>
         {socialPane}
       </div>}

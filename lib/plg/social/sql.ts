@@ -4,7 +4,8 @@
  *
  * Row kinds (column k), keyed by `key` = video id | 'untagged' | 'unmapped:<campaign>' | 'affiliate':
  *   vis    distinct visitors (ANONYMOUS_ID)        b = cur | prev (calendar) | coh (video's first 28 days)
- *   ws     new workspaces (first touch) + activated ≤7d, paid, tier split
+ *   ws     new workspaces (first touch) + activated ≤7d, paid, expanded, churned, tier split
+ *   plan   new workspaces by current plan (column d), with paid / expanded / churned
  *   ex     existing workspaces influenced (tagged visitor's user already in a workspace before the visit), tier split
  *   vday / wsday   per-day series for the trend (calendar), key = 'tagged' | 'untagged'
  *
@@ -25,6 +26,7 @@ const T = {
   customers: '7821001c-903e-47e1-9f1d-a03f2a5ca9ae', // DBT.PROD.CUSTOMERS
   accounts: 'c5f1715b-69c1-4033-ad5c-8281a21d2cd5',  // DBT.STAGING.STG_SALESFORCE__ACCOUNT
   roles: 'a7defd23-614d-4c68-ad31-b807b7a164b0',     // FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES
+  credits: '990653ed-fe9f-4d3c-a674-f4278de7049f',   // DBT.PROD.CREDIT_PACK_INVOICES
 }
 const t = (id: string) => `"connection"."${id}"`
 const d = (x: ISODate) => {
@@ -54,7 +56,7 @@ export function socialSql(q: SocialQuery): string {
     .join(' UNION ALL ')
   const tierCols = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Untiered']
     .map((tn, i) => `SUM(CASE WHEN "tier" = '${tn}' THEN 1 ELSE 0 END) AS "t${i + 1}"`).join(', ')
-  const zeroT = `0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"`
+  const zeroT = `0 AS "x", 0 AS "c", 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"`
   const keyExpr = (camp: string) => `CASE WHEN vm."vid" IS NOT NULL THEN vm."vid"
               WHEN ${camp} <> '' AND ${prefixMatch(camp)} THEN 'unmapped:' || ${camp}
               WHEN ${camp} = '' THEN 'untagged' ELSE 'other' END`
@@ -71,9 +73,13 @@ pv AS (
     AND (p."REFERRER_RAW" ILIKE '%youtu%' OR p."UTM_SOURCE" ILIKE '%youtu%')
 ),
 cu AS (
-  SELECT "WORKSPACE_ID" AS "wid", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg"
+  SELECT "WORKSPACE_ID" AS "wid", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg",
+         MIN("FIRST_INVOICE_UTC") AS "first_inv", MAX("LATEST_PLAN_CLEAN") AS "plan",
+         MAX("LATEST_SUBSCRIPTION_CANCELLATION_UTC") AS "cancel", MAX("BINARY_CURRENT_CUSTOMER") AS "current",
+         MAX(CASE WHEN "LATEST_INFLECTION_PREVIOUS_PLAN" IS NOT NULL AND "LATEST_INFLECTION_PREVIOUS_PLAN" <> 'Free/Trial' THEN 1 ELSE 0 END) AS "upgraded"
   FROM ${t(T.customers)} GROUP BY "WORKSPACE_ID"
 ),
+cp AS (SELECT "WORKSPACE_ID" AS "wid", MIN("CREATED_AT_UTC") AS "first_pack" FROM ${t(T.credits)} WHERE "AMOUNT_PAID" > 0 GROUP BY "WORKSPACE_ID"),
 acct AS (
   SELECT LOWER("DOMAIN_C") AS "dom", MIN("SALES_TIER_C") AS "tier"
   FROM ${t(T.accounts)} WHERE "IS_DELETED" = false AND "DOMAIN_C" IS NOT NULL AND "SALES_TIER_C" IS NOT NULL
@@ -95,9 +101,14 @@ ft AS (
 fx AS (
   SELECT ft.*, COALESCE(wt."tier", 'Untiered') AS "tier",
          CASE WHEN b."BINARY_ACTIVATED_WORKSPACE" = 1 AND b."DAYS_TO_ACTIVATION" <= ${ACTIVATION_DAYS} THEN 1 ELSE 0 END AS "act",
-         COALESCE(b."BINARY_CONVERTED_CUSTOMER", 0) AS "paid"
+         CASE WHEN cu."first_inv" IS NOT NULL THEN 1 ELSE 0 END AS "paid",
+         CASE WHEN cu."first_inv" IS NOT NULL AND (cu."upgraded" = 1 OR cp."first_pack" > cu."first_inv") THEN 1 ELSE 0 END AS "exp",
+         CASE WHEN cu."first_inv" IS NOT NULL AND cu."cancel" IS NOT NULL AND COALESCE(cu."current", 0) = 0 THEN 1 ELSE 0 END AS "churn",
+         COALESCE(cu."plan", 'Free') AS "plan"
   FROM ft
   LEFT JOIN wtier wt ON wt."wid" = ft."wid"
+  LEFT JOIN cu ON cu."wid" = ft."wid"
+  LEFT JOIN cp ON cp."wid" = ft."wid"
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = ft."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
 tv AS (
@@ -119,20 +130,26 @@ SELECT 'vday', '', CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, CAST
 FROM pv WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
 GROUP BY CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, "day"
 UNION ALL
-SELECT 'ws', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), ${tierCols}
+SELECT 'ws', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
 FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
-SELECT 'ws', 'coh', "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), ${tierCols}
+SELECT 'ws', 'coh', "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
 FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key"
+UNION ALL
+SELECT 'plan', ${bucket('"day"')}, "key", "plan", COUNT(DISTINCT "wid"), 0, SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
+FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", "plan"
+UNION ALL
+SELECT 'plan', 'coh', "key", "plan", COUNT(DISTINCT "wid"), 0, SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
+FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "plan"
 UNION ALL
 SELECT 'wsday', '', CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, CAST("day" AS string), COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
 FROM fx WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
 GROUP BY CASE WHEN "cs" IS NOT NULL THEN 'tagged' ELSE "key" END, "day"
 UNION ALL
-SELECT 'ex', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), 0, 0, ${tierCols}
+SELECT 'ex', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, ${tierCols}
 FROM exx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
-SELECT 'ex', 'coh', "key", '', COUNT(DISTINCT "wid"), 0, 0, ${tierCols}
+SELECT 'ex', 'coh', "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, ${tierCols}
 FROM exx WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"`
 }
 

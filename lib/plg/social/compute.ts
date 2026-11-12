@@ -29,7 +29,7 @@ export interface YtChannelDoc {
 
 export type SocialScope = 'all' | 'peter'
 export type SocialMode = 'calendar' | 'cohort'
-type Row = { k: string; b: string; key: string; d: string; n: number; a: number; p: number; t: number[] }
+type Row = { k: string; b: string; key: string; d: string; n: number; a: number; p: number; x: number; c: number; t: number[] }
 
 export function parseSocialRows(payload: unknown): Row[] {
   const tbl = payload as { columns: string[]; rows: unknown[][] }
@@ -38,8 +38,8 @@ export function parseSocialRows(payload: unknown): Row[] {
   const s = (r: unknown[], c: string) => String(r[ix[c]] ?? '')
   const n = (r: unknown[], c: string) => Number(r[ix[c]] ?? 0) || 0
   return tbl.rows.map(r => ({
-    k: s(r, 'k'), b: s(r, 'b'), key: s(r, 'key'), d: s(r, 'd').slice(0, 10),
-    n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), t: ['t1', 't2', 't3', 't4', 't5'].map(c => n(r, c)),
+    k: s(r, 'k'), b: s(r, 'b'), key: s(r, 'key'), d: s(r, 'k') === 'plan' ? s(r, 'd') : s(r, 'd').slice(0, 10),
+    n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), x: n(r, 'x'), c: n(r, 'c'), t: ['t1', 't2', 't3', 't4', 't5'].map(c => n(r, c)),
   }))
 }
 
@@ -65,7 +65,7 @@ export function buildSocial(o: {
   const get = (k: string, b: string, key: string) => rows.filter(r => r.k === k && r.b === b && r.key === key)
   const one = (k: string, b: string, key: string) => {
     const rs = get(k, b, key)
-    return { n: sum(rs.map(r => r.n)), a: sum(rs.map(r => r.a)), p: sum(rs.map(r => r.p)), t: rs.reduce((acc, r) => addT(acc, r.t), zeroT()) }
+    return { n: sum(rs.map(r => r.n)), a: sum(rs.map(r => r.a)), p: sum(rs.map(r => r.p)), x: sum(rs.map(r => r.x)), c: sum(rs.map(r => r.c)), t: rs.reduce((acc, r) => addT(acc, r.t), zeroT()) }
   }
   const today = o.dataEnd
 
@@ -85,7 +85,9 @@ export function buildSocial(o: {
       views: coh?.views ?? 0, minutes: coh?.minutes ?? 0, avgViewPct: coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
       destination: v.destination, destinationKind: v.destinationKind, campaign: v.campaign, tagged,
       offerPage: !!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!)),
-      visits: vis?.n ?? null, newWs: ws?.n ?? null, activated: ws?.a ?? null, paid: ws?.p ?? null,
+      visits: vis?.n ?? null, newWs: ws?.n ?? null, activated: ws?.a ?? null, paid: ws?.p ?? null, expanded: ws?.x ?? null, churned: ws?.c ?? null,
+      visitRate: tagged && coh?.views ? (vis?.n ?? 0) / coh.views : null,
+      wsRate: tagged && vis?.n ? (ws?.n ?? 0) / vis.n : null,
       tiersNew: ws?.t ?? null, existing: ex?.n ?? null, tiersExisting: ex?.t ?? null,
     }
   }).sort((a, b) => b.published.localeCompare(a.published))
@@ -110,9 +112,21 @@ export function buildSocial(o: {
     return {
       visits: sum(keyRows('vis').map(r => r.n)),
       newWs: sum(ws.map(r => r.n)), activated: sum(ws.map(r => r.a)), paid: sum(ws.map(r => r.p)),
+      expanded: sum(ws.map(r => r.x)), churned: sum(ws.map(r => r.c)), plans: plansOf(keyRows('plan')),
       tiersNew: ws.reduce((acc, r) => addT(acc, r.t), zeroT()),
       existing: sum(ex.map(r => r.n)), tiersExisting: ex.reduce((acc, r) => addT(acc, r.t), zeroT()),
     }
+  }
+
+  function plansOf(rs: Row[]) {
+    const m = new Map<string, { plan: string; n: number; paid: number; exp: number; churn: number }>()
+    for (const r of rs) {
+      const plan = r.d === 'Other' || !r.d ? 'Free / other' : r.d
+      const e = m.get(plan) ?? { plan, n: 0, paid: 0, exp: 0, churn: 0 }
+      e.n += r.n; e.paid += r.p; e.exp += r.x; e.churn += r.c
+      m.set(plan, e)
+    }
+    return [...m.values()].sort((a, b) => b.n - a.n)
   }
 
   // ── Cohort totals: videos published in the selected range (and the previous range) ──
@@ -127,6 +141,8 @@ export function buildSocial(o: {
       avgPct: views ? sum(reported.map(v => v.views * (v.avgViewPct ?? 0))) / views : null,
       visits: sum(vs.map(v => v.visits ?? 0)), newWs: sum(vs.map(v => v.newWs ?? 0)),
       activated: sum(vs.map(v => v.activated ?? 0)), paid: sum(vs.map(v => v.paid ?? 0)),
+      expanded: sum(vs.map(v => v.expanded ?? 0)), churned: sum(vs.map(v => v.churned ?? 0)),
+      plans: plansOf(rows.filter(r => r.k === 'plan' && r.b === 'coh' && vs.some(v => v.id === r.key))),
       tiersNew: vs.reduce((acc, v) => addT(acc, v.tiersNew ?? zeroT()), zeroT()),
       existing: sum(vs.map(v => v.existing ?? 0)), tiersExisting: vs.reduce((acc, v) => addT(acc, v.tiersExisting ?? zeroT()), zeroT()),
       taggedVideos: vs.filter(v => v.tagged).length,
@@ -197,14 +213,28 @@ export function buildSocial(o: {
     yt: { lastDay: ytLastDay, lagging: !!ytLastDay && ytLastDay < o.cur[1], days: ytDays, fetchedAt: peterDoc?.fetchedAt ?? null, subscribers: peterDoc?.subscribers ?? null, handle: peterDoc?.handle ?? null, connected: !!peterDoc },
     kpis: {
       newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: o.scope === 'all' ? untagged.ws.n : null },
-      activated: { cur: pc.activated + (o.scope === 'all' ? untagged.ws.a : 0), rate: rate(pc.activated + (o.scope === 'all' ? untagged.ws.a : 0), allNew) },
-      paid: { cur: pc.paid + (o.scope === 'all' ? untagged.ws.p : 0), rate: rate(pc.paid + (o.scope === 'all' ? untagged.ws.p : 0), allNew) },
+      activated: (() => {
+        const cur = pc.activated + (o.scope === 'all' ? untagged.ws.a : 0)
+        const prev = pp.activated + (o.scope === 'all' ? one('ws', 'prev', 'untagged').a : 0)
+        return { cur, prev, delta: pct(cur, prev), rate: rate(cur, allNew) }
+      })(),
+      paid: (() => {
+        const cur = pc.paid + (o.scope === 'all' ? untagged.ws.p : 0)
+        const prev = pp.paid + (o.scope === 'all' ? one('ws', 'prev', 'untagged').p : 0)
+        return { cur, prev, delta: pct(cur, prev), rate: rate(cur, allNew), churned: pc.churned + (o.scope === 'all' ? untagged.ws.c : 0) }
+      })(),
       views: { cur: pc.views, prev: pp.views, delta: pct(pc.views, pp.views), avgPct: pc.avgPct, subs: pc.subs, minutes: pc.minutes },
       visits: { cur: pc.visits, prev: pp.visits, delta: pct(pc.visits, pp.visits), untagged: o.scope === 'all' ? untagged.visits : null },
       cohortVideos: o.mode === 'cohort' ? (pc.videos ?? 0) : null,
       pendingVideos: pc.pending,
     },
     steps, leak, showEmailSteps,
+    afterSignup: (() => {
+      const n = allNew; const paid = pc.paid + (o.scope === 'all' ? untagged.ws.p : 0)
+      const exp = pc.expanded + (o.scope === 'all' ? untagged.ws.x : 0); const churn = pc.churned + (o.scope === 'all' ? untagged.ws.c : 0)
+      const plans = o.scope === 'all' ? plansOf([...rows.filter(r => r.k === 'plan' && r.b === 'cur' && (videoKeys.has(r.key) || r.key === 'untagged'))]) : pc.plans
+      return { n, free: n - paid, paidOnly: Math.max(0, paid - exp - churn), expanded: exp, churned: churn, plans }
+    })(),
     channelRows, untagged, unmapped,
     affiliateVisitors: one('vis', 'cur', 'affiliate').n,
     tiers: { labels: TIER_LABELS, fresh: o.scope === 'all' ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
