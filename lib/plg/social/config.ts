@@ -1,70 +1,52 @@
 /**
- * Social video (YouTube) tab: channel registry + metric definitions.
- * Definitions are written out in docs/social-metrics.md; keep both in sync.
+ * Social video (YouTube) tab: channels, goals and the rules behind each metric.
+ * Human-readable version: docs/social-metrics.md (keep in sync).
  */
 
 export interface CreatorChannel {
-  id: 'peter' | 'payton' | 'eric' | 'clay'
+  id: 'peter' | 'payton' | 'eric'
   label: string
-  /** YouTube channel id; null = not connected yet. */
+  /** YouTube channel id; null = not connected yet (shown greyed out). */
   youtubeId: string | null
   handle: string | null
-  /** SQL condition on DBT.PROD.MARKETING_PAGEVIEWS (alias-free column names) marking this creator's link clicks. */
-  visitRule: string | null
-  /** Included in "All channels" creator totals. */
-  creator: boolean
+  /** utm_campaign prefix the creator's tagged links use. */
+  campaignPrefix: string | null
 }
 
-/**
- * Offer page (cohorts.clay.com/wedge, live 2026-10-28) visits tagged
- * utm_medium=marketingcontentowned with a YouTube referrer. Only Peter's
- * descriptions link it (via clay.link/pkytcohorts), so it is credited to him.
- * Medium confidence until that short link carries a pk_yt_* utm_campaign.
- */
-const PETER_OFFER = `("PATH" = '/wedge' AND "UTM_MEDIUM" = 'marketingcontentowned' AND "REFERRER_RAW" ILIKE '%youtu%')`
-
 export const CHANNELS: CreatorChannel[] = [
-  { id: 'peter', label: 'Peter Kang', youtubeId: 'UC1C7lmXOfNHlS2cORnPbgaA', handle: '@peterfromclay',
-    visitRule: `("UTM_CAMPAIGN" ILIKE 'pk_yt%' OR ${PETER_OFFER})`, creator: true },
-  { id: 'payton', label: 'Payton', youtubeId: null, handle: null, visitRule: null, creator: true },
-  { id: 'eric', label: 'Eric', youtubeId: null, handle: null, visitRule: null, creator: true },
-  { id: 'clay', label: 'Clay brand channel', youtubeId: 'UCHLTdPgm0KivyFFvKEWEQmQ', handle: '@growwithclay',
-    visitRule: `("UTM_CAMPAIGN" ILIKE '2410_yt%' OR "UTM_MEDIUM" = 'video')`, creator: false },
+  { id: 'peter', label: 'Peter Kang', youtubeId: 'UC1C7lmXOfNHlS2cORnPbgaA', handle: '@peterfromclay', campaignPrefix: 'pk_yt_' },
+  { id: 'payton', label: 'Payton', youtubeId: null, handle: null, campaignPrefix: null },
+  { id: 'eric', label: 'Eric', youtubeId: null, handle: null, campaignPrefix: null },
 ]
 
-/**
- * Every visit to a Clay site that came from YouTube, grouped by how it was
- * linked. Evaluated top to bottom; first match wins.
- */
-export const VISIT_GROUPS: { id: string; label: string; rule: string }[] = [
-  { id: 'peter', label: 'Peter Kang links', rule: CHANNELS[0].visitRule! },
-  { id: 'clay', label: 'Clay brand channel links', rule: CHANNELS[3].visitRule! },
-  { id: 'affiliate', label: 'Affiliate creators', rule: `"REFERRER" = 'affiliate'` },
-  { id: 'paid', label: 'Paid YouTube ads', rule: `"UTM_MEDIUM" IN ('cpc', 'paid', 'youtube')` },
-  { id: 'untagged', label: 'Other YouTube links (untagged)', rule: 'TRUE' },
-]
-
-/** Base filter: the pageview came from YouTube. */
-export const YOUTUBE_VISIT = `("REFERRER_RAW" ILIKE '%youtu%' OR "UTM_SOURCE" ILIKE '%youtu%')`
-
-/** Workspace credited to YouTube by the blended model (same as the Workspaces tab). */
-export const YT_WORKSPACE_GROUPS: { id: string; label: string; match: string }[] = [
-  { id: 'survey', label: 'Survey answer only (HDYHAU)', match: 'Organic: Social: youtube|hdyhau' },
-  { id: 'organic_session', label: 'Organic YouTube session', match: 'Organic: Social: youtube|session' },
-  { id: 'affiliate', label: 'Affiliate creators', match: 'Influencer: Affiliate: youtube' },
-  { id: 'owned', label: 'Clay-owned links (offer page)', match: 'Marketing Content: Owned: youtube' },
-  { id: 'paid', label: 'Paid YouTube ads', match: 'Paid Ads' },
-  { id: 'other', label: 'Other', match: '' },
-]
-
-/** A new workspace counts for a creator if created within this many days after that visitor's first click. */
-export const CREATOR_WINDOW_DAYS = 30
-/** Activation counts only within this many days of workspace creation. */
+/** Each video is measured over its first N days after publish. */
+export const COHORT_DAYS = 28
 export const ACTIVATION_DAYS = 7
 
-/** Funnel steps we can't measure yet, and what unlocks each. */
-export const NOT_TRACKED = [
-  { step: 'Impressions & thumbnail click-through', after: 'reach', unlock: 'The channel owner authorizes the YouTube Reporting API (channel_reach_basic_a1). The Analytics API does not expose impressions.' },
-  { step: 'Qualified emails', after: 'capture', unlock: 'The offer-page form event (SEGMENT.VERCEL.FORM_SUBMITTED) has no email field; add one, then enrich in Clay.' },
-  { step: 'Lifecycle email opens & clicks', after: 'capture', unlock: 'SELECT grant on INFLECTION.INFLECTION.* for the Sigma role.' },
-] as const
+/** Step goals from the planning model. Rate = step ÷ the step above it. */
+export const STEP_GOALS = {
+  viewRate: 0.06,      // impressions → views (impression CTR). Weighted by impressions across videos.
+  viewToVisit: 0.5,
+  capture: 0.2,
+  qualified: 0.4,
+  open: 0.5,
+  click: 0.4,
+  newWorkspace: 0.6,
+} as const
+
+/**
+ * Link destinations that count as the startup offer page. Email-capture
+ * steps (captures, qualified, opens, clicks) are shown only for videos whose
+ * link goes here. None of Peter's current videos do.
+ * TODO: confirm the startup offer page URL and whether clay.link/pkytcohorts
+ * redirects to it (clay.link is blocked by the network policy).
+ */
+export const OFFER_PAGE_PATTERNS: RegExp[] = []
+
+/** Metrics that need Peter's own YouTube authorization (Reporting API channel_reach_basic_a1). */
+export const NOT_CONNECTED = {
+  label: 'Not connected',
+  why: 'Needs the channel owner to authorize the YouTube Reporting API (channel_reach_basic_a1: video_thumbnail_impressions, video_thumbnail_impressions_ctr). A new job backfills 30 days; first files arrive within 48 hours.',
+} as const
+
+export const TIER_LABELS = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Untiered'] as const

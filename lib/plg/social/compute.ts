@@ -1,22 +1,35 @@
 /**
- * Social video tab view model. Pure: Sigma rows (lib/plg/social/sql.ts) +
- * YouTube documents (scripts/sync-youtube.mjs) in, render-ready numbers out.
+ * Social tab view model. Pure: Sigma rows (sql.ts) + YouTube documents
+ * (scripts/sync-youtube.mjs) in, render-ready numbers out.
+ *
+ * Impressions and impression CTR are null everywhere ("Not connected") until
+ * the Reporting API is authorized; nothing downstream substitutes a value.
  */
-import { addDays, daysBetween, type ISODate } from '../dates'
-import { ACTIVATION_DAYS, CHANNELS, CREATOR_WINDOW_DAYS, NOT_TRACKED, VISIT_GROUPS, YT_WORKSPACE_GROUPS } from './config'
-import type { SocialRanges, SocialScope } from './sql'
+import { addDays, daysBetween, minDate, type ISODate } from '../dates'
+import { CHANNELS, COHORT_DAYS, OFFER_PAGE_PATTERNS, STEP_GOALS, TIER_LABELS } from './config'
+import type { TaggedVideo } from './sql'
 
 export interface YtVideo {
   id: string; title: string; published: ISODate; durationSec: number; lifetimeViews: number
-  link: { kind: 'tagged' | 'offer' | 'short' | 'untagged' | 'none'; url: string | null; campaign: string | null }
-  daily: [ISODate, number, number][]
+  campaign: string | null
+  destination: string | null
+  destinationKind: 'clay' | 'short_unresolved' | 'external' | 'none'
+  links: { url: string; kind: string; campaign: string | null }[]
+  /** [day, views, minutes, avgViewPct, subsGained] */
+  daily: [ISODate, number, number, number, number][]
+  cohort28: { start: ISODate; end: ISODate; days: number; views: number; minutes: number; avgViewPct: number; subsGained: number } | null
 }
 export interface YtChannelDoc {
-  channelId: string; key: string; title: string; handle: string; subscribers: number
-  fetchedAt: string; daily: [ISODate, number, number, number, number][]; videos: YtVideo[]
+  channelId: string; key: string; title: string; handle: string; subscribers: number; videoCount: number
+  fetchedAt: string
+  /** [day, views, minutes, subsGained, subsLost, avgViewPct] */
+  daily: [ISODate, number, number, number, number, number][]
+  videos: YtVideo[]
 }
 
-type Row = { k: string; b: string; d: string; g: string; n: number; a: number; p: number; x: number; c: number; h: number; t: number[] }
+export type SocialScope = 'all' | 'peter'
+export type SocialMode = 'calendar' | 'cohort'
+type Row = { k: string; b: string; key: string; d: string; n: number; a: number; p: number; t: number[] }
 
 export function parseSocialRows(payload: unknown): Row[] {
   const tbl = payload as { columns: string[]; rows: unknown[][] }
@@ -25,156 +38,180 @@ export function parseSocialRows(payload: unknown): Row[] {
   const s = (r: unknown[], c: string) => String(r[ix[c]] ?? '')
   const n = (r: unknown[], c: string) => Number(r[ix[c]] ?? 0) || 0
   return tbl.rows.map(r => ({
-    k: s(r, 'k'), b: s(r, 'b'), d: s(r, 'd').slice(0, 10), g: s(r, 'g'),
-    n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), x: n(r, 'x'), c: n(r, 'c'), h: n(r, 'h'),
-    t: ['t1', 't2', 't3', 't4', 't5'].map(c => n(r, c)),
+    k: s(r, 'k'), b: s(r, 'b'), key: s(r, 'key'), d: s(r, 'd').slice(0, 10),
+    n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), t: ['t1', 't2', 't3', 't4', 't5'].map(c => n(r, c)),
   }))
+}
+
+/** Tagged videos (with cohort windows) the SQL needs to map campaigns → videos. */
+export function taggedVideos(docs: YtChannelDoc[], dataEnd: ISODate): TaggedVideo[] {
+  return docs.flatMap(doc => doc.videos.filter(v => v.campaign).map(v => ({
+    videoId: v.id, campaign: v.campaign!,
+    cohortStart: v.published, cohortEnd: minDate(addDays(v.published, COHORT_DAYS - 1), dataEnd),
+  })))
 }
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
-const pct = (cur: number, prev: number) => (prev > 0 ? (cur - prev) / prev : null)
-const rate = (a: number, b: number) => (b > 0 ? a / b : null)
+const pct = (cur: number | null, prev: number | null) => (cur != null && prev ? (cur - prev) / prev : null)
+const rate = (a: number | null, b: number | null) => (a != null && b ? a / b : null)
+const zeroT = () => [0, 0, 0, 0, 0]
+const addT = (a: number[], b: number[]) => a.map((x, i) => x + (b[i] ?? 0))
 
-function ytViews(docs: YtChannelDoc[], [s, e]: [ISODate, ISODate]) {
-  let views = 0; let minutes = 0; let subs = 0
-  for (const doc of docs) for (const [d, v, m, g, l] of doc.daily) if (d >= s && d <= e) { views += v; minutes += m; subs += g - l }
-  return { views, minutes, subs }
-}
-
-export function buildSocial(opts: {
-  scope: SocialScope; ranges: SocialRanges; rows: Row[]; yt: YtChannelDoc[]
+export function buildSocial(o: {
+  scope: SocialScope; mode: SocialMode; cur: [ISODate, ISODate]; prev: [ISODate, ISODate]
+  dataEnd: ISODate; rows: Row[]; yt: YtChannelDoc[]
 }) {
-  const { scope, ranges, rows } = opts
-  const peterDoc = opts.yt.filter(d => d.channelId === CHANNELS.find(c => c.id === 'peter')!.youtubeId)
-  const ytDocs = scope === 'peter' ? peterDoc : opts.yt
-  const pick = (k: string, b?: string, g?: string) => rows.filter(r => r.k === k && (b == null || r.b === b) && (g == null || r.g === g))
-  const total = (k: string, b: string, g?: string) => sum(pick(k, b, g).map(r => r.n))
-  const visitGroup = scope === 'peter' ? 'peter' : undefined
-
-  // ── Reach (YouTube) ────────────────────────────────────────────────────────
-  // YouTube Analytics runs ~2 days behind. Compare like with like: clip the
-  // current range to the last reported day and the previous range to the same length.
-  const ytLastDay = ytDocs.flatMap(d => d.daily.map(r => r[0])).sort().at(-1) ?? null
-  const ytLagging = ytLastDay != null && ytLastDay < ranges.cur[1]
-  const ytCurRange: [ISODate, ISODate] = ytLagging ? [ranges.cur[0], ytLastDay!] : ranges.cur
-  const ytDays = ytCurRange[1] >= ytCurRange[0] ? daysBetween(...ytCurRange) : 0
-  const ytPrevRange: [ISODate, ISODate] = [ranges.prev[0], addDays(ranges.prev[0], Math.max(0, ytDays - 1))]
-  const ytCur = ytDays ? ytViews(ytDocs, ytCurRange) : { views: 0, minutes: 0, subs: 0 }
-  const ytPrev = ytDays ? ytViews(ytDocs, ytPrevRange) : { views: 0, minutes: 0, subs: 0 }
-
-  // ── Site visits / offer page / captures ────────────────────────────────────
-  const visitors = { cur: total('vis', 'cur', visitGroup), prev: total('vis', 'prev', visitGroup) }
-  const offer = { cur: total('visw', 'cur', visitGroup), prev: total('visw', 'prev', visitGroup) }
-  const forms = {
-    cur: scope === 'peter' ? total('form', 'cur', 'peter') : total('form', 'cur'),
-    prev: scope === 'peter' ? total('form', 'prev', 'peter') : total('form', 'prev'),
+  const { rows } = o
+  const get = (k: string, b: string, key: string) => rows.filter(r => r.k === k && r.b === b && r.key === key)
+  const one = (k: string, b: string, key: string) => {
+    const rs = get(k, b, key)
+    return { n: sum(rs.map(r => r.n)), a: sum(rs.map(r => r.a)), p: sum(rs.map(r => r.p)), t: rs.reduce((acc, r) => addT(acc, r.t), zeroT()) }
   }
+  const today = o.dataEnd
 
-  // ── Workspaces ─────────────────────────────────────────────────────────────
-  const wsAgg = (b: string) => {
-    const rs = pick('ws', b)
-    return {
-      n: sum(rs.map(r => r.n)), act: sum(rs.map(r => r.a)), paid: sum(rs.map(r => r.p)), exp: sum(rs.map(r => r.x)),
-      churn: sum(rs.map(r => r.c)), hq: sum(rs.map(r => r.h)), tiers: [0, 1, 2, 3, 4].map(i => sum(rs.map(r => r.t[i]))),
-    }
-  }
-  const ws = { cur: wsAgg('cur'), prev: wsAgg('prev') }
-  const existing = scope === 'peter'
-    ? { cur: total('exist', 'cur'), prev: total('exist', 'prev'), tiers: [0, 1, 2, 3, 4].map(i => sum(pick('exist', 'cur').map(r => r.t[i]))) }
-    : null
-  const mention = scope === 'all' ? { cur: total('mention', 'cur'), prev: total('mention', 'prev') } : null
-  const activationMatured = addDays(ranges.cur[1], ACTIVATION_DAYS) <= addDays(new Date().toISOString().slice(0, 10), -1)
-
-  // ── Funnel ─────────────────────────────────────────────────────────────────
-  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; note?: string }
-  const step = (s: Omit<Step, 'rate' | 'prevRate'>, base?: Step): Step => ({
-    ...s,
-    rate: base && s.cur != null && base.cur != null ? rate(s.cur, base.cur) : null,
-    prevRate: base && s.prev != null && base.prev != null ? rate(s.prev, base.prev) : null,
-  })
-  const views = step({ id: 'views', stage: 'Reach', label: 'YouTube views', lever: 'Topic, thumbnail & title, cadence', source: 'YouTube Analytics API', cur: ytCur.views, prev: ytPrev.views,
-    note: ytLagging ? `YouTube reports through ${ytLastDay}; both periods compared over the same ${ytDays} days` : undefined })
-  const visits = step({ id: 'visits', stage: 'Click', label: scope === 'peter' ? 'Visitors from Peter’s links' : 'Visitors from YouTube', lever: 'CTA: description link, pinned comment, mention', source: 'Snowflake · MARKETING_PAGEVIEWS', cur: visitors.cur, prev: visitors.prev,
-    note: scope === 'all' ? 'Includes affiliate and untagged YouTube links, not only the channels above' : 'pk_yt_* tagged links + offer-page clicks from YouTube' }, views)
-  const offerStep = step({ id: 'offer', stage: 'Click', label: 'Offer page visitors (/wedge)', lever: 'Where the link sends people', source: 'Snowflake · MARKETING_PAGEVIEWS', cur: offer.cur, prev: offer.prev }, visits)
-  const formStep = step({ id: 'forms', stage: 'Capture', label: 'Offer page form submits', lever: 'Offer page headline & form', source: 'Snowflake · SEGMENT.VERCEL.FORM_SUBMITTED', cur: forms.cur, prev: forms.prev,
-    note: 'People, not submissions. No email is captured, so these cannot be qualified yet' }, offerStep)
-  const wsStep = step({ id: 'ws', stage: 'Workspaces', label: scope === 'peter' ? `New workspaces (≤${CREATOR_WINDOW_DAYS} days after a click)` : 'New workspaces credited to YouTube', lever: 'Signup flow', source: 'Snowflake · blended attribution', cur: ws.cur.n, prev: ws.prev.n,
-    note: scope === 'all' ? 'Blended first-touch model; most are credited from the signup survey, not a tracked click' : 'Matched by website cookie, so only visitors who signed up on the same browser count' }, scope === 'peter' ? visits : undefined)
-  const actStep = step({ id: 'act', stage: 'Workspaces', label: `Activated within ${ACTIVATION_DAYS} days`, lever: 'Onboarding', source: 'Snowflake · golden table (2+ advanced, 1+ basic enrichments)', cur: ws.cur.act, prev: ws.prev.act,
-    note: activationMatured ? undefined : `Workspaces from the last ${ACTIVATION_DAYS} days are still inside their activation window` }, wsStep)
-  const paidStep = step({ id: 'paid', stage: 'Workspaces', label: 'Paid', lever: 'Pricing & upgrade prompts', source: 'Snowflake · CUSTOMERS first invoice', cur: ws.cur.paid, prev: ws.prev.paid }, wsStep)
-  const funnel = scope === 'peter' ? [views, visits, offerStep, formStep, wsStep, actStep, paidStep] : [views, visits, offerStep, formStep, wsStep, actStep, paidStep]
-
-  // ── Trend ──────────────────────────────────────────────────────────────────
-  const days = daysBetween(...ranges.cur)
-  const series = (metric: 'views' | 'visitors' | 'workspaces', [s]: [ISODate, ISODate]) => Array.from({ length: days }, (_, i) => {
-    const d = addDays(s, i)
-    if (metric === 'views') return { d, v: sum(ytDocs.map(doc => doc.daily.find(r => r[0] === d)?.[1] ?? 0)) }
-    if (metric === 'visitors') return { d, v: sum(rows.filter(r => r.k === 'vday' && r.d === d && (!visitGroup || r.g === visitGroup)).map(r => r.n)) }
-    return { d, v: sum(rows.filter(r => r.k === 'wsday' && r.d === d).map(r => r.n)) }
-  })
-  const trend = (['views', 'visitors', 'workspaces'] as const).map(m => ({
-    metric: m, cur: series(m, ranges.cur), prev: series(m, ranges.prev).slice(0, days),
-  }))
-
-  // ── Sources (All) ──────────────────────────────────────────────────────────
-  const sources = scope === 'all' ? VISIT_GROUPS.map(g => {
-    const ch = CHANNELS.find(c => c.id === g.id)
-    const doc = ch?.youtubeId ? opts.yt.find(d => d.channelId === ch.youtubeId) : undefined
-    return {
-      id: g.id, label: g.label,
-      views: doc ? ytViews([doc], ytCurRange).views : null,
-      visitors: total('vis', 'cur', g.id), prevVisitors: total('vis', 'prev', g.id),
-      offer: total('visw', 'cur', g.id),
-      forms: g.id === 'peter' ? total('form', 'cur', 'peter') : null,
-    }
-  }) : null
-  const wsSources = scope === 'all' ? YT_WORKSPACE_GROUPS.map(g => {
-    const c = pick('ws', 'cur', g.id); const p = pick('ws', 'prev', g.id)
-    return { id: g.id, label: g.label, cur: sum(c.map(r => r.n)), prev: sum(p.map(r => r.n)), act: sum(c.map(r => r.a)), paid: sum(c.map(r => r.p)), hq: sum(c.map(r => r.h)) }
-  }).filter(r => r.cur || r.prev) : null
-
-  // ── After signup ───────────────────────────────────────────────────────────
-  const plans = pick('plan', 'cur').map(r => ({ plan: r.g === 'Other' ? 'Free / other' : r.g, n: r.n, paid: r.p, exp: r.x, churn: r.c }))
-    .sort((a, b) => b.n - a.n)
-  const months = pick('month', 'cur').map(r => ({ month: r.g, n: r.n, act: r.a, paid: r.p, exp: r.x, churn: r.c, hq: r.h })).sort((a, b) => a.month.localeCompare(b.month))
-  const outcome = {
-    free: ws.cur.n - ws.cur.paid, paidOnly: ws.cur.paid - ws.cur.exp - ws.cur.churn, expanded: ws.cur.exp, churned: ws.cur.churn,
-  }
-  const personas = pick('persona', 'cur').map(r => ({ label: r.g, n: r.n })).sort((a, b) => b.n - a.n)
-
-  // ── Videos ─────────────────────────────────────────────────────────────────
-  const campaignVisitors = new Map(pick('camp', 'cur').map(r => [r.g, r.n]))
-  const campaigns = pick('camp', 'cur').map(r => ({ campaign: r.g, visitors: r.n, prev: total('camp', 'prev', r.g) }))
-    .concat(pick('camp', 'prev').filter(r => !pick('camp', 'cur', r.g).length).map(r => ({ campaign: r.g, visitors: 0, prev: r.n })))
-    .sort((a, b) => b.visitors - a.visitors || b.prev - a.prev)
-  const videos = ytDocs.flatMap(doc => doc.videos.map(v => {
-    const inRange = (r: [ISODate, ISODate]) => v.daily.filter(x => x[0] >= r[0] && x[0] <= r[1])
-    const c = inRange(ytCurRange); const p = inRange(ytPrevRange)
+  // ── Videos (each over its first 28 days) ───────────────────────────────────
+  const peterDoc = o.yt.find(d => d.channelId === CHANNELS[0].youtubeId) ?? null
+  const videoRows = (doc: YtChannelDoc) => doc.videos.map(v => {
+    const tagged = !!v.campaign
+    const coh = v.cohort28
+    const vis = tagged ? one('vis', 'coh', v.id) : null
+    const ws = tagged ? one('ws', 'coh', v.id) : null
+    const ex = tagged ? one('ex', 'coh', v.id) : null
+    const cohortDay = Math.min(COHORT_DAYS, Math.max(0, daysBetween(v.published, today)))
     return {
       id: v.id, title: v.title, published: v.published, channel: doc.title, durationSec: v.durationSec,
-      views: sum(c.map(x => x[1])), prevViews: sum(p.map(x => x[1])), minutes: sum(c.map(x => x[2])),
-      lifetimeViews: v.lifetimeViews, link: v.link,
-      trackedVisitors: v.link.campaign ? campaignVisitors.get(v.link.campaign) ?? null : null,
+      cohortDay, cohortComplete: cohortDay >= COHORT_DAYS,
+      impressions: null as number | null, ctr: null as number | null,
+      views: coh?.views ?? 0, minutes: coh?.minutes ?? 0, avgViewPct: coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
+      destination: v.destination, destinationKind: v.destinationKind, campaign: v.campaign, tagged,
+      offerPage: !!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!)),
+      visits: vis?.n ?? null, newWs: ws?.n ?? null, activated: ws?.a ?? null, paid: ws?.p ?? null,
+      tiersNew: ws?.t ?? null, existing: ex?.n ?? null, tiersExisting: ex?.t ?? null,
     }
-  })).sort((a, b) => b.views - a.views || b.published.localeCompare(a.published))
+  }).sort((a, b) => b.published.localeCompare(a.published))
+  const peterVideos = peterDoc ? videoRows(peterDoc) : []
+
+  // ── Calendar totals for a channel ──────────────────────────────────────────
+  // YouTube Analytics lags ~2 days: clip both periods to the days YouTube has reported.
+  const ytLastDay = peterDoc?.daily.map(r => r[0]).sort().at(-1) ?? null
+  const ytCurEnd = ytLastDay && ytLastDay < o.cur[1] ? ytLastDay : o.cur[1]
+  const ytDays = ytCurEnd >= o.cur[0] ? daysBetween(o.cur[0], ytCurEnd) : 0
+  const ytPrevEnd = addDays(o.prev[0], Math.max(0, ytDays - 1))
+  const ytSum = (doc: YtChannelDoc | null, s: ISODate, e: ISODate) => {
+    if (!doc || !ytDays) return { views: 0, minutes: 0, subs: 0, avgPct: null as number | null }
+    const rs = doc.daily.filter(r => r[0] >= s && r[0] <= e)
+    const views = sum(rs.map(r => r[1]))
+    return { views, minutes: sum(rs.map(r => r[2])), subs: sum(rs.map(r => r[3] - r[4])), avgPct: views ? sum(rs.map(r => r[1] * r[5])) / views / 100 : null }
+  }
+  const videoKeys = new Set(peterVideos.map(v => v.id))
+  const calendarFor = (b: 'cur' | 'prev') => {
+    const keyRows = (k: string) => rows.filter(r => r.k === k && r.b === b && videoKeys.has(r.key))
+    const ws = keyRows('ws'); const ex = keyRows('ex')
+    return {
+      visits: sum(keyRows('vis').map(r => r.n)),
+      newWs: sum(ws.map(r => r.n)), activated: sum(ws.map(r => r.a)), paid: sum(ws.map(r => r.p)),
+      tiersNew: ws.reduce((acc, r) => addT(acc, r.t), zeroT()),
+      existing: sum(ex.map(r => r.n)), tiersExisting: ex.reduce((acc, r) => addT(acc, r.t), zeroT()),
+    }
+  }
+
+  // ── Cohort totals: videos published in the selected range (and the previous range) ──
+  const cohortFor = (range: [ISODate, ISODate]) => {
+    const vs = peterVideos.filter(v => v.published >= range[0] && v.published <= range[1])
+    // Videos YouTube hasn't reported yet are "pending", not zero.
+    const reported = vs.filter(v => v.views > 0)
+    const views = reported.length ? sum(reported.map(v => v.views)) : (vs.length ? null : 0)
+    return {
+      videos: vs.length, pending: vs.length - reported.length,
+      views, minutes: sum(vs.map(v => v.minutes)), subs: sum(vs.map(v => v.subsGained)),
+      avgPct: views ? sum(reported.map(v => v.views * (v.avgViewPct ?? 0))) / views : null,
+      visits: sum(vs.map(v => v.visits ?? 0)), newWs: sum(vs.map(v => v.newWs ?? 0)),
+      activated: sum(vs.map(v => v.activated ?? 0)), paid: sum(vs.map(v => v.paid ?? 0)),
+      tiersNew: vs.reduce((acc, v) => addT(acc, v.tiersNew ?? zeroT()), zeroT()),
+      existing: sum(vs.map(v => v.existing ?? 0)), tiersExisting: vs.reduce((acc, v) => addT(acc, v.tiersExisting ?? zeroT()), zeroT()),
+      taggedVideos: vs.filter(v => v.tagged).length,
+    }
+  }
+
+  const peter = (b: 'cur' | 'prev') => {
+    if (o.mode === 'cohort') return cohortFor(b === 'cur' ? o.cur : o.prev)
+    const y = b === 'cur' ? ytSum(peterDoc, o.cur[0], ytCurEnd) : ytSum(peterDoc, o.prev[0], ytPrevEnd)
+    return { videos: null as number | null, pending: 0, views: y.views as number | null, minutes: y.minutes, subs: y.subs, avgPct: y.avgPct, ...calendarFor(b), taggedVideos: null as number | null }
+  }
+  const pc = peter('cur'); const pp = peter('prev')
+
+  // ── Funnel (creator channels; email steps only for offer-page videos) ──────
+  const inScope = o.mode === 'cohort' ? peterVideos.filter(v => v.published >= o.cur[0] && v.published <= o.cur[1]) : peterVideos
+  const showEmailSteps = inScope.some(v => v.offerPage)
+  const wsRate = rate(pc.newWs, pc.visits)
+  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; goal: number | null; notConnected?: boolean; impact: number | null }
+  const steps: Step[] = [
+    { id: 'impr', stage: 'Reach', label: 'Impressions', lever: 'Thumbnail, title, cadence', source: 'YouTube Reporting API', cur: null, prev: null, rate: null, prevRate: null, goal: null, notConnected: true, impact: null },
+    { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail & title CTR', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views, rate: null, prevRate: null, goal: STEP_GOALS.viewRate, notConnected: true, impact: null },
+    { id: 'visits', stage: 'Click', label: 'Site visits (tagged links)', lever: 'CTA: description link, pinned comment, mention', source: 'Snowflake · MARKETING_PAGEVIEWS', cur: pc.visits, prev: pp.visits,
+      rate: rate(pc.visits, pc.views), prevRate: rate(pp.visits, pp.views), goal: STEP_GOALS.viewToVisit,
+      // Extra new workspaces if this step hit goal, holding the visit → workspace rate at today's value.
+      impact: pc.views && wsRate != null ? Math.max(0, (pc.views * STEP_GOALS.viewToVisit - pc.visits) * wsRate) : 0 },
+    { id: 'ws', stage: 'Workspaces', label: 'New workspaces (first touch)', lever: 'Signup flow & where the link lands', source: 'Snowflake · FIRST_TOUCH_ATTRIBUTION', cur: pc.newWs, prev: pp.newWs,
+      rate: wsRate, prevRate: rate(pp.newWs, pp.visits), goal: STEP_GOALS.newWorkspace,
+      impact: pc.visits ? Math.max(0, pc.visits * STEP_GOALS.newWorkspace - pc.newWs) : 0 },
+  ]
+  const leak = steps.filter(s => s.impact != null && s.impact > 0).sort((a, b) => b.impact! - a.impact!)[0] ?? null
+
+  // ── All channels rows ──────────────────────────────────────────────────────
+  const untagged = { visits: one('vis', 'cur', 'untagged').n, prevVisits: one('vis', 'prev', 'untagged').n, ws: one('ws', 'cur', 'untagged'), prevWs: one('ws', 'prev', 'untagged').n }
+  const unmapped = [...new Set(rows.filter(r => r.key.startsWith('unmapped:')).map(r => r.key))].map(key => ({
+    campaign: key.slice('unmapped:'.length), visits: one('vis', 'cur', key).n, prevVisits: one('vis', 'prev', key).n, ws: one('ws', 'cur', key).n,
+  })).sort((a, b) => b.visits - a.visits)
+  const channelRows = CHANNELS.map(c => {
+    if (c.id !== 'peter' || !peterDoc) return { id: c.id, label: c.label, connected: false } as const
+    return {
+      id: c.id, label: c.label, connected: true as const, handle: peterDoc.handle,
+      impressions: null, ctr: null, views: pc.views, visits: pc.visits, newWs: pc.newWs, tiersNew: pc.tiersNew,
+      existing: pc.existing, tiersExisting: pc.tiersExisting,
+      trackedShare: peterDoc.videos.length ? peterDoc.videos.filter(v => v.campaign).length / peterDoc.videos.length : null,
+      trackedCount: peterDoc.videos.filter(v => v.campaign).length, videoCount: peterDoc.videos.length,
+    }
+  })
+
+  // ── Trend (calendar) ───────────────────────────────────────────────────────
+  const days = daysBetween(o.cur[0], o.cur[1])
+  const series = (metric: 'views' | 'visits' | 'untagged' | 'ws' | 'ws_untagged', start: ISODate) =>
+    Array.from({ length: days }, (_, i) => {
+      const day = addDays(start, i)
+      if (metric === 'views') return { d: day, v: peterDoc?.daily.find(r => r[0] === day)?.[1] ?? null }
+      const k = metric.startsWith('ws') ? 'wsday' : 'vday'
+      const key = metric === 'visits' || metric === 'ws' ? 'tagged' : 'untagged'
+      return { d: day, v: sum(rows.filter(r => r.k === k && r.d === day && r.key === key).map(r => r.n)) }
+    })
+  const trendMetrics = o.scope === 'all'
+    ? (['views', 'visits', 'untagged', 'ws', 'ws_untagged'] as const)
+    : (['views', 'visits', 'ws'] as const)
+  const trend = trendMetrics.map(m => ({ metric: m, cur: series(m, o.cur[0]), prev: series(m, o.prev[0]) }))
+
+  const allNew = o.scope === 'all' ? pc.newWs + untagged.ws.n : pc.newWs
+  const allNewPrev = o.scope === 'all' ? pp.newWs + untagged.prevWs : pp.newWs
 
   return {
-    scope,
+    scope: o.scope, mode: o.mode,
+    yt: { lastDay: ytLastDay, lagging: !!ytLastDay && ytLastDay < o.cur[1], days: ytDays, fetchedAt: peterDoc?.fetchedAt ?? null, subscribers: peterDoc?.subscribers ?? null, handle: peterDoc?.handle ?? null, connected: !!peterDoc },
     kpis: {
-      views: { cur: ytCur.views, prev: ytPrev.views, delta: pct(ytCur.views, ytPrev.views), minutes: ytCur.minutes, subs: ytCur.subs, days: ytDays, lagging: ytLagging },
-      visitors: { ...visitors, delta: pct(visitors.cur, visitors.prev), clickRate: rate(visitors.cur, ytCur.views) },
-      workspaces: { cur: ws.cur.n, prev: ws.prev.n, delta: pct(ws.cur.n, ws.prev.n), hq: ws.cur.hq, existing: existing?.cur ?? null, mention: mention?.cur ?? null },
-      activated: { cur: ws.cur.act, prev: ws.prev.act, delta: pct(ws.cur.act, ws.prev.act), rate: rate(ws.cur.act, ws.cur.n), matured: activationMatured },
-      paid: { cur: ws.cur.paid, prev: ws.prev.paid, delta: pct(ws.cur.paid, ws.prev.paid), rate: rate(ws.cur.paid, ws.cur.n), churned: ws.cur.churn },
+      newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: o.scope === 'all' ? untagged.ws.n : null },
+      activated: { cur: pc.activated + (o.scope === 'all' ? untagged.ws.a : 0), rate: rate(pc.activated + (o.scope === 'all' ? untagged.ws.a : 0), allNew) },
+      paid: { cur: pc.paid + (o.scope === 'all' ? untagged.ws.p : 0), rate: rate(pc.paid + (o.scope === 'all' ? untagged.ws.p : 0), allNew) },
+      views: { cur: pc.views, prev: pp.views, delta: pct(pc.views, pp.views), avgPct: pc.avgPct, subs: pc.subs, minutes: pc.minutes },
+      visits: { cur: pc.visits, prev: pp.visits, delta: pct(pc.visits, pp.visits), untagged: o.scope === 'all' ? untagged.visits : null },
+      cohortVideos: o.mode === 'cohort' ? (pc.videos ?? 0) : null,
+      pendingVideos: pc.pending,
     },
-    yt: { lastDay: ytLastDay, lagging: ytLagging, fetchedAt: ytDocs.map(d => d.fetchedAt).sort()[0] ?? null, channels: ytDocs.map(d => ({ title: d.title, handle: d.handle, subscribers: d.subscribers })) },
-    funnel, notTracked: NOT_TRACKED, trend, sources, wsSources, campaigns, offerVisitors: offer.cur,
-    outcome, plans, months, personas,
-    tiers: { labels: ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Unmatched'], fresh: ws.cur.tiers, existing: existing?.tiers ?? null },
-    videos,
+    steps, leak, showEmailSteps,
+    channelRows, untagged, unmapped,
+    affiliateVisitors: one('vis', 'cur', 'affiliate').n,
+    tiers: { labels: TIER_LABELS, fresh: o.scope === 'all' ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
+    videos: peterVideos,
+    missingLinks: peterVideos.filter(v => !v.tagged),
+    trend,
   }
 }
 
-export type SocialView = ReturnType<typeof buildSocial>
+export type SocialViewModel = ReturnType<typeof buildSocial>

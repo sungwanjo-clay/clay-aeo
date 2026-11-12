@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import DashboardView, { paramsFor, type DashboardTab } from '@/components/plg/DashboardView'
-import SocialView, { ChannelPills, type SocialChannel } from '@/components/plg/social/SocialView'
-import { buildSocial, parseSocialRows, type YtChannelDoc } from '@/lib/plg/social/compute'
+import SocialView, { ChannelPills, ModeToggle, type SocialChannel } from '@/components/plg/social/SocialView'
+import { buildSocial, parseSocialRows, taggedVideos, type SocialMode, type YtChannelDoc } from '@/lib/plg/social/compute'
 import { CHANNELS } from '@/lib/plg/social/config'
 import { socialSql } from '@/lib/plg/social/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
@@ -123,6 +123,8 @@ function App() {
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
+  // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
+  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'cohort' })
 
   // Capabilities
   useEffect(() => {
@@ -237,9 +239,12 @@ function App() {
     setRoute({ tab, channel })
   }, [])
   const socialRanges = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
-  const socialSqlText = useMemo(() => (socialRanges && route.tab === 'social' ? socialSql(route.channel, socialRanges) : null),
+  // One query serves both sub-tabs; it waits for the YouTube documents (video → campaign lookup).
+  const socialSqlText = useMemo(() => {
+    if (!socialRanges || !dataEnd || route.tab !== 'social' || yt == null) return null
+    return socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, route.channel])
+  }, [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, yt, dataEnd])
   useEffect(() => {
     if (!mcp || !socialSqlText) return
     const key = socialSqlText
@@ -252,15 +257,16 @@ function App() {
     return unsub
   }, [mcp, socialSqlText])
   const socialView = useMemo(() => {
-    if (!socialResult || !socialRanges) return null
+    if (!socialResult || !socialRanges || !dataEnd) return null
     try {
       return {
-        s: buildSocial({ scope: route.channel, ranges: socialRanges, rows: parseSocialRows(socialResult.payload), yt: yt ?? [] }),
+        s: buildSocial({ scope: route.channel, mode: modes[route.channel], cur: socialRanges.cur, prev: socialRanges.prev, dataEnd,
+          rows: parseSocialRows(socialResult.payload), yt: yt ?? [] }),
         stale: socialResult.key !== socialSqlText,
       }
     } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socialResult, yt, route.channel, socialSqlText])
+  }, [socialResult, yt, route.channel, modes, socialSqlText, dataEnd])
 
   const v = view && 'v' in view ? view.v : null
   if (!v) {
@@ -289,6 +295,7 @@ function App() {
 
   const stale = !!(view && 'stale' in view && view.stale)
   const socialPane = route.tab !== 'social' ? null
+    : yt != null && yt.length === 0 ? <p className="text-[15px]" style={{ color: T.neg }}>No YouTube data synced yet. Run scripts/sync-youtube.mjs and store its output in this page’s youtube collection.</p>
     : socialProblem && !socialView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(socialProblem).title}: {problemCopy(socialProblem).body}</p>
     : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for YouTube traffic… first load takes 10–30 seconds.</p>
     : 'error' in socialView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {socialView.error}</p>
@@ -297,8 +304,14 @@ function App() {
     <DashboardView
       tab={route.tab}
       onTab={t => go(t, route.channel)}
-      socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)' : 'All YouTube traffic to Clay · Peter Kang, Clay brand channel, affiliates'}
-      social={<div className="flex flex-col gap-6 sm:gap-8"><ChannelPills value={route.channel} onChange={c => go('social', c)} />{socialPane}</div>}
+      socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)' : 'YouTube channels · Peter Kang, plus untagged YouTube traffic'}
+      social={<div className="flex flex-col gap-6 sm:gap-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <ChannelPills value={route.channel} onChange={c => go('social', c)} />
+          <ModeToggle value={modes[route.channel]} onChange={m => setModes(prev => ({ ...prev, [route.channel]: m }))} />
+        </div>
+        {socialPane}
+      </div>}
       v={v}
       loading={stale}
       error={problem && problem.code !== 'no_runtime' ? problemCopy(problem).title : null}

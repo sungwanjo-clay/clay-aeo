@@ -2,35 +2,49 @@
 
 import { useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { SocialView as SV } from '@/lib/plg/social/compute'
-import { ACTIVATION_DAYS, CHANNELS, CREATOR_WINDOW_DAYS } from '@/lib/plg/social/config'
+import type { SocialMode, SocialViewModel as SV } from '@/lib/plg/social/compute'
+import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
 import { fmtShort } from '@/lib/plg/dates'
-import { Card, Delta, Eyebrow, H2, Pill, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned, fmtSigned } from '../ui'
+import { Card, Delta, Eyebrow, H2, Pill, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned } from '../ui'
 
 export type SocialChannel = 'all' | 'peter'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
-const tableHead = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
+const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
+const num = 'px-3 py-3 text-right whitespace-nowrap'
+const mono = { fontFamily: T.mono } as const
 
-function Tile({ label, value, children }: { label: string; value: string; children: React.ReactNode }) {
+function NC({ inline }: { inline?: boolean }) {
+  return <span title={NOT_CONNECTED.why} className={inline ? '' : 'text-[13px]'} style={{ color: T.faint, fontStyle: 'italic' }}>{NOT_CONNECTED.label}</span>
+}
+function TBD() {
+  return <span title="No persona source table identified yet" className="text-[13px]" style={{ color: T.faint, fontStyle: 'italic' }}>Source TBD</span>
+}
+/** Compact tier split: T1 · T2 · T3 · T4 · Untiered */
+function Tiers({ t }: { t: number[] | null }) {
+  if (!t) return <span style={{ color: T.faint }}>–</span>
+  return <span style={mono} title={TIER_LABELS.map((l, i) => `${l}: ${t[i]}`).join(' · ')}>{t.map(fmtInt).join(' · ')}</span>
+}
+
+function Tile({ label, value, children, muted }: { label: string; value: React.ReactNode; children?: React.ReactNode; muted?: boolean }) {
   return (
     <div className="rounded-[22px] p-6 flex flex-col gap-3" style={{ background: T.tile }}>
       <Eyebrow>{label}</Eyebrow>
-      <p className="text-[40px] leading-none" style={{ fontFamily: T.mono, color: T.ink }}>{value}</p>
-      <p className="text-[15px] leading-snug" style={{ color: T.ink }}>{children}</p>
+      <p className={muted ? 'text-[22px] leading-tight' : 'text-[40px] leading-none'} style={{ fontFamily: T.mono, color: muted ? T.faint : T.ink }}>{value}</p>
+      {children && <p className="text-[15px] leading-snug" style={{ color: T.ink }}>{children}</p>}
     </div>
   )
 }
 
 export function ChannelPills({ value, onChange }: { value: SocialChannel; onChange: (c: SocialChannel) => void }) {
-  const pills = [{ id: 'all' as const, label: 'All channels', ok: true }, ...CHANNELS.filter(c => c.creator).map(c => ({ id: c.id, label: c.label, ok: !!c.youtubeId }))]
+  const pills = [{ id: 'all', label: 'All channels', ok: true }, ...CHANNELS.map(c => ({ id: c.id, label: c.label, ok: !!c.youtubeId }))]
   return (
     <div className="flex flex-wrap gap-3" role="tablist" aria-label="YouTube channel">
       {pills.map(p => {
         const active = p.id === value
         return (
           <button key={p.id} role="tab" aria-selected={active} disabled={!p.ok}
-            title={p.ok ? undefined : 'Channel not connected yet: add its YouTube channel id and link tags'}
+            title={p.ok ? undefined : 'Not connected yet: needs the channel id and link tag prefix'}
             onClick={() => p.ok && onChange(p.id as SocialChannel)}
             className="rounded-full px-5 py-2.5 text-[16px] disabled:cursor-not-allowed"
             style={{ border: `1px solid ${active ? T.ink : T.border}`, background: '#fff', color: p.ok ? (active ? T.muted : T.ink) : T.faint }}>
@@ -42,252 +56,229 @@ export function ChannelPills({ value, onChange }: { value: SocialChannel; onChan
   )
 }
 
+export function ModeToggle({ value, onChange }: { value: SocialMode; onChange: (m: SocialMode) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="text-[13px] uppercase" style={{ letterSpacing: '0.14em', color: T.muted, fontFamily: T.mono }}>Measure by</span>
+      <Segmented ariaLabel="Measure by" value={value} onChange={onChange}
+        options={[{ id: 'calendar', label: 'Calendar dates' }, { id: 'cohort', label: `Video cohort (first ${COHORT_DAYS} days)` }]} />
+    </div>
+  )
+}
+
+function Kpis({ s }: { s: SV }) {
+  const k = s.kpis
+  return (
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+      <Tile label="All new workspaces" value={fmtInt(k.newWs.cur)}>
+        <Delta value={k.newWs.delta}>{fmtPctSigned(k.newWs.delta)}</Delta> vs previous
+        {k.newWs.untagged != null && <> · {fmtInt(k.newWs.tagged)} tagged, {fmtInt(k.newWs.untagged)} untagged</>}
+        {' · '}expected for this impression volume: <NC inline />
+      </Tile>
+      <Tile label="Activated" value={fmtInt(k.activated.cur)}>{fmtPct(k.activated.rate, 0)} of new workspaces ran a golden table within 7 days</Tile>
+      <Tile label="Paid" value={fmtInt(k.paid.cur)}>{fmtPct(k.paid.rate, 1)} of new workspaces</Tile>
+      <Tile label="Impressions" value={<NC inline />} muted>Impression CTR (view rate, goal {fmtPct(STEP_GOALS.viewRate, 0)}): <NC inline /></Tile>
+      <Tile label="Views" value={k.views.cur == null ? 'pending' : fmtK(k.views.cur)} muted={k.views.cur == null}>
+        <Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous · {fmtPct(k.views.avgPct, 0)} avg viewed · {fmtInt(k.views.minutes / 60)} watch hrs
+        {s.mode === 'calendar' && s.yt.lagging && <> · first {s.yt.days} days (YouTube lags)</>}
+        {s.mode === 'cohort' && <> · {fmtInt(k.cohortVideos)} videos published in range{k.pendingVideos ? `, ${k.pendingVideos} not reported by YouTube yet` : ''}</>}
+      </Tile>
+      <Tile label="Tagged site visits" value={fmtInt(k.visits.cur)}>
+        <Delta value={k.visits.delta}>{fmtPctSigned(k.visits.delta)}</Delta> vs previous
+        {k.visits.untagged != null && <> · plus {fmtInt(k.visits.untagged)} untagged YouTube visitors</>}
+      </Tile>
+    </div>
+  )
+}
+
+function Leak({ s }: { s: SV }) {
+  if (!s.leak) return null
+  return (
+    <div className="flex flex-col gap-1">
+      <Eyebrow>Biggest leak (available steps)</Eyebrow>
+      <p className="text-[26px] font-bold" style={{ color: '#3B1405', letterSpacing: '-0.02em' }}>{s.leak.id === 'visits' ? 'View → site visit' : 'Site visit → new workspace'}</p>
+      <p className="text-[15px]" style={{ color: '#3B1405' }}>+{fmtInt(s.leak.impact)} new workspaces if this step hit goal. Impression → view is not included until impressions are connected.</p>
+    </div>
+  )
+}
+
+const TREND_NAMES = { views: 'Views', visits: 'Tagged visits', untagged: 'Untagged visits', ws: 'New workspaces (tagged)', ws_untagged: 'New workspaces (untagged)' } as const
 function Trend({ s }: { s: SV }) {
-  const [metric, setMetric] = useState<'views' | 'visitors' | 'workspaces'>('workspaces')
-  const tr = s.trend.find(x => x.metric === metric)!
+  const [metric, setMetric] = useState<(typeof s.trend)[number]['metric']>('views')
+  const tr = s.trend.find(x => x.metric === metric) ?? s.trend[0]
   const data = tr.cur.map((p, i) => ({ label: fmtShort(p.d), cur: p.v, prev: tr.prev[i]?.v ?? null }))
-  const cur = tr.cur.reduce((a, p) => a + p.v, 0); const prev = tr.prev.reduce((a, p) => a + p.v, 0)
-  const names = { views: 'YouTube views', visitors: 'Site visitors', workspaces: 'New workspaces' }
+  const cur = sum(tr.cur.map(p => p.v ?? 0)); const prev = sum(tr.prev.map(p => p.v ?? 0))
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4 min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <H2>Trend</H2>
           <p className="text-[15px] mt-1" style={{ color: T.muted }}>
-            <span style={{ fontFamily: T.mono, color: T.ink }}>{fmtInt(cur)}</span> <Delta value={prev ? (cur - prev) / prev : null}>{fmtPctSigned(prev ? (cur - prev) / prev : null)}</Delta> vs previous ({fmtInt(prev)})
+            <span style={{ ...mono, color: T.ink }}>{fmtInt(cur)}</span> <Delta value={prev ? (cur - prev) / prev : null}>{fmtPctSigned(prev ? (cur - prev) / prev : null)}</Delta> vs previous period ({fmtInt(prev)}) · calendar dates
           </p>
         </div>
-        <Segmented ariaLabel="Trend metric" value={metric} onChange={setMetric}
-          options={(['views', 'visitors', 'workspaces'] as const).map(m => ({ id: m, label: names[m] }))} />
+        <label className="flex items-center gap-3 text-[15px]" style={{ color: T.muted }}>Metric
+          <select value={metric} onChange={e => setMetric(e.target.value as typeof metric)} className="rounded-xl px-3 py-2 text-[15px]" style={{ border: `1px solid ${T.border}`, background: '#fff', ...mono, color: T.ink }}>
+            {s.trend.map(x => <option key={x.metric} value={x.metric}>{TREND_NAMES[x.metric]}</option>)}
+          </select>
+        </label>
       </div>
-      <div className="h-[240px]">
+      <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="#ECEAE5" />
             <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#D9D6CF' }} minTickGap={20} tick={{ fontSize: 12, fill: T.muted, fontFamily: T.mono }} />
             <YAxis tickFormatter={fmtK} tickLine={false} axisLine={false} width={40} allowDecimals={false} tick={{ fontSize: 12, fill: T.muted, fontFamily: T.mono }} />
-            <Tooltip formatter={(v: unknown, n: unknown) => [fmtInt(Number(v)), n === 'cur' ? 'Selected' : 'Previous']} />
+            <Tooltip formatter={(v: unknown, n: unknown) => [v == null ? 'not reported yet' : fmtInt(Number(v)), n === 'cur' ? 'Selected' : 'Previous']} />
             <Bar dataKey="cur" fill={T.pos} radius={[4, 4, 0, 0]} isAnimationActive={false} />
             <Line dataKey="prev" stroke="#7A7770" strokeDasharray="4 4" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      {metric === 'views' && s.yt.lagging && <p className="text-[13px]" style={{ color: T.muted }}>YouTube reports run about two days behind: data through {fmtShort(s.yt.lastDay!)}.</p>}
+      {metric === 'views' && s.yt.lagging && <p className="text-[13px]" style={{ color: T.muted }}>YouTube reports through {fmtShort(s.yt.lastDay!)}.</p>}
+    </Card>
+  )
+}
+const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
+
+function ChannelsTable({ s }: { s: SV }) {
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>Channels side by side</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>
+        Tagged = the visit’s utm_campaign maps to one of the channel’s videos. YouTube visits with no campaign go in the untagged row and are never split across videos.
+        Tier split: Tier 1 · 2 · 3 · 4 · Untiered.{s.mode === 'cohort' && ' Channel rows use each video’s first 28 days; the untagged row stays on calendar dates.'}
+      </p>
+      <div className="overflow-x-auto -mx-5 sm:mx-0">
+        <table className="w-full min-w-[1100px] text-[15px]" style={{ color: T.ink }}>
+          <thead><tr style={head}>
+            <th className={`${th} text-left`}>Channel</th><th className={`${th} text-right`}>Impr.</th><th className={`${th} text-right`}>Impr. CTR</th>
+            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Tagged visits</th><th className={`${th} text-right`}>New WS</th>
+            <th className={`${th} text-right`}>Tiers · new</th><th className={`${th} text-right`}>Existing</th><th className={`${th} text-right`}>Tiers · existing</th>
+            <th className={`${th} text-right`}>Videos tracked</th>
+          </tr></thead>
+          <tbody>
+            {s.channelRows.map(r => r.connected ? (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                <td className="px-3 py-3 font-semibold whitespace-nowrap">{r.label} <span className="font-normal text-[13px]" style={{ color: T.muted }}>{r.handle}</span></td>
+                <td className={num}><NC /></td><td className={num}><NC /></td>
+                <td className={num} style={mono}>{fmtInt(r.views)}</td>
+                <td className={num} style={mono}>{fmtInt(r.visits)}</td>
+                <td className={num} style={mono}>{fmtInt(r.newWs)}</td>
+                <td className={num}><Tiers t={r.tiersNew} /></td>
+                <td className={num} style={mono}>{fmtInt(r.existing)}</td>
+                <td className={num}><Tiers t={r.tiersExisting} /></td>
+                <td className={num} style={{ ...mono, color: r.trackedShare != null && r.trackedShare < 0.5 ? T.neg : T.ink }}>{r.trackedCount} of {r.videoCount} · {fmtPct(r.trackedShare, 0)}</td>
+              </tr>
+            ) : (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}`, color: T.faint }}>
+                <td className="px-3 py-3 font-semibold">{r.label}</td>
+                <td className="px-3 py-3 text-[13px] italic" colSpan={9}>Not connected: needs the YouTube channel id and the creator’s link tag prefix</td>
+              </tr>
+            ))}
+            <tr style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
+              <td className="px-3 py-3 font-semibold">YouTube, untagged</td>
+              <td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td>
+              <td className={num} style={mono} title="Untagged visitors (not tagged visits)">{fmtInt(s.untagged.visits)} <span className="text-[12px]" style={{ color: T.muted }}>untagged</span></td>
+              <td className={num} style={mono}>{fmtInt(s.untagged.ws.n)}</td>
+              <td className={num}><Tiers t={s.untagged.ws.t} /></td>
+              <td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[13px]" style={{ color: T.muted }}>
+        Excluded: {fmtInt(s.affiliateVisitors)} visitors from affiliate creators’ YouTube links (Rewardful ?via= referrals). They are the affiliate channel, not owned YouTube.
+      </p>
     </Card>
   )
 }
 
+function Unmapped({ s }: { s: SV }) {
+  if (!s.unmapped.length) return null
+  return (
+    <div className="rounded-2xl px-5 py-4 text-[14px] flex flex-col gap-2" style={{ background: T.amberBg, color: T.amberInk }} role="status">
+      <p className="font-semibold">Tagged campaigns that are in no current video description</p>
+      <p>These carry Peter’s pk_yt_ prefix but no video links them today, so they are not assigned to any video or counted as tagged visits.</p>
+      <ul className="flex flex-col gap-1" style={mono}>
+        {s.unmapped.map(u => <li key={u.campaign}>{u.campaign} · {fmtInt(u.visits)} visitors (prev {fmtInt(u.prevVisits)}) · {fmtInt(u.ws)} new workspaces</li>)}
+      </ul>
+    </div>
+  )
+}
+
 function Funnel({ s }: { s: SV }) {
-  const heads = s.funnel.map((f, i) => (i === 0 || s.funnel[i - 1].stage !== f.stage ? f.stage : null))
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
-      <H2>Funnel by step</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Step rate = this step ÷ the step above it, compared with the previous period. No step goals are set yet.</p>
+      <H2>Funnel by step: where to push</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each step’s rate (step ÷ the step above) is scored against its own goal. “If at goal” holds every other step at today’s rate.
+        {!s.showEmailSteps && ' Email capture steps are hidden: no video in scope links to the startup offer page.'}</p>
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[720px] text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}>
-            <th className={`${th} text-left`}>Step · lever · source</th><th className={`${th} text-right`}>Count</th>
-            <th className={`${th} text-right`}>Δ</th><th className={`${th} text-right`}>Step rate</th><th className={`${th} text-right`}>Prev. rate</th>
+        <table className="w-full min-w-[820px] text-[15px]" style={{ color: T.ink }}>
+          <thead><tr style={head}>
+            <th className={`${th} text-left`}>Step · lever · source</th><th className={`${th} text-right`}>Count</th><th className={`${th} text-right`}>Δ</th>
+            <th className={`${th} text-right`}>Step rate</th><th className={`${th} text-right`}>Goal</th><th className={`${th} text-right`}>Prev. rate</th><th className={`${th} text-right`}>If at goal</th>
           </tr></thead>
-          <tbody>
-            {s.funnel.map((f, i) => {
-              const head = heads[i]
-              return [
-                head && <tr key={`h-${f.id}`}><td colSpan={5} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono }}>{head}</td></tr>,
-                <tr key={f.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td className="px-3 py-3">
-                    <p className="font-semibold">{f.label}</p>
-                    <p className="text-[13px]" style={{ color: T.muted }}>{f.lever} · {f.source}</p>
-                    {f.note && <p className="text-[12px] mt-0.5" style={{ color: T.faint }}>{f.note}</p>}
-                  </td>
-                  <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(f.cur)}</td>
-                  <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: deltaColor(f.cur != null && f.prev != null ? f.cur - f.prev : null) }}>
-                    {f.cur != null && f.prev != null ? fmtPctSigned(f.prev ? (f.cur - f.prev) / f.prev : null) : '–'}
-                  </td>
-                  <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: f.rate != null && f.prevRate != null ? deltaColor(f.rate - f.prevRate) : T.ink }}>{fmtPct(f.rate)}</td>
-                  <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: T.muted }}>{fmtPct(f.prevRate)}</td>
-                </tr>,
-              ]
-            })}
-            <tr><td colSpan={5} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono }}>Not tracked yet</td></tr>
-            {s.notTracked.map(n => (
-              <tr key={n.step} style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td className="px-3 py-3" colSpan={5}>
-                  <p className="font-semibold" style={{ color: T.muted }}>{n.step}</p>
-                  <p className="text-[13px]" style={{ color: T.faint }}>To unlock: {n.unlock}</p>
+          <tbody>{s.steps.map((st, i) => {
+            const stageHead = i === 0 || s.steps[i - 1].stage !== st.stage
+            const below = st.rate != null && st.goal != null && st.rate < st.goal
+            return [
+              stageHead && <tr key={`h-${st.id}`}><td colSpan={7} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
+              <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}`, background: s.leak?.id === st.id ? '#FFF4EC' : undefined }}>
+                <td className="px-3 py-3">
+                  <p className="font-semibold">{st.label} {s.leak?.id === st.id && <Pill tone="behind">Biggest leak</Pill>}</p>
+                  <p className="text-[13px]" style={{ color: T.muted }}>{st.lever} · {st.source}</p>
                 </td>
-              </tr>
-            ))}
-          </tbody>
+                <td className={num} style={mono}>{st.id === 'impr' ? <NC /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
+                <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{st.id === 'impr' ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
+                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{st.id === 'views' ? <NC /> : st.id === 'impr' ? '' : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{st.goal != null ? fmtPct(st.goal, 0) : ''}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{st.id === 'views' || st.id === 'impr' ? '' : fmtPct(st.prevRate, st.prevRate != null && st.prevRate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={mono}>{st.id === 'views' ? <NC /> : st.impact ? `+${fmtInt(st.impact)} WS` : st.id === 'impr' ? '' : '–'}</td>
+              </tr>,
+            ]
+          })}</tbody>
         </table>
       </div>
     </Card>
   )
 }
 
-function Sources({ s }: { s: SV }) {
-  if (!s.sources || !s.wsSources) return null
-  return (
-    <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
-      <Card className="p-5 sm:p-8 flex flex-col gap-4 min-w-0">
-        <H2>Where YouTube visitors come from</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>Every Clay site visitor with a YouTube referrer or YouTube UTM, grouped by how the link was tagged.</p>
-        <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>Source</th><th className={`${th} text-right`}>YT views</th><th className={`${th} text-right`}>Visitors</th><th className={`${th} text-right`}>Δ</th><th className={`${th} text-right`}>Offer page</th></tr></thead>
-          <tbody>{s.sources.map(r => (
-            <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3">{r.label}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{r.views == null ? '–' : fmtInt(r.views)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(r.visitors)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: deltaColor(r.visitors - r.prevVisitors) }}>{fmtPctSigned(r.prevVisitors ? (r.visitors - r.prevVisitors) / r.prevVisitors : null)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(r.offer)}</td>
-            </tr>))}
-          </tbody></table></div>
-      </Card>
-      <Card className="p-5 sm:p-8 flex flex-col gap-4 min-w-0">
-        <H2>Workspaces credited to YouTube</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>Blended first-touch attribution, the same model as the Workspaces tab{s.kpis.workspaces.mention != null && <>. Another <span style={{ fontFamily: T.mono }}>{fmtInt(s.kpis.workspaces.mention)}</span> said “YouTube” in the signup survey but were credited to a higher-priority channel (mostly MCP)</>}.</p>
-        <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>How credited</th><th className={`${th} text-right`}>New</th><th className={`${th} text-right`}>Δ</th><th className={`${th} text-right`}>HQ</th><th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paid</th></tr></thead>
-          <tbody>{s.wsSources.map(r => (
-            <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3">{r.label}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(r.cur)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: deltaColor(r.cur - r.prev) }}>{r.cur - r.prev === 0 ? '0' : fmtSigned(r.cur - r.prev)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(r.hq)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(r.act)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(r.paid)}</td>
-            </tr>))}
-          </tbody></table></div>
-      </Card>
-    </div>
-  )
-}
-
-function TrackedLinks({ s }: { s: SV }) {
-  if (s.scope !== 'peter') return null
-  return (
-    <Card className="p-5 sm:p-8 flex flex-col gap-4">
-      <H2>Tracked links</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Visitors per tagged link (utm_campaign starting pk_yt_), plus the offer page, which Peter’s descriptions reach through clay.link/pkytcohorts. Short links (dub.sh) can only be tied to a video if they carry a pk_yt_ tag.</p>
-      <div className="overflow-x-auto"><table className="w-full min-w-[480px] text-[15px]" style={{ color: T.ink }}>
-        <thead><tr style={tableHead}><th className={`${th} text-left`}>Link</th><th className={`${th} text-right`}>Visitors</th><th className={`${th} text-right`}>Previous</th></tr></thead>
-        <tbody>
-          <tr style={{ borderBottom: `1px solid ${T.border}` }}><td className="px-3 py-3">Offer page · cohorts.clay.com/wedge <Pill tone="amber" title="The offer-page link has no creator tag; credited to Peter because only his descriptions link it">Medium confidence</Pill></td>
-            <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(s.offerVisitors)}</td><td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: T.muted }}>{fmtInt(s.funnel.find(f => f.id === 'offer')?.prev)}</td></tr>
-          {s.campaigns.map(c => (
-            <tr key={c.campaign} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3" style={{ fontFamily: T.mono }}>{c.campaign}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(c.visitors)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: T.muted }}>{fmtInt(c.prev)}</td>
-            </tr>))}
-        </tbody></table></div>
-    </Card>
-  )
-}
-
-function AfterSignup({ s }: { s: SV }) {
-  const n = s.kpis.workspaces.cur
-  const chip = (label: string, v: number) => (
-    <span className="text-[15px]" style={{ color: T.ink }}>{label} <span style={{ fontFamily: T.mono }}>{fmtInt(v)} · {fmtPct(n ? v / n : null, 0)}</span></span>
-  )
-  return (
-    <Card className="p-5 sm:p-8 flex flex-col gap-5">
-      <H2>After signup: did they pay, expand or churn?</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>{fmtInt(n)} workspaces created in this range, status today. Expanded = upgraded from a paid plan or bought a credit pack after the first invoice. Churned = paid, then cancelled and no longer a customer.</p>
-      <div className="flex flex-wrap gap-x-8 gap-y-2">
-        {chip('Still free', s.outcome.free)}{chip('Paid', s.outcome.paidOnly)}{chip('Paid & expanded', s.outcome.expanded)}{chip('Paid, then churned', s.outcome.churned)}
-      </div>
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-        <div className="overflow-x-auto"><table className="w-full text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>Current plan</th><th className={`${th} text-right`}>Workspaces</th><th className={`${th} text-right`}>Share</th><th className={`${th} text-right`}>Expanded</th><th className={`${th} text-right`}>Churned</th></tr></thead>
-          <tbody>{s.plans.map(p => (
-            <tr key={p.plan} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3 font-semibold">{p.plan}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(p.n)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtPct(n ? p.n / n : null)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(p.exp)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: p.churn ? T.neg : T.ink }}>{fmtInt(p.churn)}</td>
-            </tr>))}</tbody></table></div>
-        <div className="overflow-x-auto"><table className="w-full text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>Signup month</th><th className={`${th} text-right`}>New</th><th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paid</th><th className={`${th} text-right`}>Expanded</th><th className={`${th} text-right`}>Churned</th></tr></thead>
-          <tbody>{s.months.map(m => (
-            <tr key={m.month} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3 font-semibold">{new Date(`${m.month}-01T00:00:00Z`).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(m.n)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(m.act)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(m.paid)} <span style={{ color: T.muted }}>{fmtPct(m.n ? m.paid / m.n : null, 0)}</span></td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(m.exp)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(m.churn)}</td>
-            </tr>))}</tbody></table></div>
-      </div>
-    </Card>
-  )
-}
-
-function PersonaAndTiers({ s }: { s: SV }) {
-  const total = s.personas.reduce((a, p) => a + p.n, 0)
-  const answered = s.personas.filter(p => p.label !== 'Not answered')
-  const answeredTotal = answered.reduce((a, p) => a + p.n, 0)
-  return (
-    <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
-      <Card className="p-5 sm:p-8 flex flex-col gap-4">
-        <H2>Signups by persona</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>Onboarding survey “team” answer for new workspaces · {fmtInt(answeredTotal)} of {fmtInt(total)} answered.</p>
-        <ul className="flex flex-col gap-2.5">{answered.map(p => (
-          <li key={p.label} className="grid grid-cols-[150px_1fr_56px] items-center gap-4 text-[15px]">
-            <span>{p.label}</span>
-            <div className="h-[14px] rounded" style={{ background: '#F1F0EC' }}><div className="h-full rounded" style={{ width: `${answeredTotal ? (p.n / answeredTotal) * 100 : 0}%`, background: T.pos }} /></div>
-            <span className="text-right" style={{ fontFamily: T.mono }}>{fmtPct(answeredTotal ? p.n / answeredTotal : null, 0)}</span>
-          </li>))}</ul>
-      </Card>
-      <Card className="p-5 sm:p-8 flex flex-col gap-4">
-        <H2>Tier mix{s.tiers.existing ? ': new vs existing' : ''}</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>{s.tiers.existing ? 'Existing = workspaces created before the person first clicked one of Peter’s links. They still count as influence.' : 'SFDC Sales Tier of the customer domain, new workspaces credited to YouTube.'}</p>
-        <table className="w-full text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>Tier</th><th className={`${th} text-right`}>New</th>{s.tiers.existing && <><th className={`${th} text-right`}>Existing</th><th className={`${th} text-right`}>New share</th></>}</tr></thead>
-          <tbody>{s.tiers.labels.map((l, i) => (
-            <tr key={l} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3 font-semibold">{l}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(s.tiers.fresh[i])}</td>
-              {s.tiers.existing && <>
-                <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(s.tiers.existing[i])}</td>
-                <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtPct(s.tiers.fresh[i] + s.tiers.existing[i] ? s.tiers.fresh[i] / (s.tiers.fresh[i] + s.tiers.existing[i]) : null, 0)}</td>
-              </>}
-            </tr>))}</tbody></table>
-      </Card>
-    </div>
-  )
-}
-
-const LINK_LABEL = { tagged: 'Tagged link', offer: 'Offer page', short: 'Short link (untagged)', untagged: 'Clay link (untagged)', none: 'No Clay link' } as const
-
-function Videos({ s }: { s: SV }) {
-  const [sort, setSort] = useState<'views' | 'newest'>('views')
-  const rows = [...s.videos].sort((a, b) => sort === 'views' ? b.views - a.views : b.published.localeCompare(a.published))
+const DEST_LABEL = { clay: '', short_unresolved: 'short link · target unknown', external: 'external', none: 'no link' } as const
+function VideoTable({ s }: { s: SV }) {
   const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
   return (
     <section className="flex flex-col gap-4">
       <Eyebrow>Deep dive</Eyebrow>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <H2>Videos</H2>
-        <Segmented ariaLabel="Sort videos" value={sort} onChange={setSort} options={[{ id: 'views', label: 'Most views' }, { id: 'newest', label: 'Newest' }]} />
-      </div>
-      <p className="text-[15px]" style={{ color: T.muted }}>Views and watch time in the selected range. Visitors show only where the video’s link carries its own utm_campaign; YouTube does not pass the video to the site otherwise.</p>
+      <H2>Videos</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Every video measured over its first {COHORT_DAYS} days after publish, whatever the date filter. Visits and workspaces exist only for videos whose link carries a utm_campaign.</p>
       <Card className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-[15px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>Video</th><th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Δ</th><th className={`${th} text-right`}>Watch hrs</th><th className={`${th} text-left`}>Clay link</th><th className={`${th} text-right`}>Visitors</th></tr></thead>
-          <tbody>{rows.map(v => (
+        <table className="w-full min-w-[1280px] text-[14px]" style={{ color: T.ink }}>
+          <thead><tr style={head}>
+            <th className={`${th} text-left`}>Video</th><th className={`${th} text-right`}>Impr.</th><th className={`${th} text-right`}>CTR</th>
+            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Avg % viewed</th><th className={`${th} text-left`}>Link destination</th>
+            <th className={`${th} text-left`}>Tagged</th><th className={`${th} text-right`}>Visits</th><th className={`${th} text-right`}>New WS</th>
+            <th className={`${th} text-right`}>Tiers · new</th><th className={`${th} text-right`}>Existing</th><th className={`${th} text-left`}>Persona</th>
+          </tr></thead>
+          <tbody>{s.videos.map(v => (
             <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3">
+              <td className="px-3 py-3 min-w-[260px] max-w-[340px]">
                 <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="font-semibold hover:underline">{v.title}</a>
-                <p className="text-[13px]" style={{ color: T.muted, fontFamily: T.mono }}>{fmtShort(v.published)} · {v.channel} · {dur(v.durationSec)}</p>
+                <p className="text-[12px]" style={{ color: T.muted, ...mono }}>{fmtShort(v.published)} · {dur(v.durationSec)} · {v.cohortComplete ? `${COHORT_DAYS}-day cohort` : `day ${v.cohortDay} of ${COHORT_DAYS}`}</p>
               </td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(v.views)}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono, color: deltaColor(v.views - v.prevViews) }}>{v.prevViews ? fmtPctSigned((v.views - v.prevViews) / v.prevViews) : v.views ? 'new' : '–'}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{fmtInt(v.minutes / 60)}</td>
-              <td className="px-3 py-3 text-[13px]" style={{ color: v.link.kind === 'tagged' ? T.ink : T.muted }}>{LINK_LABEL[v.link.kind]}{v.link.campaign && <div style={{ fontFamily: T.mono }}>{v.link.campaign}</div>}</td>
-              <td className="px-3 py-3 text-right" style={{ fontFamily: T.mono }}>{v.trackedVisitors != null ? fmtInt(v.trackedVisitors) : '–'}</td>
+              <td className={num}><NC /></td><td className={num}><NC /></td>
+              <td className={num} style={mono}>{v.views ? fmtInt(v.views) : <span style={{ color: T.faint }} title="YouTube has not reported this video yet">pending</span>}</td>
+              <td className={num} style={mono}>{fmtPct(v.avgViewPct, 0)}</td>
+              <td className="px-3 py-3 text-[13px] max-w-[260px] break-words" style={mono}>
+                {v.destination ?? <span style={{ color: T.faint }}>none</span>}
+                {DEST_LABEL[v.destinationKind] && <div style={{ color: v.destinationKind === 'short_unresolved' ? T.neg : T.faint }}>{DEST_LABEL[v.destinationKind]}</div>}
+              </td>
+              <td className="px-3 py-3 text-[13px]">{v.tagged ? <><span style={{ color: T.pos }}>Yes</span><div style={{ ...mono, color: T.muted }}>{v.campaign}</div></> : <span style={{ color: T.neg }}>No</span>}</td>
+              <td className={num} style={mono}>{v.visits != null ? fmtInt(v.visits) : '–'}</td>
+              <td className={num} style={mono}>{v.newWs != null ? fmtInt(v.newWs) : '–'}</td>
+              <td className={num}><Tiers t={v.tiersNew} /></td>
+              <td className={num} style={mono}>{v.existing != null ? fmtInt(v.existing) : '–'}</td>
+              <td className="px-3 py-3"><TBD /></td>
             </tr>))}</tbody>
         </table>
       </Card>
@@ -295,76 +286,75 @@ function Videos({ s }: { s: SV }) {
   )
 }
 
-export const DEFINITIONS: { metric: string; definition: string; source: string }[] = [
-  { metric: 'YouTube views', definition: 'Views in the range on the channels in scope (All = Peter Kang + Clay brand channel; Payton and Eric once connected). All traffic sources.', source: 'YouTube Analytics API, synced to this page’s store' },
-  { metric: 'Visitors from YouTube', definition: 'Distinct website visitors (cookie) with a youtube.com referrer or a YouTube utm_source, any Clay site. Peter: utm_campaign pk_yt_* or offer-page visits from YouTube.', source: 'DBT.PROD.MARKETING_PAGEVIEWS' },
-  { metric: 'Offer page visitors', definition: 'Those visitors who viewed cohorts.clay.com/wedge.', source: 'DBT.PROD.MARKETING_PAGEVIEWS' },
-  { metric: 'Offer page form submits', definition: 'Distinct visitors who submitted the /wedge form after arriving from YouTube. No email is captured.', source: 'SEGMENT.VERCEL.FORM_SUBMITTED' },
-  { metric: 'New workspaces (All)', definition: 'Workspaces whose blended first-touch channel is YouTube (subchannel “…: youtube”), by creation date. Same model as the Workspaces tab, so totals reconcile.', source: 'FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION (90-day window)' },
-  { metric: `New workspaces (creator)`, definition: `Workspaces created within ${CREATOR_WINDOW_DAYS} days after a visitor first clicked the creator’s link, matched by website cookie. Influence, not exclusive credit.`, source: 'MARKETING_PAGEVIEWS → COOKIE_TO_WORKSPACE_RELATIONSHIP' },
-  { metric: 'Existing workspaces re-engaged', definition: 'Workspaces created before that first click.', source: 'Same join' },
-  { metric: `Activated (${ACTIVATION_DAYS}d)`, definition: `Reached the golden table (2+ advanced and 1+ basic enrichments) within ${ACTIVATION_DAYS} days of creation.`, source: 'BINARY_ACTIVATED_WORKSPACE, DAYS_TO_ACTIVATION' },
-  { metric: 'Paid · expanded · churned', definition: 'Paid = has a first invoice. Expanded = upgraded from a paid plan, or bought a credit pack after the first invoice. Churned = paid, cancelled, and not a current customer.', source: 'DBT.PROD.CUSTOMERS, CREDIT_PACK_INVOICES' },
-  { metric: 'Persona', definition: 'Onboarding survey “team” answer (latest response per workspace).', source: 'DBT.PROD.ONBOARDING_SURVEY.TEAMS' },
-  { metric: 'Tier', definition: 'SFDC Sales Tier of the customer email domain; Unmatched = no SFDC account.', source: 'CUSTOMERS.DOMAIN → SALESFORCE.ACCOUNT.SALES_TIER_C' },
-]
-
-function Definitions() {
+function Checklist({ s }: { s: SV }) {
+  if (!s.missingLinks.length) return null
   return (
-    <Card className="p-5 sm:p-8">
-      <details>
-        <summary className="cursor-pointer text-[18px] font-bold" style={{ color: T.ink }}>Metric definitions & sources</summary>
-        <div className="overflow-x-auto mt-4"><table className="w-full min-w-[720px] text-[14px]" style={{ color: T.ink }}>
-          <thead><tr style={tableHead}><th className={`${th} text-left`}>Metric</th><th className={`${th} text-left`}>Definition</th><th className={`${th} text-left`}>Source</th></tr></thead>
-          <tbody>{DEFINITIONS.map(d => (
-            <tr key={d.metric} style={{ borderBottom: `1px solid ${T.border}` }}>
-              <td className="px-3 py-3 font-semibold align-top whitespace-nowrap">{d.metric}</td>
-              <td className="px-3 py-3 align-top leading-relaxed">{d.definition}</td>
-              <td className="px-3 py-3 align-top text-[13px]" style={{ fontFamily: T.mono, color: T.muted }}>{d.source}</td>
-            </tr>))}</tbody></table></div>
-      </details>
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>Videos missing a tracked link</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>{s.missingLinks.length} of {s.videos.length} videos can’t be tied to visits or workspaces. Add a clay.com link with utm_source=youtube&amp;utm_medium=influencerinternal&amp;utm_campaign=pk_yt_… to each description, one campaign per video.</p>
+      <ul className="flex flex-col gap-3">{s.missingLinks.map(v => (
+        <li key={v.id} className="flex items-start gap-3 text-[15px]">
+          <span aria-hidden className="mt-[3px] inline-block w-4 h-4 rounded border shrink-0" style={{ borderColor: T.border, background: '#fff' }} />
+          <span>
+            <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="font-semibold hover:underline">{v.title}</a>
+            <span className="text-[13px]" style={{ color: T.muted }}> · {fmtShort(v.published)} · links to {v.destination ?? 'nothing on clay.com'}{v.destinationKind === 'short_unresolved' ? ' (short link, target unknown)' : ''}</span>
+          </span>
+        </li>))}</ul>
     </Card>
   )
 }
 
+function TierMix({ s }: { s: SV }) {
+  return (
+    <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
+      <Card className="p-5 sm:p-8 flex flex-col gap-4">
+        <H2>Tier mix: new vs existing</H2>
+        <p className="text-[15px]" style={{ color: T.muted }}>Business domains only, by SFDC Sales Tier (best tier per domain). Personal, academic or no SFDC account = Untiered. Existing = workspaces a tagged visitor already belonged to before the visit.</p>
+        <table className="w-full text-[15px]" style={{ color: T.ink }}>
+          <thead><tr style={head}><th className={`${th} text-left`}>Tier</th><th className={`${th} text-right`}>New</th><th className={`${th} text-right`}>Existing</th><th className={`${th} text-right`}>New share</th></tr></thead>
+          <tbody>{s.tiers.labels.map((l, i) => {
+            const n = s.tiers.fresh[i]; const e = s.tiers.existing[i]
+            return (
+              <tr key={l} style={{ borderBottom: `1px solid ${T.border}` }}>
+                <td className="px-3 py-3 font-semibold">{l}</td>
+                <td className={num} style={mono}>{fmtInt(n)}</td><td className={num} style={mono}>{fmtInt(e)}</td>
+                <td className={num} style={mono}>{fmtPct(n + e ? n / (n + e) : null, 0)}</td>
+              </tr>
+            )
+          })}</tbody>
+        </table>
+      </Card>
+      <Card className="p-5 sm:p-8 flex flex-col gap-3">
+        <H2>Signups by persona</H2>
+        <p className="text-[15px]" style={{ color: T.muted }}>Persona collected after signup, new and existing workspaces.</p>
+        <p className="text-[18px]"><TBD /></p>
+        <p className="text-[13px]" style={{ color: T.muted }}>No persona source has been agreed yet. The onboarding survey’s TEAMS answer (DBT.PROD.ONBOARDING_SURVEY) is one candidate.</p>
+      </Card>
+    </div>
+  )
+}
+
 export default function SocialView({ s, loading }: { s: SV; loading: boolean }) {
-  const k = s.kpis
   return (
     <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
-        <Tile label="YouTube views" value={fmtK(k.views.cur)}>
-          <Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous{k.views.lagging && <> (first {k.views.days} days, YouTube lags)</>} · {fmtInt(k.views.minutes / 60)} watch hrs · {fmtSigned(k.views.subs)} subs
-        </Tile>
-        <Tile label="Site visitors" value={fmtInt(k.visitors.cur)}>
-          <Delta value={k.visitors.delta}>{fmtPctSigned(k.visitors.delta)}</Delta> vs previous{s.scope === 'peter' && <> · {fmtPct(k.visitors.clickRate)} of views</>}
-        </Tile>
-        <Tile label="New workspaces" value={fmtInt(k.workspaces.cur)}>
-          <Delta value={k.workspaces.delta}>{fmtPctSigned(k.workspaces.delta)}</Delta> vs previous · {fmtInt(k.workspaces.hq)} HQ
-          {k.workspaces.existing != null && <> · {fmtInt(k.workspaces.existing)} existing re-engaged</>}
-        </Tile>
-        <Tile label={`Activated ≤${ACTIVATION_DAYS}d`} value={fmtInt(k.activated.cur)}>
-          {fmtPct(k.activated.rate, 0)} of new workspaces{!k.activated.matured && <> · still maturing</>}
-        </Tile>
-        <Tile label="Paid" value={fmtInt(k.paid.cur)}>
-          {fmtPct(k.paid.rate, 1)} of new workspaces · {fmtInt(k.paid.churned)} churned
-        </Tile>
-      </div>
+      <Kpis s={s} />
+      <Leak s={s} />
       <Trend s={s} />
-      <Funnel s={s} />
-      <Sources s={s} />
-      <TrackedLinks s={s} />
-      <AfterSignup s={s} />
-      <PersonaAndTiers s={s} />
-      <Videos s={s} />
+      {s.scope === 'all' ? <ChannelsTable s={s} /> : <Funnel s={s} />}
+      <Unmapped s={s} />
+      {s.scope === 'peter' && <><VideoTable s={s} /><Checklist s={s} /></>}
+      <TierMix s={s} />
       <Card className="p-6 sm:p-8 flex flex-col gap-3">
-        <H2>Discuss</H2>
+        <Eyebrow>Discuss</Eyebrow>
         <ul className="list-disc pl-6 flex flex-col gap-2 text-[16px]" style={{ color: T.ink }}>
-          <li>Only links with a pk_yt_ tag can be tied to a video. Should every description link, including dub.sh and the offer page, carry one?</li>
-          <li>{s.scope === 'peter' ? 'Peter’s links bring visitors, but few become new workspaces. Is the offer page the right next step, or should links go to signup?' : 'Most YouTube workspaces are credited from the signup survey. Which creator are they watching?'}</li>
-          <li>Of the workspaces from video, how many paid, on which plan, and is anyone churning?</li>
+          <li>Where is the biggest leak for each channel, and who owns the fix?</li>
+          <li>{s.missingLinks.length} of {s.videos.length} videos have no tracked link. Who adds pk_yt_ tags to the descriptions?</li>
+          <li>Which video brought the most Tier 1–2 workspaces, and should the next video follow its topic?</li>
         </ul>
       </Card>
-      <Definitions />
+      <p className="text-[12px]" style={{ color: T.muted }}>
+        YouTube data synced {s.yt.fetchedAt ? new Date(s.yt.fetchedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'never'} through Viewer access to the channel (not an officially supported API path; it may stop working). Snowflake numbers are live through your Clay Sigma connector. Definitions: docs/social-metrics.md.
+      </p>
     </div>
   )
 }
