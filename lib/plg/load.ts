@@ -1,10 +1,12 @@
 import { plgDb } from './db'
-import { buildDashboard, resolveQuarters, type DailyPoint, type Meta, type RangeSummary } from './compute'
+import { resolveQuarters, type DailyPoint, type Meta, type RangeSummary } from './compute'
 import { DEFAULT_QUARTERS } from './config'
-import { addDays, minDate, mondayOf, todayUTC, type ISODate } from './dates'
-import { PRESETS, comparisonRange, resolveParams } from './range'
+import type { ISODate } from './dates'
+import { DAILY_KEYS, SUMMARY_KEYS, assembleDashboard, planDashboard, type DailyKey, type SummaryKey } from './plan'
 
-/** Where the dashboard reads aggregated data from. */
+export type { DashboardPayload } from './plan'
+
+/** Where the Next.js dashboard reads aggregated data from. */
 export interface PlgSource {
   kind: 'supabase' | 'fixture'
   meta(): Promise<Meta>
@@ -32,40 +34,14 @@ export class NoDataError extends Error {}
 export async function loadDashboard(sp: URLSearchParams, source: PlgSource) {
   const meta = await source.meta()
   if (!meta.max_day) throw new NoDataError('No PLG data loaded yet. Run /api/plg/refresh?from=2025-10-01 once to backfill.')
-  const dataEnd = String(meta.max_day).slice(0, 10)
   const quarters = resolveQuarters(DEFAULT_QUARTERS, meta.goals ?? [])
-  const p = resolveParams(sp, dataEnd, quarters)
-  const { prevStart, prevEnd } = comparisonRange(p.start, p.end, p.compare)
-
-  const q = quarters.find(x => dataEnd >= x.start && dataEnd <= x.end)
-  const qStart = q?.start ?? addDays(dataEnd, -89)
-  const recentStart = minDate(qStart, addDays(dataEnd, -13))
-
-  // Commentary week = most recently completed Mon–Sun on or before dataEnd.
-  const wkEnd = addDays(mondayOf(addDays(dataEnd, 1)), -1)
-  const wkStart = addDays(wkEnd, -6)
-
-  const [cur, prev, curDaily, prevDaily, recentDaily, qtd, wCur, wPrev] = await Promise.all([
-    source.summary(p.start, p.end),
-    source.summary(prevStart, prevEnd),
-    source.daily(p.start, p.end),
-    source.daily(prevStart, prevEnd),
-    source.daily(recentStart, dataEnd),
-    source.summary(qStart, dataEnd),
-    source.summary(wkStart, wkEnd),
-    source.summary(addDays(wkStart, -7), addDays(wkStart, -1)),
+  const plan = planDashboard(sp, String(meta.max_day).slice(0, 10), quarters)
+  const [summaries, dailies] = await Promise.all([
+    Promise.all(SUMMARY_KEYS.map(k => source.summary(...plan.summaries[k]))),
+    Promise.all(DAILY_KEYS.map(k => source.daily(...plan.dailies[k]))),
   ])
-
-  const view = buildDashboard({
-    start: p.start, end: p.end, prevStart, prevEnd,
-    compare: p.compare, grain: p.grain,
-    presetLabel: p.preset ? PRESETS.find(x => x.id === p.preset)!.caption : null,
-    today: todayUTC(), dataEnd, quarters,
-    cur, prev, curDaily, prevDaily, recentDaily, qtd,
-    week: { start: wkStart, end: wkEnd, cur: wCur, prev: wPrev },
-    meta,
-  })
-  return { ...view, params: { preset: p.preset, compare: p.compare, grain: p.grain }, source: source.kind }
+  return assembleDashboard(plan, meta, {
+    summaries: Object.fromEntries(SUMMARY_KEYS.map((k, i) => [k, summaries[i]])) as Record<SummaryKey, RangeSummary>,
+    dailies: Object.fromEntries(DAILY_KEYS.map((k, i) => [k, dailies[i]])) as Record<DailyKey, DailyPoint[]>,
+  }, source.kind)
 }
-
-export type DashboardPayload = Awaited<ReturnType<typeof loadDashboard>>

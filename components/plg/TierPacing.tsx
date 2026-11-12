@@ -30,7 +30,7 @@ export default function TierPacing({ v }: { v: DashboardPayload }) {
             <span className="text-[18px] font-bold" style={{ color: t.goal == null ? T.muted : T.ink }}>{t.label}</span>
             <div className="flex flex-col gap-2 min-w-0">
               <div className="flex items-center gap-3">
-                <div className="flex-1 min-w-0"><PaceBar pct={t.pct} status={t.status} /></div>
+                <div className="flex-1 min-w-0">{t.goal != null ? <PaceBar pct={t.pct} status={t.status} /> : <span className="text-[13px]" style={{ color: T.muted }}>No SFDC account for the domain</span>}</div>
                 <div className="w-[152px] shrink-0 flex justify-end">
                   {t.status
                     ? <Pill tone={t.status}>{Math.round((t.pct ?? 0) * 100)}% · {STATUS_LABEL[t.status]}</Pill>
@@ -38,7 +38,7 @@ export default function TierPacing({ v }: { v: DashboardPayload }) {
                 </div>
               </div>
               <p className="text-[13px] flex flex-wrap gap-x-2" style={{ fontFamily: T.mono, color: T.ink }}>
-                <span className="whitespace-nowrap">{fmtInt(t.actual)} · goal {fmtInt(t.goal)}</span>
+                <span className="whitespace-nowrap">{fmtInt(t.actual)}{t.goal != null && <> · goal {fmtInt(t.goal)}</>}</span>
                 <span className="whitespace-nowrap"><Delta value={t.deltaPct}>{fmtPctSigned(t.deltaPct)}</Delta> vs {v.range.compare === 'previous_year' ? 'last year' : 'prev. period'}</span>
               </p>
             </div>

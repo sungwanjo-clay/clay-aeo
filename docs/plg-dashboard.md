@@ -51,3 +51,13 @@ To add Q1 2027, insert `plg_goals` rows with the new `quarter_start` / `quarter_
 3. **Goal owner**, plus whether the illustrative goals in `plg_goals` are current.
 4. **Cron time.** 11:30 UTC assumes dbt prod has finished by then.
 5. Social video / Startup program tabs are placeholders.
+
+## claude.ai artifact (live via Sigma), the recommended path
+
+No Vercel, Supabase or Snowflake credentials needed. The page queries Snowflake through **each viewer's own Clay Sigma connector** (read-only `query` tool), so viewers need Sigma connected in claude.ai and Sigma access to the three source tables.
+
+- Build: `node scripts/build-plg-artifact.mjs` → `dist/plg-artifact.html` (entry `artifact/plg/main.tsx`, SQL `lib/plg/sigma.ts`). Republish that file to the same artifact URL after code changes.
+- Latest complete day comes from the metrics table's `CURRENT_TIME_PERIOD_FLAG` (the raw table can hold a partial day).
+- Results are cached by claude.ai for up to 6 h; reopening is instant, then refreshes.
+- Artifact store: `weeks/<monday>` = restatement log (written when a closed week moves >3%); `config/goals` = `{ rows: GoalRow[] }` goal overrides (editors only), same shape as `plg_goals` rows.
+- Not in the artifact: the daily reconciliation against the metrics table (ETL-only).
