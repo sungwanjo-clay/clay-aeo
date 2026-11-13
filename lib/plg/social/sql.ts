@@ -9,6 +9,10 @@
  *   ex     existing workspaces influenced (tagged visitor's user already in a workspace before the visit), tier split
  *   form   distinct offer-page (/wedge) form submitters; campaign from the form event, else the visitor's key
  *   vday / wsday   per-day series for the trend (calendar), by key
+ *   per    new + existing workspaces by persona (d = ONBOARDING_SURVEY.TEAMS)
+ *   dev / geo  visitors (n), captures (a), new workspaces (p) by device (PLATFORM) / region (TIMEZONE)
+ *   mon    new workspaces by signup month (d = YYYY-MM) with activated, paid, expanded, churned
+ *   b = 'bc'   back catalog: a tracked video's visits / workspaces during the dates but after its first 28 days
  *
  * Rules
  *   tagged     utm_campaign maps to a video (lookup built from descriptions), plus the channel's
@@ -30,7 +34,19 @@ const T = {
   roles: 'a7defd23-614d-4c68-ad31-b807b7a164b0',     // FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES
   credits: '990653ed-fe9f-4d3c-a674-f4278de7049f',   // DBT.PROD.CREDIT_PACK_INVOICES
   forms: '794d9f65-d34c-4173-94d1-1b0709c1b040',     // SEGMENT.VERCEL.FORM_SUBMITTED (offer page captures)
+  survey: '49872add-0b3c-4321-8746-f67ec6cf5510',    // DBT.PROD.ONBOARDING_SURVEY (persona = TEAMS)
+  cookies: '22e14a56-e32f-4d31-aff8-b6bc3b23190b',   // DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP
 }
+
+/** Device from the pageview's OS. iOS is not reported by this source, so it lands in Unknown. */
+export const DEVICE_SQL = (col: string) => `CASE WHEN ${col} IN ('macOS', 'Windows', 'Linux', 'Chrome OS') THEN 'Desktop' WHEN ${col} IN ('Android', 'iOS', 'iPadOS') THEN 'Mobile' ELSE 'Unknown' END`
+const US_TZ = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'America/Anchorage', 'America/Detroit', 'America/Boise', 'America/Juneau', 'Pacific/Honolulu']
+const CA_TZ = ['America/Toronto', 'America/Vancouver', 'America/Edmonton', 'America/Winnipeg', 'America/Halifax', 'America/St_Johns', 'America/Regina', 'America/Montreal', 'America/Moncton']
+/** Region from the browser timezone (a proxy for geo; no IP lookup). */
+export const REGION_SQL = (col: string) => `CASE WHEN ${col} IN (${[...US_TZ, ...CA_TZ].map(z => `'${z}'`).join(', ')}) OR ${col} LIKE 'America/Indiana/%' OR ${col} LIKE 'America/Kentucky/%' OR ${col} LIKE 'America/North_Dakota/%' THEN 'US & Canada'
+    WHEN ${col} LIKE 'America/%' THEN 'Latin America' WHEN ${col} LIKE 'Europe/%' THEN 'UK & Europe'
+    WHEN ${col} LIKE 'Asia/%' OR ${col} LIKE 'Australia/%' OR ${col} LIKE 'Pacific/%' THEN 'Asia-Pacific'
+    WHEN ${col} LIKE 'Africa/%' OR ${col} LIKE 'Atlantic/%' OR ${col} LIKE 'Indian/%' THEN 'Rest of world' ELSE 'Unknown' END`
 const t = (id: string) => `"connection"."${id}"`
 const d = (x: ISODate) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) throw new Error(`bad date ${x}`)
@@ -75,6 +91,7 @@ export function socialSql(q: SocialQuery): string {
   return `WITH vmap AS (${vmap}),
 pv AS (
   SELECT p."ANONYMOUS_ID" AS "aid", p."USER_ID" AS "uid", p."TIMESTAMP_UTC" AS "ts", CAST(p."TIMESTAMP_UTC" AS date) AS "day",
+         ${DEVICE_SQL('p."PLATFORM"')} AS "dev", ${REGION_SQL('p."TIMEZONE"')} AS "geo",
          CASE WHEN p."REFERRER" = 'affiliate' AND COALESCE(p."UTM_CAMPAIGN", '') = '' THEN 'affiliate'
               ELSE ${keyExpr(`LOWER(COALESCE(p."UTM_CAMPAIGN", ''))`, 'p')} END AS "key",
          COALESCE(vm."cs", CASE ${fbWin('p', 'cohortStart') || 'WHEN FALSE THEN NULL'} END) AS "cs",
@@ -142,7 +159,26 @@ exw AS (
   FROM tv JOIN ${t(T.roles)} r
     ON CAST(r."USERID" AS string) = tv."uid" AND r."RESOURCETYPE" = 'workspace' AND r."DELETEDAT" IS NULL AND r."CREATEDAT" < tv."ts"
 ),
-exx AS (SELECT exw.*, COALESCE(wt."tier", 'Untiered') AS "tier" FROM exw LEFT JOIN wtier wt ON wt."wid" = exw."wid")
+exx AS (SELECT exw.*, COALESCE(wt."tier", 'Untiered') AS "tier" FROM exw LEFT JOIN wtier wt ON wt."wid" = exw."wid"),
+sv AS (SELECT "WORKSPACE_ID" AS "wid", MIN("TEAMS") AS "team" FROM ${t(T.survey)} WHERE "TEAMS" IS NOT NULL AND "TEAMS" <> '' GROUP BY "WORKSPACE_ID"),
+pw AS (
+  SELECT x."wid", x."key", x."day", x."cs", x."ce", COALESCE(sv."team", 'No answer') AS "team"
+  FROM (SELECT "wid", "key", "day", "cs", "ce" FROM fx UNION ALL SELECT "wid", "key", "day", "cs", "ce" FROM exx) x
+  LEFT JOIN sv ON sv."wid" = CAST(x."wid" AS string)
+),
+pva AS (SELECT "aid", "key", MIN("dev") AS "dev", MIN("geo") AS "geo" FROM pv GROUP BY "aid", "key"),
+fsd AS (SELECT fs2.*, pva."dev", pva."geo" FROM fs2 LEFT JOIN pva ON pva."aid" = fs2."aid" AND pva."key" = fs2."key"),
+fxd AS (
+  SELECT fx."wid", fx."key", fx."day", fx."cs", fx."ce", MIN(COALESCE(pva."dev", 'Unknown')) AS "dev", MIN(COALESCE(pva."geo", 'Unknown')) AS "geo"
+  FROM fx LEFT JOIN ${t(T.cookies)} ck ON ck."WORKSPACE_ID" = fx."wid"
+  LEFT JOIN pva ON pva."aid" = ck."ANONYMOUS_ID" AND pva."key" = fx."key"
+  GROUP BY fx."wid", fx."key", fx."day", fx."cs", fx."ce"
+),
+cutv AS (
+  SELECT 'v' AS "m", "aid" AS "id", "key", "day", "cs", "ce", "dev", "geo" FROM pv
+  UNION ALL SELECT 'f', "aid", "key", "day", "cs", "ce", COALESCE("dev", 'Unknown'), COALESCE("geo", 'Unknown') FROM fsd
+  UNION ALL SELECT 'w', CAST("wid" AS string), "key", "day", "cs", "ce", "dev", "geo" FROM fxd
+)
 SELECT 'vis' AS "k", ${bucket('"day"')} AS "b", "key", '' AS "d", COUNT(DISTINCT "aid") AS "n", 0 AS "a", 0 AS "p", ${zeroT}
 FROM pv WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
@@ -179,7 +215,31 @@ SELECT 'ex', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, $
 FROM exx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
 SELECT 'ex', 'coh', "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, ${tierCols}
-FROM exx WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"`
+FROM exx WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"
+UNION ALL
+SELECT 'per', ${bucket('"day"')}, "key", "team", COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
+FROM pw WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", "team"
+UNION ALL
+SELECT 'per', 'coh', "key", "team", COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
+FROM pw WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "team"
+${(['dev', 'geo'] as const).map(c => `UNION ALL
+SELECT '${c}', ${bucket('"day"')}, "key", "${c}", COUNT(DISTINCT CASE WHEN "m" = 'v' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'f' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'w' THEN "id" END), ${zeroT}
+FROM cutv WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged') GROUP BY ${bucket('"day"')}, "key", "${c}"
+UNION ALL
+SELECT '${c}', 'coh', "key", "${c}", COUNT(DISTINCT CASE WHEN "m" = 'v' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'f' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'w' THEN "id" END), ${zeroT}
+FROM cutv WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "${c}"`).join('\n')}
+UNION ALL
+SELECT 'mon', ${bucket('"day"')}, "key", SUBSTR(CAST("day" AS string), 1, 7), COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
+FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", SUBSTR(CAST("day" AS string), 1, 7)
+UNION ALL
+SELECT 'mon', 'coh', "key", SUBSTR(CAST("day" AS string), 1, 7), COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
+FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", SUBSTR(CAST("day" AS string), 1, 7)
+UNION ALL
+SELECT 'vis', 'bc', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+FROM pv WHERE "cs" IS NOT NULL AND "day" > "ce" AND "day" BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} GROUP BY "key"
+UNION ALL
+SELECT 'ws', 'bc', "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
+FROM fx WHERE "cs" IS NOT NULL AND "day" > "ce" AND "day" BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} GROUP BY "key"`
 }
 
 /** Window helper: a video's first COHORT_DAYS days, capped at the last complete data day. */

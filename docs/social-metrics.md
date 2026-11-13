@@ -60,3 +60,13 @@ The impression columns are already laid out and read "Not connected" until the d
 ## Access caveat
 
 YouTube data comes through Viewer access to Peter's channel, a path Google doesn't officially support for APIs. If the sync gets a 401 or 403, it reports NO ACCESS and keeps the last document; the page shows the sync date.
+
+## Persona, device / geo, signup month, back catalog
+
+- **Persona:** `DBT.PROD.ONBOARDING_SURVEY.TEAMS`, one answer per workspace, covering new and existing workspaces. Workspaces with no survey answer are counted in the subtitle and left out of the bars.
+- **Device:** the visitor's OS from `MARKETING_PAGEVIEWS.PLATFORM`. Desktop is macOS, Windows, Linux and Chrome OS; Mobile is Android. iOS isn't reported by this source, so it lands in Unknown.
+- **Geo:** region from the browser `TIMEZONE`, not geo-IP.
+- **New workspaces per device or region:** matched to the visit through `COOKIE_TO_WORKSPACE_RELATIONSHIP`.
+- **Clicks:** link-click columns stay "Not connected".
+- **Signup month:** new workspaces from the video grouped by creation month, with activated, paid, expanded and churned.
+- **Back catalog:** visits and new workspaces during the selected dates from tracked videos that are past their first 28 days.

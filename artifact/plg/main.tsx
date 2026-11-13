@@ -17,6 +17,9 @@ import SocialView, { ChannelPills, ModeToggle, type SocialChannel } from '@/comp
 import { buildSocial, channelFallbacks, parseSocialRows, taggedVideos, type SocialMode, type YtChannelDoc } from '@/lib/plg/social/compute'
 import { CHANNELS } from '@/lib/plg/social/config'
 import { socialSql } from '@/lib/plg/social/sql'
+import StartupView from '@/components/plg/startup/StartupView'
+import { buildStartup, parseStartupRows } from '@/lib/plg/startup/compute'
+import { startupSql } from '@/lib/plg/startup/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
 import { T } from '@/components/plg/ui'
 import { resolveQuarters, type GoalRow, type Meta } from '@/lib/plg/compute'
@@ -118,7 +121,7 @@ function App() {
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
     return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' }
-      : h === 'social' ? { tab: 'social', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
@@ -235,7 +238,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const go = useCallback((tab: DashboardTab, channel: SocialChannel) => {
-    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : ''
+    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : ''
     try { history.replaceState(null, '', hash || location.pathname + location.search) } catch { /* sandboxed */ }
     setRoute({ tab, channel })
   }, [])
@@ -269,6 +272,31 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socialResult, yt, route.channel, modes, socialSqlText, dataEnd])
 
+  // ── Startup program tab ──────────────────────────────────────────────────
+  const startupSqlText = useMemo(() => (socialRanges && route.tab === 'startup' ? startupSql(socialRanges) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab])
+  const [startupResult, setStartupResult] = useState<{ key: string; payload: unknown } | null>(null)
+  const [startupProblem, setStartupProblem] = useState<Problem>(null)
+  useEffect(() => {
+    if (!mcp || !startupSqlText) return
+    const key = startupSqlText
+    const input = { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: startupSqlText } }
+    const unsub = mcp.watchTool(SIGMA.server, 'query', input, (ev: any) => {
+      if (ev.type === 'error') { setStartupProblem({ code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' }); return }
+      setStartupProblem(null)
+      setStartupResult({ key, payload: ev.result?.payload })
+    }, { cache: CACHE })
+    return unsub
+  }, [mcp, startupSqlText])
+  const startupView = useMemo(() => {
+    if (!startupResult || !socialRanges || !dataEnd) return null
+    try {
+      return { s: buildStartup({ cur: socialRanges.cur, prev: socialRanges.prev, dataEnd, rows: parseStartupRows(startupResult.payload) }), stale: startupResult.key !== startupSqlText }
+    } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startupResult, startupSqlText, dataEnd])
+
   const v = view && 'v' in view ? view.v : null
   if (!v) {
     const shown: Problem = mcp === null ? { code: 'no_runtime', message: '' } : problem
@@ -301,9 +329,15 @@ function App() {
     : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for YouTube traffic… first load takes 10–30 seconds.</p>
     : 'error' in socialView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {socialView.error}</p>
     : <SocialView s={socialView.s} loading={socialView.stale} />
+  const startupPane = route.tab !== 'startup' ? null
+    : startupProblem && !startupView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(startupProblem).title}: {problemCopy(startupProblem).body}</p>
+    : !startupView ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for startup program traffic… first load takes 10–30 seconds.</p>
+    : 'error' in startupView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {startupView.error}</p>
+    : <StartupView s={startupView.s} loading={startupView.stale} />
   return (
     <DashboardView
       tab={route.tab}
+      startup={startupPane}
       onTab={t => go(t, route.channel)}
       socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)'
         : route.channel === 'payton' ? 'Payton’s YouTube channel, Not My Business (@itsnotmybusiness)'

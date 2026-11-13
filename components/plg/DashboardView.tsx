@@ -12,12 +12,17 @@ import { DomainQuality, McpByPlatform } from './McpAndQuality'
 import { Commentary, DataQualityStrip, Discuss, RestatementBanner } from './Narrative'
 import { Eyebrow, Pill, Segmented, T } from './ui'
 
-export type DashboardTab = 'workspaces' | 'social'
+export type DashboardTab = 'workspaces' | 'social' | 'startup'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'social', label: 'Social video' },
-  { id: 'startup', label: 'Startup program', disabled: true, title: 'Coming soon' },
+  { id: 'startup', label: 'Startup program' },
 ] as const
+const HEAD = {
+  workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces &amp; pacing</>, sub: 'Blended attribution, cut by channel and tier' },
+  social: { eyebrow: 'PLG weekly metrics · Social · YouTube', title: <>Video → offer → workspace</>, sub: '' },
+  startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer: visit → workspace → paid</>, sub: 'Offer page www.clay.com/clay-for-startups · no offer sent yet' },
+} as const
 
 /** Next query params after a filter change (shared by the Next page and the artifact). */
 export function paramsFor(v: DashboardPayload, patch: Partial<FilterState>): URLSearchParams {
@@ -43,7 +48,7 @@ function freshness(v: DashboardPayload, refreshedAt?: number | string | null) {
   return `${through} · refreshed ${t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
 }
 
-export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle }: {
+export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup }: {
   v: DashboardPayload
   loading: boolean
   error: string | null
@@ -58,21 +63,23 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
   /** Rendered in place of the Workspaces sections when tab === 'social'. */
   social?: React.ReactNode
   socialSubtitle?: string
+  /** Rendered when tab === 'startup'. */
+  startup?: React.ReactNode
 }) {
   const update = onChange
   const presetLabel = v.params.preset ? PRESETS.find(p => p.id === v.params.preset)?.label : 'Custom dates'
-  const isSocial = tab === 'social' && !!onTab
+  const active: DashboardTab = onTab ? tab : 'workspaces'
+  const isSocial = active === 'social'
+  const h = HEAD[active]
 
   return (
     <div className="px-4 py-6 sm:px-10 sm:py-8 xl:px-16 flex flex-col gap-6 sm:gap-8" style={{ background: T.page, minHeight: '100%' }}>
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-3 min-w-0">
-          <Eyebrow>{isSocial ? 'PLG weekly metrics · Social · YouTube' : 'PLG weekly metrics · Workspaces'}</Eyebrow>
-          <h1 className="text-[40px] sm:text-[60px] leading-[1.05] font-bold" style={{ color: T.ink, letterSpacing: '-0.04em' }}>
-            {isSocial ? <>Video → offer → workspace</> : <>New workspaces &amp; pacing</>}
-          </h1>
-          <p className="text-[17px]" style={{ color: T.muted }}>{isSocial ? socialSubtitle : 'Blended attribution, cut by channel and tier'}</p>
+          <Eyebrow>{h.eyebrow}</Eyebrow>
+          <h1 className="text-[40px] sm:text-[60px] leading-[1.05] font-bold" style={{ color: T.ink, letterSpacing: '-0.04em' }}>{h.title}</h1>
+          <p className="text-[17px]" style={{ color: T.muted }}>{isSocial ? socialSubtitle : h.sub}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {v.source === 'fixture'
@@ -84,12 +91,12 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         </div>
       </header>
 
-      <Segmented ariaLabel="Dashboard section" size="lg" value={isSocial ? 'social' : 'workspaces'}
-        onChange={id => onTab && (id === 'workspaces' || id === 'social') && onTab(id)}
-        options={TABS.map(t => ({ ...t, disabled: t.id === 'social' ? !onTab : 'disabled' in t ? t.disabled : false,
-          title: t.id === 'social' && !onTab ? 'Available in the claude.ai version' : 'title' in t ? t.title : undefined }))} />
+      <Segmented ariaLabel="Dashboard section" size="lg" value={active}
+        onChange={id => onTab?.(id)}
+        options={TABS.map(t => ({ ...t, disabled: t.id !== 'workspaces' && !onTab,
+          title: t.id !== 'workspaces' && !onTab ? 'Available in the claude.ai version' : undefined }))} />
 
-      {!isSocial && <RestatementBanner v={v} />}
+      {active === 'workspaces' && <RestatementBanner v={v} />}
 
       <FilterCard
         state={{ preset: v.params.preset, start: v.range.start, end: v.range.end, compare: v.params.compare, grain: v.params.grain }}
@@ -98,7 +105,7 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         onChange={update}
       />
 
-      {isSocial ? social : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? social : active === 'startup' ? startup : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <KpiTiles v={v} />
 

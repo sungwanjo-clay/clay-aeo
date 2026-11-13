@@ -42,7 +42,7 @@ export function parseSocialRows(payload: unknown): Row[] {
   const s = (r: unknown[], c: string) => String(r[ix[c]] ?? '')
   const n = (r: unknown[], c: string) => Number(r[ix[c]] ?? 0) || 0
   return tbl.rows.map(r => ({
-    k: s(r, 'k'), b: s(r, 'b'), key: s(r, 'key'), d: s(r, 'k') === 'plan' ? s(r, 'd') : s(r, 'd').slice(0, 10),
+    k: s(r, 'k'), b: s(r, 'b'), key: s(r, 'key'), d: s(r, 'k') === 'vday' || s(r, 'k') === 'wsday' ? s(r, 'd').slice(0, 10) : s(r, 'd'),
     n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), x: n(r, 'x'), c: n(r, 'c'), t: ['t1', 't2', 't3', 't4', 't5'].map(c => n(r, c)),
   }))
 }
@@ -93,6 +93,17 @@ export function buildSocial(o: {
     return { n: sum(rs.map(r => r.n)), a: sum(rs.map(r => r.a)), p: sum(rs.map(r => r.p)), x: sum(rs.map(r => r.x)), c: sum(rs.map(r => r.c)), t: rs.reduce((acc, r) => addT(acc, r.t), zeroT()) }
   }
   const fallbackKeys = new Set(channelFallbacks(o.yt, o.dataEnd).map(f => f.key))
+  /** Device / geo cut over the given keys, each video in its first 28 days. */
+  function cutOf(k: 'dev' | 'geo', keys: string[]) {
+    const m = new Map<string, { name: string; visits: number; captures: number; newWs: number }>()
+    for (const r of rows) {
+      if (r.k !== k || r.b !== 'coh' || !keys.includes(r.key)) continue
+      const e = m.get(r.d) ?? { name: r.d, visits: 0, captures: 0, newWs: 0 }
+      e.visits += r.n; e.captures += r.a; e.newWs += r.p
+      m.set(r.d, e)
+    }
+    return [...m.values()].sort((a, b) => (a.name === 'Unknown' ? 1 : b.name === 'Unknown' ? -1 : b.visits - a.visits))
+  }
 
   function plansOf(rs: Row[]) {
     const m = new Map<string, { plan: string; n: number; paid: number; exp: number; churn: number }>()
@@ -133,6 +144,7 @@ export function buildSocial(o: {
         captureRate: offerPage && vis?.n ? (form?.n ?? 0) / vis.n : null,
         wsRate: isTracked ? (offerPage ? rate(ws?.n ?? 0, form?.n ?? null) : rate(ws?.n ?? 0, vis?.n ?? null)) : null,
         tiersNew: ws?.t ?? null, existing: ex?.n ?? null, tiersExisting: ex?.t ?? null,
+        device: isTracked ? cutOf('dev', [v.id]) : [], geo: isTracked ? cutOf('geo', [v.id]) : [],
       }
     }).sort((a, b) => b.published.localeCompare(a.published))
     const keys = new Set([...doc.videos.map(v => v.id), `ch:${ch.id}`])
@@ -199,6 +211,31 @@ export function buildSocial(o: {
   const pc = combine(inScope.map(c => totals(c, 'cur')))
   const pp = combine(inScope.map(c => totals(c, 'prev')))
   const scopeVideos = inScope.flatMap(c => c.videos)
+  /** Rows of one kind for the current period: cohort = in-cohort tracked videos; calendar = scope keys (+ untagged on All). */
+  const periodKeys = o.mode === 'cohort'
+    ? new Set(scopeVideos.filter(v => v.tagged && inCohort(v.published, o.cur)).map(v => v.id))
+    : new Set([...inScope.flatMap(c => [...c.keys]), ...(o.scope === 'all' ? ['untagged'] : [])])
+  const periodRows = (k: string) => rows.filter(r => r.k === k && r.b === (o.mode === 'cohort' ? 'coh' : 'cur') && periodKeys.has(r.key))
+  const personaMap = new Map<string, number>()
+  for (const r of periodRows('per')) personaMap.set(r.d, (personaMap.get(r.d) ?? 0) + r.n)
+  const persona = [...personaMap.entries()].map(([label, n]) => ({ label, n }))
+    .sort((a, b) => (a.label === 'No answer' ? 1 : b.label === 'No answer' ? -1 : b.n - a.n))
+  const monthMap = new Map<string, { month: string; n: number; act: number; paid: number; exp: number; churn: number }>()
+  for (const r of periodRows('mon')) {
+    const e = monthMap.get(r.d) ?? { month: r.d, n: 0, act: 0, paid: 0, exp: 0, churn: 0 }
+    e.n += r.n; e.act += r.a; e.paid += r.p; e.exp += r.x; e.churn += r.c
+    monthMap.set(r.d, e)
+  }
+  const signupMonths = [...monthMap.values()].sort((a, b) => a.month.localeCompare(b.month))
+  const backCatalog = inScope.map(c => {
+    const keys = c.videos.filter(v => v.tagged).map(v => v.id)
+    const pick = (k: string) => rows.filter(r => r.k === k && r.b === 'bc' && keys.includes(r.key))
+    const ws = pick('ws')
+    return { channel: c.ch.label, visits: sum(pick('vis').map(r => r.n)), newWs: sum(ws.map(r => r.n)), activated: sum(ws.map(r => r.a)), paid: sum(ws.map(r => r.p)),
+      tiersNew: ws.reduce((acc, r) => addT(acc, r.t), zeroT()) }
+  }).filter(b => b.visits || b.newWs)
+  const trackedIds = scopeVideos.filter(v => v.tagged).map(v => v.id)
+  const cuts = { device: cutOf('dev', trackedIds), geo: cutOf('geo', trackedIds) }
 
   // ── Funnel (email steps only when an in-scope video links to the offer page) ──
   const periodVideos = o.mode === 'cohort' ? scopeVideos.filter(v => inCohort(v.published, o.cur)) : scopeVideos
@@ -302,6 +339,7 @@ export function buildSocial(o: {
     affiliateVisitors: one('vis', 'cur', 'affiliate').n,
     tiers: { labels: TIER_LABELS, fresh: withUntagged ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
     videos: scopeVideos,
+    persona, signupMonths, backCatalog, cuts,
     trend,
   }
 }
