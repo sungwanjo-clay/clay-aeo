@@ -15,12 +15,12 @@ import { Eyebrow, Pill, Segmented, T } from './ui'
 export type DashboardTab = 'workspaces' | 'social' | 'startup'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
-  { id: 'social', label: 'Social video' },
+  { id: 'social', label: 'Media properties' },
   { id: 'startup', label: 'Startup program' },
 ] as const
 const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces &amp; pacing</>, sub: 'Blended attribution, cut by channel and tier' },
-  social: { eyebrow: 'PLG weekly metrics · Social · YouTube', title: <>Video → offer → workspace</>, sub: '' },
+  social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Video → offer → workspace</>, sub: '' },
   startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer: visit → workspace → paid</>, sub: 'Offer page www.clay.com/clay-for-startups · no offer sent yet' },
 } as const
 

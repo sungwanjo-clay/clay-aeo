@@ -231,7 +231,7 @@ function App() {
     } catch (e) { handleError(e) }
   }, [mcp, handleError])
 
-  // ── Social video tab ───────────────────────────────────────────────────────
+  // ── Media properties tab ───────────────────────────────────────────────────────
   useEffect(() => {
     const onHash = () => setRoute(readHash())
     window.addEventListener('hashchange', onHash)

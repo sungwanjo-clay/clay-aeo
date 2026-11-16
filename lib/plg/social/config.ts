@@ -1,5 +1,5 @@
 /**
- * Social video (YouTube) tab: channels, goals and the rules behind each metric.
+ * Media properties (YouTube) tab: channels, goals and the rules behind each metric.
  * Human-readable version: docs/social-metrics.md (keep in sync).
  */
 
