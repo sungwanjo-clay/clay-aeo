@@ -16,6 +16,27 @@ function Tile({ label, value, children, tip, badge, className = '' }: { label: s
 }
 
 const mono = { fontFamily: T.mono } as const
+export const SOT_DASH_URL = 'https://claude.ai/artifact/1jxaG3mZJXJjVXEPypTMRF?sk=FvlvORPXOjz6MMmpzacEmg#overview'
+
+/** Cumulative actual (solid, dot at today) vs the straight pace line to quarter end (dashed). */
+function PaceSpark({ series }: { series: { d: string; actual: number | null; pace: number }[] }) {
+  const W = 260; const H = 64; const pad = 4
+  const max = Math.max(1, ...series.map(p => Math.max(p.pace, p.actual ?? 0)))
+  const x = (i: number) => pad + (i / Math.max(1, series.length - 1)) * (W - pad * 2)
+  const y = (v: number) => H - pad - (v / max) * (H - pad * 2)
+  const pace = series.map((p, i) => `${x(i).toFixed(1)},${y(p.pace).toFixed(1)}`).join(' ')
+  const act = series.map((p, i) => (p.actual == null ? null : [x(i), y(p.actual)] as const)).filter(Boolean) as (readonly [number, number])[]
+  const last = act.at(-1)
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[64px] mt-1" role="img"
+      aria-label={`Cumulative actual ${series.filter(p => p.actual != null).at(-1)?.actual ?? 0} vs pace line`}>
+      <polyline points={pace} fill="none" stroke="#7A7770" strokeWidth={1.25} strokeDasharray="3 3" />
+      {act.length > 1 && <polygon points={`${act[0][0]},${H - pad} ${act.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} ${last![0]},${H - pad}`} fill={T.pos} fillOpacity={0.1} />}
+      <polyline points={act.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} fill="none" stroke={T.pos} strokeWidth={2} />
+      {last && <circle cx={last[0]} cy={last[1]} r={3.5} fill={T.pos} />}
+    </svg>
+  )
+}
 function Pp({ cur, prev }: { cur: number | null; prev: number | null }) {
   if (cur == null || prev == null) return <span style={{ color: T.faint }}>–</span>
   const pp = (cur - prev) * 100
@@ -38,10 +59,16 @@ export default function KpiTiles({ v }: { v: DashboardPayload }) {
     <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
       {k.sot && <Tile label={`Tier 1–3 workspaces · ${k.sot.quarter} QTD`} value={fmtInt(k.sot.total)}
         badge={<Pill tone={k.sot.status}>{k.sot.status === 'on_track' ? 'On pace' : k.sot.status === 'at_risk' ? 'At risk' : 'Behind pace'}</Pill>}
-        tip={<>Matches the Marketing Q4 source-of-truth tile (Monty) 1:1: workspaces created this quarter in dbt.prod.customers whose Stripe email domain matches a live Salesforce account at Tier 1–3 (best tier per domain), free-mail domains excluded. Includes low-quality business domains, unlike the HQ-only tiles. Always quarter to date, whatever the date filter.</>}>
+        tip={<>Matches the Marketing Q4 source-of-truth tile (Monty) 1:1: workspaces created this quarter in dbt.prod.customers whose Stripe email domain matches a live Salesforce account at Tier 1–3 (best tier per domain), free-mail domains excluded. Includes low-quality business domains, unlike the HQ-only tiles. Always quarter to date, whatever the date filter.{' '}
+          <a href={SOT_DASH_URL} target="_blank" rel="noreferrer" className="underline" style={{ color: '#9CC3FF' }}>Open the source dashboard ↗</a></>}>
         <p style={{ color: T.muted }}><span style={mono}>T1 {fmtInt(k.sot.tiers[0])} · T2 {fmtInt(k.sot.tiers[1])} · T3 {fmtInt(k.sot.tiers[2])}</span></p>
         <p>Target <span style={mono}>{fmtInt(k.sot.target)}</span> · pace line today <span style={mono}>{fmtInt(k.sot.pace)}</span> ({fmtPct(k.sot.vsPace, 0)})</p>
         <p><Delta value={k.sot.added}>+{fmtInt(k.sot.added)}</Delta> in the last 7 days · as of {fmtShort(k.sot.asOf)}</p>
+        <PaceSpark series={k.sot.series} />
+        <p className="flex justify-between text-[13px]" style={{ color: T.muted }}>
+          <span><span style={{ color: T.pos }}>━</span> actual · <span>┅</span> pace line</span>
+          <a href={SOT_DASH_URL} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: T.pos }}>Source dashboard ↗</a>
+        </p>
       </Tile>}
       <Tile label="New workspaces" value={fmtInt(k.total)}
         tip={<>Every workspace created in the selected dates, whatever the email or channel. Compared with the previous period of the same length.</>}>

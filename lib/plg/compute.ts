@@ -24,7 +24,7 @@ export interface RangeSummary {
   /** MBR funnel inputs (Sigma source only): unique visitors, new PLG paid workspaces, activated ≤7d. */
   extras?: { visitors: number; paid: number; activated: number }
   /** Source-of-truth Tier 1–3 counts [T1, T2, T3] (qtd summary only): through dataEnd and through dataEnd − 7. */
-  sot?: { now: number[]; weekAgo: number[] }
+  sot?: { now: number[]; weekAgo: number[]; daily: { d: ISODate; n: number }[] }
 }
 export interface DailyPoint { d: ISODate; n: number; unattr: number | null; hq: number | null; lowq: number | null }
 export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'tier'; key: string; value: number }
@@ -258,12 +258,22 @@ export function buildDashboard(i: DashboardInputs) {
   const ratesCur = rates(i.cur, total, hqTotal); const ratesPrev = rates(i.prev, prevTotal, hqPrevTotal)
 
   // ── KPI: Tier 1–3 QTD, 1:1 with the Marketing Q4 source-of-truth tile (Monty) ─
-  let sot: { total: number; tiers: number[]; added: number; target: number; pace: number; vsPace: number; status: PaceStatus; quarter: string; asOf: ISODate } | null = null
+  let sot: { total: number; tiers: number[]; added: number; target: number; pace: number; vsPace: number; status: PaceStatus; quarter: string; asOf: ISODate
+    /** Cumulative actual by day (quarter start → dataEnd) and the straight pace line to quarter end. */
+    series: { d: ISODate; actual: number | null; pace: number }[] } | null = null
   if (q && i.qtd.sot) {
     const target = q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'] + q.tierQuarter['Tier 3']
     const pace = Math.round(target * daysBetween(q.start, i.dataEnd) / daysBetween(q.start, q.end))
     const totalNow = sum(i.qtd.sot.now)
-    sot = { total: totalNow, tiers: i.qtd.sot.now, added: totalNow - sum(i.qtd.sot.weekAgo), target, pace,
+    const qDays = daysBetween(q.start, q.end)
+    const byDay = new Map(i.qtd.sot.daily.map(p => [p.d, p.n]))
+    let cum = 0
+    const series = Array.from({ length: qDays }, (_, k) => {
+      const d = addDays(q.start, k)
+      if (d <= i.dataEnd) cum += byDay.get(d) ?? 0
+      return { d, actual: d <= i.dataEnd ? cum : null, pace: Math.round(target * (k + 1) / qDays) }
+    })
+    sot = { series, total: totalNow, tiers: i.qtd.sot.now, added: totalNow - sum(i.qtd.sot.weekAgo), target, pace,
       vsPace: pace ? totalNow / pace : 0, status: paceStatus(pace ? totalNow / pace : 0), quarter: q.label, asOf: i.dataEnd }
   }
   const goalMix = q ? safeDiv(q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'], quarterTotal(q)) : null

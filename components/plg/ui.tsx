@@ -119,10 +119,13 @@ export function InfoTip({ children, label = 'Definition' }: { children: ReactNod
       <button type="button" aria-label={label}
         className="inline-flex h-[16px] w-[16px] items-center justify-center rounded-full text-[10px] font-semibold leading-none focus:outline-none focus-visible:ring-2"
         style={{ border: `1px solid ${T.faint}`, color: T.muted, fontFamily: T.mono, background: 'transparent' }}>i</button>
+      {/* pt-2 bridges the gap so the pointer can move into the tip (links stay clickable). */}
       <span role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-[280px] -translate-x-1/2 rounded-xl px-3.5 py-3 text-left text-[13px] font-normal normal-case leading-snug opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-        style={{ background: T.ink, color: '#fff', letterSpacing: 'normal', fontFamily: 'inherit' }}>
-        {children}
+        className="pointer-events-none absolute left-1/2 top-full z-50 w-[280px] -translate-x-1/2 pt-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <span className="block rounded-xl px-3.5 py-3 text-left text-[13px] font-normal normal-case leading-snug shadow-lg"
+          style={{ background: T.ink, color: '#fff', letterSpacing: 'normal', fontFamily: 'inherit' }}>
+          {children}
+        </span>
       </span>
     </span>
   )

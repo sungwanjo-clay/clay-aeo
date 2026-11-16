@@ -97,7 +97,11 @@ WHERE "FIRST_GTM_MOTION" = 'PLG' AND CAST("FIRST_INVOICE_UTC" AS date) BETWEEN $
 SELECT 'sot:${k}' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", a."tier", '' AS "q", COUNT(*) AS "n"
 FROM c JOIN a ON a."dom" = c."dom"
 WHERE c."created" BETWEEN ${d(qs)} AND ${d(end)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
-GROUP BY a."tier"`)
+GROUP BY a."tier"`).concat(`
+SELECT 'sot:day' AS "b", CAST(c."created" AS string) AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS "tier", '' AS "q", COUNT(*) AS "n"
+FROM c JOIN a ON a."dom" = c."dom"
+WHERE c."created" BETWEEN ${d(qs)} AND ${d(qe)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
+GROUP BY c."created"`)
 
   const dailyWhere = DAILY_KEYS.map(k => `(${between(plan.dailies[k])})`).join(' OR ')
   const dailyPart = `
@@ -170,7 +174,8 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
       byDay.set(day, p)
     } else if (b.startsWith('sot:')) {
       const s = summaries.qtd
-      s.sot ??= { now: [0, 0, 0], weekAgo: [0, 0, 0] }
+      s.sot ??= { now: [0, 0, 0], weekAgo: [0, 0, 0], daily: [] }
+      if (b === 'sot:day') { s.sot.daily.push({ d: col(r, 'd').slice(0, 10), n }); continue }
       const i = ['Tier 1', 'Tier 2', 'Tier 3'].indexOf(col(r, 'tier'))
       if (i >= 0) (b === 'sot:now' ? s.sot.now : s.sot.weekAgo)[i] = n
     } else if (b.startsWith('x:')) {
