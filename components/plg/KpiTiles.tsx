@@ -1,10 +1,14 @@
 import type { DashboardPayload } from '@/lib/plg/load'
-import { Delta, Eyebrow, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from './ui'
+import { fmtShort } from '@/lib/plg/dates'
+import { Delta, Eyebrow, InfoTip, Pill, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from './ui'
 
-function Tile({ label, value, children, tip }: { label: string; value: React.ReactNode; children: React.ReactNode; tip?: React.ReactNode }) {
+function Tile({ label, value, children, tip, badge, className = '' }: { label: string; value: React.ReactNode; children: React.ReactNode; tip?: React.ReactNode; badge?: React.ReactNode; className?: string }) {
   return (
-    <div className="rounded-[22px] p-6 sm:p-8 flex flex-col gap-3" style={{ background: T.tile }}>
-      <div className="flex items-center gap-2"><Eyebrow>{label}</Eyebrow>{tip && <InfoTip label={`About ${label}`}>{tip}</InfoTip>}</div>
+    <div className={`rounded-[22px] p-6 sm:p-8 flex flex-col gap-3 ${className}`} style={{ background: T.tile }}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2"><Eyebrow>{label}</Eyebrow>{tip && <InfoTip label={`About ${label}`}>{tip}</InfoTip>}</div>
+        {badge}
+      </div>
       {value != null && <p className="text-[44px] sm:text-[52px] leading-none" style={{ fontFamily: T.mono, color: T.ink, letterSpacing: '-0.02em' }}>{value}</p>}
       <div className="text-[15px] sm:text-[16px] leading-snug flex flex-col gap-1" style={{ color: T.ink }}>{children}</div>
     </div>
@@ -31,13 +35,20 @@ export default function KpiTiles({ v }: { v: DashboardPayload }) {
     </p>
   )
   return (
-    <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+      {k.sot && <Tile label={`Tier 1–3 workspaces · ${k.sot.quarter} QTD`} value={fmtInt(k.sot.total)}
+        badge={<Pill tone={k.sot.status}>{k.sot.status === 'on_track' ? 'On pace' : k.sot.status === 'at_risk' ? 'At risk' : 'Behind pace'}</Pill>}
+        tip={<>Matches the Marketing Q4 source-of-truth tile (Monty) 1:1: workspaces created this quarter in dbt.prod.customers whose Stripe email domain matches a live Salesforce account at Tier 1–3 (best tier per domain), free-mail domains excluded. Includes low-quality business domains, unlike the HQ-only tiles. Always quarter to date, whatever the date filter.</>}>
+        <p style={{ color: T.muted }}><span style={mono}>T1 {fmtInt(k.sot.tiers[0])} · T2 {fmtInt(k.sot.tiers[1])} · T3 {fmtInt(k.sot.tiers[2])}</span></p>
+        <p>Target <span style={mono}>{fmtInt(k.sot.target)}</span> · pace line today <span style={mono}>{fmtInt(k.sot.pace)}</span> ({fmtPct(k.sot.vsPace, 0)})</p>
+        <p><Delta value={k.sot.added}>+{fmtInt(k.sot.added)}</Delta> in the last 7 days · as of {fmtShort(k.sot.asOf)}</p>
+      </Tile>}
       <Tile label="New workspaces" value={fmtInt(k.total)}
         tip={<>Every workspace created in the selected dates, whatever the email or channel. Compared with the previous period of the same length.</>}>
         <p><Delta value={k.deltaPct}>{fmtPctSigned(k.deltaPct)}</Delta> vs {prevLabel} ({fmtInt(k.prevTotal)})</p>
       </Tile>
-      <Tile label="Tier 1–3 workspaces" value={fmtInt(t.cur)}
-        tip={<>New HQ workspaces whose email domain matches a Salesforce account at Sales Tier 1, 2 or 3. HQ only, because the Q4 tier goals are set on HQ workspaces. Goal = the Q4 Tier 1–3 goal prorated to the selected dates.</>}>
+      <Tile label="Tier 1–3 HQ workspaces" value={fmtInt(t.cur)}
+        tip={<>New HQ workspaces whose email domain matches a Salesforce account at Sales Tier 1, 2 or 3. HQ only, because the Q4 tier goals are set on HQ workspaces, so it runs about 1–2% below the source-of-truth tile, which also counts low-quality business domains. Goal = the Q4 Tier 1–3 goal prorated to the selected dates.</>}>
         <p><Delta value={t.deltaPct}>{fmtPctSigned(t.deltaPct)}</Delta> vs {prevLabel} ({fmtInt(t.prev)})</p>
         <p>{t.goal != null ? <><span style={mono}>{fmtPct(t.vsGoal, 0)}</span> vs goal of <span style={mono}>{fmtInt(t.goal)}</span> for these dates</> : 'No goal configured for part of these dates'}</p>
       </Tile>
@@ -46,7 +57,7 @@ export default function KpiTiles({ v }: { v: DashboardPayload }) {
         <p>Non-personal <span style={mono}>{fmtInt(m.cur.nonPersonal)}</span> · <Delta value={m.nonPersonalDelta}>{fmtPctSigned(m.nonPersonalDelta)}</Delta> · share <Pp cur={m.nonPersonalShare} prev={m.prevNonPersonalShare} /></p>
         <p>Personal <span style={mono}>{fmtInt(m.cur.personal)}</span> ({fmtPct(m.personalShare, 0)}) · <Delta value={m.personalDelta}>{fmtPctSigned(m.personalDelta)}</Delta> · share <Pp cur={m.personalShare} prev={m.prevPersonalShare} /></p>
       </Tile>
-      <Tile label={`Conversion rates · vs ${prevLabel}`} value={null}>
+      <Tile label={`Conversion rates · vs ${prevLabel}`} value={null} className="xl:col-span-2 2xl:col-span-1">
         {r ? <>
           {rateRow('Visitor → HQ trial user', r.visitToHq, rp?.visitToHq ?? null, <>
             New HQ workspaces ({fmtInt(k.hqTotal)}) ÷ unique visitors ({fmtInt(r.visitors)}). Visitors = distinct browsers on clay.com and the signup pages, excluding UTC and Asia timezones. HQ = a business email whose company Clay could verify (company LinkedIn found, or a high or medium domain score). Same as the MBR.</>)}

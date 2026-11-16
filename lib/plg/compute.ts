@@ -23,6 +23,8 @@ export interface RangeSummary {
   domain: { s: string; n: number }[]
   /** MBR funnel inputs (Sigma source only): unique visitors, new PLG paid workspaces, activated ≤7d. */
   extras?: { visitors: number; paid: number; activated: number }
+  /** Source-of-truth Tier 1–3 counts [T1, T2, T3] (qtd summary only): through dataEnd and through dataEnd − 7. */
+  sot?: { now: number[]; weekAgo: number[] }
 }
 export interface DailyPoint { d: ISODate; n: number; unattr: number | null; hq: number | null; lowq: number | null }
 export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'tier'; key: string; value: number }
@@ -254,6 +256,16 @@ export function buildDashboard(i: DashboardInputs) {
     visitors: s.extras.visitors, paid: s.extras.paid, activated: s.extras.activated,
   } : null
   const ratesCur = rates(i.cur, total, hqTotal); const ratesPrev = rates(i.prev, prevTotal, hqPrevTotal)
+
+  // ── KPI: Tier 1–3 QTD, 1:1 with the Marketing Q4 source-of-truth tile (Monty) ─
+  let sot: { total: number; tiers: number[]; added: number; target: number; pace: number; vsPace: number; status: PaceStatus; quarter: string; asOf: ISODate } | null = null
+  if (q && i.qtd.sot) {
+    const target = q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'] + q.tierQuarter['Tier 3']
+    const pace = Math.round(target * daysBetween(q.start, i.dataEnd) / daysBetween(q.start, q.end))
+    const totalNow = sum(i.qtd.sot.now)
+    sot = { total: totalNow, tiers: i.qtd.sot.now, added: totalNow - sum(i.qtd.sot.weekAgo), target, pace,
+      vsPace: pace ? totalNow / pace : 0, status: paceStatus(pace ? totalNow / pace : 0), quarter: q.label, asOf: i.dataEnd }
+  }
   const goalMix = q ? safeDiv(q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'], quarterTotal(q)) : null
 
   // ── Tier pacing (HQ actual ÷ prorated goal for the selected dates) ─────────
@@ -315,6 +327,7 @@ export function buildDashboard(i: DashboardInputs) {
         nonPersonalDelta: pctChange(mixCur.nonPersonal, mixPrev.nonPersonal), personalDelta: pctChange(mixCur.personal, mixPrev.personal),
       },
       rates: { cur: ratesCur, prev: ratesPrev },
+      sot,
     },
     cumulative,
     tiers,

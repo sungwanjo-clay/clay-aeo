@@ -85,6 +85,20 @@ SELECT 'x:${k}:paid', '', '', '', '', '', '', COUNT(DISTINCT "WORKSPACE_ID")
 FROM ${t(SIGMA.customers)}
 WHERE "FIRST_GTM_MOTION" = 'PLG' AND CAST("FIRST_INVOICE_UTC" AS date) BETWEEN ${d(plan.summaries[k][0])} AND ${d(plan.summaries[k][1])}`])
 
+  /*
+   * Source-of-truth Tier 1–3 (Marketing Q4 Metrics tile, Monty): WORKSPACES created in the window from
+   * dbt.prod.customers whose Stripe email domain matches a live Salesforce account (is_deleted = false),
+   * current sales_tier_c Tier 1–3, best tier per domain, free-mail (personal) domains excluded. No HQ filter.
+   * Quarter to date through dataEnd, plus the same through dataEnd − 7 for the week-over-week add.
+   */
+  const [qs, qe] = plan.summaries.qtd
+  const weekAgo = [qe].map(x => { const dt = new Date(`${x}T00:00:00Z`); dt.setUTCDate(dt.getUTCDate() - 7); return dt.toISOString().slice(0, 10) })[0]
+  const sotParts = ([['now', qe], ['wk', weekAgo]] as const).map(([k, end]) => `
+SELECT 'sot:${k}' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", a."tier", '' AS "q", COUNT(*) AS "n"
+FROM c JOIN a ON a."dom" = c."dom"
+WHERE c."created" BETWEEN ${d(qs)} AND ${d(end)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
+GROUP BY a."tier"`)
+
   const dailyWhere = DAILY_KEYS.map(k => `(${between(plan.dailies[k])})`).join(' OR ')
   const dailyPart = `
 SELECT 'day' AS "b", CAST("day" AS string) AS "d", '' AS "cat",
@@ -105,7 +119,8 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
   WHERE ${WS_FILTER}
     AND CAST("WORKSPACE_CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
 ), c AS (
-  SELECT "WORKSPACE_ID" AS "wid", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg"
+  SELECT "WORKSPACE_ID" AS "wid", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg",
+         CAST(MIN("CREATED_AT_UTC") AS date) AS "created"
   FROM ${t(SIGMA.customers)}
   GROUP BY "WORKSPACE_ID"
 ), a AS (
@@ -122,7 +137,7 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
   LEFT JOIN c ON c."wid" = ws."wid"
   LEFT JOIN a ON a."dom" = c."dom"
 )
-${[...summaryParts, ...domainParts, ...extraParts, dailyPart].join('\nUNION ALL')}`
+${[...summaryParts, ...domainParts, ...extraParts, ...sotParts, dailyPart].join('\nUNION ALL')}`
 }
 
 type SigmaTable = { columns: string[]; rows: unknown[][] }
@@ -153,6 +168,11 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
       if (q === 'non-personal: high quality') p.hq! += n
       if (q === 'non-personal: low quality') p.lowq! += n
       byDay.set(day, p)
+    } else if (b.startsWith('sot:')) {
+      const s = summaries.qtd
+      s.sot ??= { now: [0, 0, 0], weekAgo: [0, 0, 0] }
+      const i = ['Tier 1', 'Tier 2', 'Tier 3'].indexOf(col(r, 'tier'))
+      if (i >= 0) (b === 'sot:now' ? s.sot.now : s.sot.weekAgo)[i] = n
     } else if (b.startsWith('x:')) {
       const [, key, metric] = b.split(':')
       const s = summaries[key as SummaryKey]
