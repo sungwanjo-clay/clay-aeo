@@ -49,7 +49,6 @@ export const ACTIVATION_DAYS = 7
 export const STEP_GOALS = {
   /** Placeholder in the mock: all new workspaces ÷ email captures. Used while opens/clicks aren't connected. */
   newWorkspaceOfCaptures: 0.1,
-  viewRate: 0.06,      // impressions → views (impression CTR). Weighted by impressions across videos.
   viewToVisit: 0.5,
   capture: 0.2,
   qualified: 0.4,
@@ -71,7 +70,7 @@ export const OFFER_PAGE_PATTERNS: RegExp[] = [/^cohorts\.clay\.com\/wedge/]
 export const NO_ANALYTICS = 'Needs Viewer access to the channel in YouTube Studio for the Analytics API (views, watch time, % viewed). The Data API only gives lifetime public view counts.'
 export const NOT_CONNECTED = {
   label: 'Not connected',
-  why: 'Needs the channel owner to authorize the YouTube Reporting API (channel_reach_basic_a1: video_thumbnail_impressions, video_thumbnail_impressions_ctr). A new job backfills 30 days; first files arrive within 48 hours.',
+  why: 'No data source connected yet.',
 } as const
 
 export const TIER_LABELS = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Untiered'] as const

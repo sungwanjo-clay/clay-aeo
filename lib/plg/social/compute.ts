@@ -2,12 +2,12 @@
  * Social tab view model. Pure: Sigma rows (sql.ts) + YouTube documents
  * (scripts/sync-youtube.mjs) in, render-ready numbers out.
  *
- * Anything blocked on access is null and renders "Not connected": impressions
- * and impression CTR everywhere, and views / watch time for channels without
+ * Anything blocked on access is null and renders "Not connected": the email
+ * steps (no lifecycle data in Snowflake yet), and views / watch time for channels without
  * Analytics access. Nothing downstream substitutes a value.
  */
 import { addDays, daysBetween, minDate, type ISODate } from '../dates'
-import { CHANNELS, COHORT_DAYS, OFFER_PAGE_PATTERNS, STEP_GOALS, TIER_LABELS, type CreatorChannel } from './config'
+import { CHANNELS, COHORT_DAYS, NO_ANALYTICS, OFFER_PAGE_PATTERNS, STEP_GOALS, TIER_LABELS, type CreatorChannel } from './config'
 import type { ChannelFallback, TaggedVideo } from './sql'
 
 export interface YtVideo {
@@ -135,7 +135,6 @@ export function buildSocial(o: {
       return {
         id: v.id, title: v.title, published: v.published, channel: ch.label, durationSec: v.durationSec,
         cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews,
-        impressions: null as number | null, ctr: null as number | null,
         views, viewsPending: analytics && !coh?.views, minutes: coh?.minutes ?? 0, avgViewPct: analytics && coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
         destination: v.destination, campaign: v.campaign, tagged: isTracked, offerPage,
         visits: vis?.n ?? null, captures: offerPage && form ? form.n : null,
@@ -242,27 +241,33 @@ export function buildSocial(o: {
   const showEmailSteps = periodVideos.some(v => v.offerPage && v.tagged)
   const wsBase = showEmailSteps ? pc.captures : pc.visits
   const wsRate = rate(pc.newWs, wsBase)
-  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; goal: number | null; notConnected?: boolean; impact: number | null; goalNote?: string }
-  const nc = (id: string, stage: string, label: string, lever: string, source: string, goal: number | null): Step =>
-    ({ id, stage, label, lever, source, cur: null, prev: null, rate: null, prevRate: null, goal, notConnected: true, impact: null })
+  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; goal: number | null; notConnected?: boolean; why?: string; impact: number | null; goalNote?: string }
+  const nc = (id: string, stage: string, label: string, lever: string, source: string, goal: number | null, why: string): Step =>
+    ({ id, stage, label, lever, source, cur: null, prev: null, rate: null, prevRate: null, goal, notConnected: true, impact: null, why })
+  const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
   const steps: Step[] = [
-    nc('impr', 'Reach', 'Impressions', 'Thumbnail, title, cadence', 'YouTube Reporting API', null),
-    { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail & title CTR', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views, rate: null, prevRate: null, goal: STEP_GOALS.viewRate, notConnected: true, impact: null },
+    { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail, title, topic, cadence', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views, rate: null, prevRate: null, goal: null,
+      notConnected: !viewsKnown, why: NO_ANALYTICS, impact: null },
     { id: 'visits', stage: 'Click', label: showEmailSteps ? 'Offer page visits' : 'Site visits (tagged links)', lever: 'CTA: pinned comment, description, end screen', source: 'Snowflake · MARKETING_PAGEVIEWS', cur: pc.visits, prev: pp.visits,
       rate: rate(pc.visits, pc.views), prevRate: rate(pp.visits, pp.views), goal: STEP_GOALS.viewToVisit,
       // Extra new workspaces if this step hit goal, holding every later step at today's rate.
       impact: pc.views ? Math.max(0, (pc.views * STEP_GOALS.viewToVisit - pc.visits) * (rate(pc.newWs, pc.visits) ?? 0)) : null },
   ]
-  if (showEmailSteps) {
-    steps.push(
-      { id: 'captures', stage: 'Capture', label: 'Email captures', lever: 'Offer page headline & form', source: 'Snowflake · SEGMENT.VERCEL.FORM_SUBMITTED', cur: pc.captures, prev: pp.captures,
-        rate: rate(pc.captures, pc.visits), prevRate: rate(pp.captures, pp.visits), goal: STEP_GOALS.capture,
-        impact: pc.visits ? Math.max(0, (pc.visits * STEP_GOALS.capture - pc.captures) * (rate(pc.newWs, pc.captures) ?? 0)) : 0 },
-      nc('qualified', 'Capture', 'Qualified emails', 'Who the video attracts', 'Clay enrichment', STEP_GOALS.qualified),
-      nc('opens', 'Nurture', 'Email opens', 'Subject line & send time', 'Lifecycle (Inflection)', STEP_GOALS.open),
-      nc('clicks', 'Nurture', 'Email clicks', 'Email body & CTA', 'Lifecycle (Inflection)', STEP_GOALS.click),
-    )
-  }
+  // Email steps always show; placeholders until the data exists. Captures are real only for offer-page links.
+  const LIFECYCLE = 'Lifecycle email sends, opens and clicks (Inflection) aren’t in Snowflake yet'
+  steps.push(
+    showEmailSteps
+      ? { id: 'captures', stage: 'Capture', label: 'Email captures', lever: 'Offer page headline & form', source: 'Snowflake · SEGMENT.VERCEL.FORM_SUBMITTED', cur: pc.captures, prev: pp.captures,
+          rate: rate(pc.captures, pc.visits), prevRate: rate(pp.captures, pp.visits), goal: STEP_GOALS.capture,
+          impact: pc.visits ? Math.max(0, (pc.visits * STEP_GOALS.capture - pc.captures) * (rate(pc.newWs, pc.captures) ?? 0)) : 0 }
+      : nc('captures', 'Capture', 'Email captures', 'Offer page headline & form', 'Snowflake · SEGMENT.VERCEL.FORM_SUBMITTED', STEP_GOALS.capture,
+          'No video in scope links to an email-capture page yet, so there is nothing to capture'),
+    nc('qualified', 'Capture', 'MQALs (Tier 1–3 domains)', 'Who the video attracts', 'Captured email domain → Salesforce tier', STEP_GOALS.qualified,
+      'Captured emails aren’t stored in Snowflake, so their domains can’t be tiered yet'),
+    nc('sends', 'Nurture', 'Email sends', 'Every MQAL gets the follow-up email', 'Lifecycle (Inflection)', null, LIFECYCLE),
+    nc('opens', 'Nurture', 'Email opens', 'Subject line & send time', 'Lifecycle (Inflection)', STEP_GOALS.open, LIFECYCLE),
+    nc('clicks', 'Nurture', 'Email clicks', 'Email body & CTA', 'Lifecycle (Inflection)', STEP_GOALS.click, LIFECYCLE),
+  )
   steps.push({ id: 'ws', stage: 'Workspaces', label: 'New workspaces (first touch)', lever: 'Signup flow', source: 'Snowflake · FIRST_TOUCH_ATTRIBUTION', cur: pc.newWs, prev: pp.newWs,
     rate: wsRate, prevRate: rate(pp.newWs, showEmailSteps ? pp.captures : pp.visits),
     goal: showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace,
@@ -281,7 +286,7 @@ export function buildSocial(o: {
     const t = totals(cc, 'cur')
     return {
       id: c.ch.id, label: c.ch.label, connected: true as const, handle: c.doc.handle, analytics: cc.analytics,
-      impressions: null, ctr: null, views: t.views, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
+      views: t.views, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
       existing: t.existing, tiersExisting: t.tiersExisting,
       trackedCount: cc.videos.filter(v => v.tagged).length, videoCount: cc.videos.length,
       trackedShare: cc.videos.length ? cc.videos.filter(v => v.tagged).length / cc.videos.length : null,
@@ -292,7 +297,6 @@ export function buildSocial(o: {
   // ── Trend (calendar) ───────────────────────────────────────────────────────
   const days = daysBetween(o.cur[0], o.cur[1])
   const scopeKeys = new Set(inScope.flatMap(c => [...c.keys]))
-  const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
   const series = (metric: 'views' | 'visits' | 'untagged' | 'ws' | 'ws_untagged', start: ISODate) =>
     Array.from({ length: days }, (_, i) => {
       const day = addDays(start, i)

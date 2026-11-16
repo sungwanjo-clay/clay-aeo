@@ -70,3 +70,12 @@ YouTube data comes through Viewer access to Peter's channel, a path Google doesn
 - **Clicks:** link-click columns stay "Not connected".
 - **Signup month:** new workspaces from the video grouped by creation month, with activated, paid, expanded and churned.
 - **Back catalog:** visits and new workspaces during the selected dates from tracked videos that are past their first 28 days.
+
+
+## Funnel shape (Nov 2026)
+
+- **Impressions and impression CTR are removed.** The funnel starts at Views (YouTube Analytics API). Views read "Not connected" for channels without Viewer access, such as Payton's.
+- **The email steps always show**, as placeholders until their data exists:
+  - Email captures: real for offer-page videos.
+  - MQALs (Tier 1–3 domains): captured emails aren't in Snowflake yet.
+  - Email sends, opens and clicks: lifecycle email data isn't in Snowflake yet.

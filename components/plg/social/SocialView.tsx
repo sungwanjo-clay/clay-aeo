@@ -14,8 +14,8 @@ const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, bord
 const num = 'px-3 py-3 text-right whitespace-nowrap'
 const mono = { fontFamily: T.mono } as const
 
-function NC({ inline }: { inline?: boolean }) {
-  return <span title={NOT_CONNECTED.why} className={inline ? '' : 'text-[13px]'} style={{ color: T.faint, fontStyle: 'italic' }}>{NOT_CONNECTED.label}</span>
+function NC({ inline, why }: { inline?: boolean; why?: string }) {
+  return <span title={why ?? NOT_CONNECTED.why} className={inline ? '' : 'text-[13px]'} style={{ color: T.faint, fontStyle: 'italic' }}>{NOT_CONNECTED.label}</span>
 }
 /** Horizontal bar list (mock .blist): label · bar · value. */
 function BarList({ items, max }: { items: { label: string; value: number; text: string; muted?: boolean }[]; max: number }) {
@@ -93,8 +93,8 @@ function CreatorKpis({ s }: { s: SV }) {
       <Tile label="Paid" value={fmtInt(k.paid.cur)}>
         <Delta value={k.paid.delta}>{fmtPctSigned(k.paid.delta)}</Delta> vs previous period<br />{fmtPct(k.paid.rate, 1)} of new workspaces · {fmtInt(k.paid.churned)} churned
       </Tile>
-      <Tile label="Impressions" value={<NC inline />} muted>
-        {!k.views.known ? <>Views: <NC inline /> · {fmtInt(k.lifetimeViews)} lifetime public views</> : k.views.cur == null ? 'views pending' : `${fmtInt(k.views.cur)} views`}
+      <Tile label="Views" value={!k.views.known ? <NC inline why={NO_ANALYTICS} /> : k.views.cur == null ? 'pending' : fmtInt(k.views.cur)} muted={!k.views.known || k.views.cur == null}>
+        {!k.views.known ? <>{fmtInt(k.lifetimeViews)} lifetime public views</> : <><Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous period · {fmtPct(k.views.avgPct, 0)} avg viewed</>}
       </Tile>
     </div>
   )
@@ -107,11 +107,9 @@ function Kpis({ s }: { s: SV }) {
       <Tile label="All new workspaces" value={fmtInt(k.newWs.cur)}>
         <Delta value={k.newWs.delta}>{fmtPctSigned(k.newWs.delta)}</Delta> vs previous
         {k.newWs.untagged != null && <> · {fmtInt(k.newWs.tagged)} tagged, {fmtInt(k.newWs.untagged)} untagged</>}
-        {' · '}expected for this impression volume: <NC inline />
       </Tile>
       <Tile label="Activated" value={fmtInt(k.activated.cur)}>{fmtPct(k.activated.rate, 0)} of new workspaces ran a golden table within 7 days</Tile>
       <Tile label="Paid" value={fmtInt(k.paid.cur)}>{fmtPct(k.paid.rate, 1)} of new workspaces</Tile>
-      <Tile label="Impressions" value={<NC inline />} muted>Impression CTR (view rate, goal {fmtPct(STEP_GOALS.viewRate, 0)}): <NC inline /></Tile>
       <Tile label="Views" value={k.views.cur == null ? 'pending' : fmtK(k.views.cur)} muted={k.views.cur == null}>
         <Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous · {fmtPct(k.views.avgPct, 0)} avg viewed · {fmtInt(k.views.minutes / 60)} watch hrs
         {s.mode === 'calendar' && s.yt.lagging && <> · first {s.yt.days} days (YouTube lags)</>}
@@ -187,7 +185,7 @@ function ChannelsTable({ s }: { s: SV }) {
       <div className="overflow-x-auto -mx-5 sm:mx-0">
         <table className="w-full min-w-[1100px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left`}>Channel</th><th className={`${th} text-right`}>Impr.</th><th className={`${th} text-right`}>Impr. CTR</th>
+            <th className={`${th} text-left`}>Channel</th>
             <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Tagged visits</th><th className={`${th} text-right`}>New WS</th>
             <th className={`${th} text-right`}>Tiers · new</th><th className={`${th} text-right`}>Existing</th><th className={`${th} text-right`}>Tiers · existing</th>
             <th className={`${th} text-right`}>Videos tracked</th>
@@ -196,8 +194,7 @@ function ChannelsTable({ s }: { s: SV }) {
             {s.channelRows.map(r => r.connected ? (
               <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3 font-semibold whitespace-nowrap">{r.label} <span className="font-normal text-[13px]" style={{ color: T.muted }}>{r.handle}</span></td>
-                <td className={num}><NC /></td><td className={num}><NC /></td>
-                <td className={num} style={mono}>{r.analytics ? fmtInt(r.views) : <NC />}</td>
+                <td className={num} style={mono}>{r.analytics ? fmtInt(r.views) : <NC why={NO_ANALYTICS} />}</td>
                 <td className={num} style={mono}>{fmtInt(r.visits)}</td>
                 <td className={num} style={mono}>{fmtInt(r.newWs)}</td>
                 <td className={num}><Tiers t={r.tiersNew} /></td>
@@ -208,12 +205,12 @@ function ChannelsTable({ s }: { s: SV }) {
             ) : (
               <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}`, color: T.faint }}>
                 <td className="px-3 py-3 font-semibold">{r.label}</td>
-                <td className="px-3 py-3 text-[13px] italic" colSpan={9}>Not connected: needs the YouTube channel id and the creator’s link tag prefix</td>
+                <td className="px-3 py-3 text-[13px] italic" colSpan={7}>Not connected: needs the YouTube channel id and the creator’s link tag prefix</td>
               </tr>
             ))}
             <tr style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
               <td className="px-3 py-3 font-semibold">YouTube, untagged</td>
-              <td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td>
+              <td className={num} style={{ color: T.faint }}>–</td>
               <td className={num} style={mono} title="Untagged visitors (not tagged visits)">{fmtInt(s.untagged.visits)} <span className="text-[12px]" style={{ color: T.muted }}>untagged</span></td>
               <td className={num} style={mono}>{fmtInt(s.untagged.ws.n)}</td>
               <td className={num}><Tiers t={s.untagged.ws.t} /></td>
@@ -246,7 +243,7 @@ function Funnel({ s }: { s: SV }) {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Funnel by step: where to push</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Each step’s conversion is scored against its own goal. Impact holds every other step at today’s rate, so the steps are directly comparable.{s.showEmailSteps && ' Email steps: Qualified emails, opens and clicks are not connected yet.'}</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each step’s conversion is scored against its own goal. Impact holds every other step at today’s rate, so the steps are directly comparable. The email steps are placeholders until their data is connected (hover “Not connected” for what’s missing).</p>
       {s.channel?.fallbackNote && <p className="text-[13px]" style={{ color: T.faint }}>{s.channel.fallbackNote}</p>}
       <div className="overflow-x-auto -mx-5 sm:mx-0">
         <table className="w-full min-w-[820px] text-[15px]" style={{ color: T.ink }}>
@@ -257,7 +254,8 @@ function Funnel({ s }: { s: SV }) {
           <tbody>{s.steps.map((st, i) => {
             const stageHead = i === 0 || s.steps[i - 1].stage !== st.stage
             const below = st.rate != null && st.goal != null && st.rate < st.goal
-            const blank = !!st.notConnected && st.id !== 'views'
+            const blank = !!st.notConnected
+            const first = st.id === 'views'
             return [
               stageHead && <tr key={`h-${st.id}`}><td colSpan={7} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
               <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}`, background: s.leak?.id === st.id ? '#FFF4EC' : undefined }}>
@@ -265,12 +263,12 @@ function Funnel({ s }: { s: SV }) {
                   <p className="font-semibold">{st.label} {s.leak?.id === st.id && <Pill tone="behind">Biggest leak</Pill>}</p>
                   <p className="text-[13px]" style={{ color: T.muted }}>{st.lever} · {st.source}{st.goalNote && ` · goal ${st.goalNote}`}</p>
                 </td>
-                <td className={num} style={mono}>{blank ? <NC /> : st.cur == null ? (st.id === 'views' && !s.yt.viewsKnown ? <NC /> : <span style={{ color: T.faint }}>pending</span>) : fmtInt(st.cur)}</td>
+                <td className={num} style={mono}>{blank ? <NC why={st.why} /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
                 <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{blank ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
-                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{st.id === 'views' || (blank && st.goal != null) ? <NC /> : blank ? '' : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{first ? '' : blank ? (st.goal != null ? <NC why={st.why} /> : '') : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
                 <td className={num} style={{ ...mono, color: T.muted }}>{st.goal != null ? fmtPct(st.goal, 0) : ''}</td>
-                <td className={num} style={{ ...mono, color: T.muted }}>{st.id === 'views' || blank ? '' : fmtPct(st.prevRate, st.prevRate != null && st.prevRate < 0.1 ? 1 : 0)}</td>
-                <td className={num} style={mono}>{st.id === 'views' || (blank && st.goal != null) || st.impact == null ? <NC /> : st.impact ? `+${fmtInt(st.impact)} WS` : blank ? '' : '–'}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{first || blank ? '' : fmtPct(st.prevRate, st.prevRate != null && st.prevRate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={mono}>{first ? '' : blank ? (st.goal != null ? <NC why={st.why} /> : '') : st.impact == null ? <NC why={NO_ANALYTICS} /> : st.impact ? `+${fmtInt(st.impact)} WS` : '–'}</td>
               </tr>,
             ]
           })}</tbody>
@@ -302,7 +300,7 @@ function VideoTable({ s }: { s: SV }) {
       <Card className="overflow-x-auto">
         <table className="w-full min-w-[1320px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left`}>Video</th><th className={`${th} text-right`}>Impr.</th><th className={`${th} text-right`}>View %</th>
+            <th className={`${th} text-left`}>Video</th>
             <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Visit %</th>
             {showCapture && <th className={`${th} text-right`}>Capture %</th>}
             <th className={`${th} text-right`}>New WS %</th><th className={`${th} text-right`}>New WS</th>
@@ -323,12 +321,10 @@ function VideoTable({ s }: { s: SV }) {
                   </span>
                 </div>
               </td>
-              <td className={num}><NC /></td>
-              <td className={num}><NC /></td>
               <td className={num} style={mono}>{!v.analytics
-                ? <span title={`${fmtInt(v.lifetimeViews)} lifetime public views (Data API)`}><NC /></span>
+                ? <span title={`${fmtInt(v.lifetimeViews)} lifetime public views (Data API)`}><NC why={`${NO_ANALYTICS} ${fmtInt(v.lifetimeViews)} lifetime public views.`} /></span>
                 : v.views ? fmtInt(v.views) : <span style={{ color: T.faint }}>pending</span>}</td>
-              <td className={num} style={mono}>{!v.analytics && v.tagged ? <NC /> : rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
+              <td className={num} style={mono}>{!v.analytics && v.tagged ? <NC why={NO_ANALYTICS} /> : rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
               {showCapture && <td className={num} style={mono}>{v.offerPage ? rateCell(v.captureRate, STEP_GOALS.capture) : '–'}</td>}
               <td className={num} style={mono}>{rateCell(v.wsRate, v.offerPage ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace)}</td>
               <td className={num} style={mono}>{v.newWs != null ? fmtInt(v.newWs) : '–'}</td>
@@ -346,7 +342,7 @@ function VideoTable({ s }: { s: SV }) {
                       <span className="block text-[13px]" style={{ color: T.muted, ...mono }}>Past their first {COHORT_DAYS} days · these dates · {b.channel}</span></span>
                   </div>
                 </td>
-                <td className={num}><NC /></td><td className={num}><NC /></td><td className={num}><NC /></td>
+                <td className={num} style={{ color: T.faint }}>–</td>
                 <td className={num} style={mono} title="Visitors during these dates">{fmtInt(b.visits)} visits</td>
                 {showCapture && <td className={num} style={{ color: T.faint }}>–</td>}
                 <td className={num} style={mono}>{fmtPct(b.visits ? b.newWs / b.visits : null, 1)}</td>
