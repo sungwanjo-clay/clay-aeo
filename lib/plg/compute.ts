@@ -21,6 +21,8 @@ export interface RangeSummary {
   mcp: { s: string; n: number }[]
   quality: { q: string; n: number }[]
   domain: { s: string; n: number }[]
+  /** MBR funnel inputs (Sigma source only): unique visitors, new PLG paid workspaces, activated ≤7d. */
+  extras?: { visitors: number; paid: number; activated: number }
 }
 export interface DailyPoint { d: ISODate; n: number; unattr: number | null; hq: number | null; lowq: number | null }
 export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'tier'; key: string; value: number }
@@ -230,6 +232,28 @@ export function buildDashboard(i: DashboardInputs) {
 
   // ── KPI: tier 1–2 share of HQ ──────────────────────────────────────────────
   const t12 = hqCur[0] + hqCur[1]
+
+  // ── KPI: Tier 1–3 HQ workspaces vs goal ───────────────────────────────────
+  const t13 = hqCur[0] + hqCur[1] + hqCur[2]
+  const t13Prev = hqPrev[0] + hqPrev[1] + hqPrev[2]
+  const t13Goal = goalForRange(i.quarters, i.start, i.end, qq => qq.tierQuarter['Tier 1'] + qq.tierQuarter['Tier 2'] + qq.tierQuarter['Tier 3'])
+
+  // ── KPI: personal vs non-personal (high + low quality rolled up) ──────────
+  const mix = (s: RangeSummary) => {
+    const q = (k: string) => sum(s.quality.filter(x => x.q === k).map(x => x.n))
+    const nonPersonal = q('non-personal: high quality') + q('non-personal: low quality')
+    const personal = q('personal')
+    const all = totalOf(s)
+    return { nonPersonal, personal, other: all - nonPersonal - personal, all }
+  }
+  const mixCur = mix(i.cur); const mixPrev = mix(i.prev)
+
+  // ── KPI: MBR conversion rates (same definitions as the PLG headline metrics) ─
+  const rates = (s: RangeSummary, tot: number, hq: number) => s.extras ? {
+    visitToHq: safeDiv(hq, s.extras.visitors), trialToPaid: safeDiv(s.extras.paid, hq), activation: safeDiv(s.extras.activated, tot),
+    visitors: s.extras.visitors, paid: s.extras.paid, activated: s.extras.activated,
+  } : null
+  const ratesCur = rates(i.cur, total, hqTotal); const ratesPrev = rates(i.prev, prevTotal, hqPrevTotal)
   const goalMix = q ? safeDiv(q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'], quarterTotal(q)) : null
 
   // ── Tier pacing (HQ actual ÷ prorated goal for the selected dates) ─────────
@@ -283,6 +307,14 @@ export function buildDashboard(i: DashboardInputs) {
       goal, paceVsGoal: goal ? hqTotal / goal : null,
       projection,
       tier12: { share: safeDiv(t12, hqTotal), count: t12, goalMix },
+      tier13: { cur: t13, prev: t13Prev, deltaPct: pctChange(t13, t13Prev), goal: t13Goal, vsGoal: t13Goal ? t13 / t13Goal : null },
+      domainMix: {
+        cur: mixCur, prev: mixPrev,
+        nonPersonalShare: safeDiv(mixCur.nonPersonal, mixCur.all), prevNonPersonalShare: safeDiv(mixPrev.nonPersonal, mixPrev.all),
+        personalShare: safeDiv(mixCur.personal, mixCur.all), prevPersonalShare: safeDiv(mixPrev.personal, mixPrev.all),
+        nonPersonalDelta: pctChange(mixCur.nonPersonal, mixPrev.nonPersonal), personalDelta: pctChange(mixCur.personal, mixPrev.personal),
+      },
+      rates: { cur: ratesCur, prev: ratesPrev },
     },
     cumulative,
     tiers,

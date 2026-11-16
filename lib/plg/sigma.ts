@@ -22,7 +22,20 @@ export const SIGMA = {
   customers: '7821001c-903e-47e1-9f1d-a03f2a5ca9ae',  // DBT.PROD.CUSTOMERS
   accounts: 'e6443e27-6d72-4dd5-b511-94aba9cab915',   // FIVETRAN.SALESFORCE.ACCOUNT
   metrics: 'fc12f388-0a8f-4213-9af1-e4575ddf79e6',    // DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION_METRICS
+  pageviews: '2a126a88-fa3d-49aa-ae05-5e830a2f3037',  // DBT.PROD.MARKETING_PAGEVIEWS
 } as const
+
+/**
+ * MBR "PLG Headline Metrics" definitions (checked against Jul 2026: 292,509 vs 291,177 visitors,
+ * 1,741 vs 1,737 paid, 16,551 vs 16,604 HQ trial users):
+ *   Total unique visitors (ex. UTC & Asia) = distinct ANONYMOUS_ID on the marketing site + signup pages,
+ *     browser timezone not UTC and not Asia/*
+ *   High quality trial users = new workspaces with CUSTOMER_DOMAIN_QUALITY_SEGMENT 'non-personal: high quality'
+ *   All new paid workspaces = CUSTOMERS.FIRST_INVOICE_UTC in the period, FIRST_GTM_MOTION = 'PLG'
+ *   Visitor → HQ trial = HQ trial users ÷ visitors; Trial → paid = new paid ÷ HQ trial users (same period)
+ *   Activation (not in the MBR) = new workspaces with a first table run within 7 days ÷ new workspaces
+ */
+const MBR_SITES = `'marketing_website', 'signup'`
 
 const t = (id: string) => `"connection"."${id}"`
 const d = (x: ISODate) => {
@@ -61,6 +74,17 @@ SELECT 'dom:${k}' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS
 FROM base WHERE ${between(plan.summaries[k])}
 GROUP BY "dseg"`)
 
+  const extraParts = (['cur', 'prev'] as const).flatMap(k => [`
+SELECT 'x:${k}:activated' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS "tier", '' AS "q", SUM("act") AS "n"
+FROM base WHERE ${between(plan.summaries[k])}`, `
+SELECT 'x:${k}:visitors', '', '', '', '', '', '', COUNT(DISTINCT "ANONYMOUS_ID")
+FROM ${t(SIGMA.pageviews)}
+WHERE "SITE" IN (${MBR_SITES}) AND CAST("TIMESTAMP_UTC" AS date) BETWEEN ${d(plan.summaries[k][0])} AND ${d(plan.summaries[k][1])}
+  AND COALESCE("TIMEZONE", '') NOT LIKE 'Asia/%' AND COALESCE("TIMEZONE", '') NOT IN ('UTC', 'Etc/UTC')`, `
+SELECT 'x:${k}:paid', '', '', '', '', '', '', COUNT(DISTINCT "WORKSPACE_ID")
+FROM ${t(SIGMA.customers)}
+WHERE "FIRST_GTM_MOTION" = 'PLG' AND CAST("FIRST_INVOICE_UTC" AS date) BETWEEN ${d(plan.summaries[k][0])} AND ${d(plan.summaries[k][1])}`])
+
   const dailyWhere = DAILY_KEYS.map(k => `(${between(plan.dailies[k])})`).join(' OR ')
   const dailyPart = `
 SELECT 'day' AS "b", CAST("day" AS string) AS "d", '' AS "cat",
@@ -75,7 +99,8 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
          COALESCE("BLENDED_ATTRIBUTION_CHANNEL_CATEGORY", 'undefined') AS "cat",
          COALESCE("BLENDED_ATTRIBUTION_CHANNEL", 'undefined') AS "ch",
          CASE WHEN "BLENDED_ATTRIBUTION_CHANNEL" = 'OAuth: MCP' THEN "BLENDED_ATTRIBUTION_SUBCHANNEL" ELSE '' END AS "sub",
-         COALESCE("CUSTOMER_DOMAIN_QUALITY_SEGMENT", 'not available') AS "q"
+         COALESCE("CUSTOMER_DOMAIN_QUALITY_SEGMENT", 'not available') AS "q",
+         CASE WHEN "BINARY_ACTIVATED_WORKSPACE" = 1 AND "DAYS_TO_ACTIVATION" <= 7 THEN 1 ELSE 0 END AS "act"
   FROM ${t(SIGMA.workspaces)}
   WHERE ${WS_FILTER}
     AND CAST("WORKSPACE_CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
@@ -89,7 +114,7 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
   WHERE "IS_DELETED" = false AND "DOMAIN_C" IS NOT NULL AND "SALES_TIER_C" IS NOT NULL
   GROUP BY LOWER("DOMAIN_C")
 ), base AS (
-  SELECT ws."day", ws."cat", ws."ch", ws."sub", ws."q",
+  SELECT ws."day", ws."cat", ws."ch", ws."sub", ws."q", ws."act",
          COALESCE(a."tier", 'Unassigned') AS "tier",
          CASE WHEN c."seg" IN ('personal', 'academic') THEN c."seg"
               WHEN c."seg" IS NULL THEN 'unknown' ELSE 'non_personal' END AS "dseg"
@@ -97,7 +122,7 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
   LEFT JOIN c ON c."wid" = ws."wid"
   LEFT JOIN a ON a."dom" = c."dom"
 )
-${[...summaryParts, ...domainParts, dailyPart].join('\nUNION ALL')}`
+${[...summaryParts, ...domainParts, ...extraParts, dailyPart].join('\nUNION ALL')}`
 }
 
 type SigmaTable = { columns: string[]; rows: unknown[][] }
@@ -128,6 +153,10 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
       if (q === 'non-personal: high quality') p.hq! += n
       if (q === 'non-personal: low quality') p.lowq! += n
       byDay.set(day, p)
+    } else if (b.startsWith('x:')) {
+      const [, key, metric] = b.split(':')
+      const s = summaries[key as SummaryKey]
+      if (s) { s.extras ??= { visitors: 0, paid: 0, activated: 0 }; s.extras[metric as 'visitors' | 'paid' | 'activated'] = n }
     } else if (b.startsWith('dom:')) {
       const s = summaries[b.slice(4) as SummaryKey]
       if (s) s.domain.push({ s: col(r, 'q'), n })

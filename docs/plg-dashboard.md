@@ -60,3 +60,23 @@ No Vercel, Supabase or Snowflake credentials needed. The page queries Snowflake 
 - Results are cached by claude.ai for up to 6 h; reopening is instant, then refreshes.
 - Artifact store: `weeks/<monday>` = restatement log (written when a closed week moves >3%); `config/goals` = `{ rows: GoalRow[] }` goal overrides (editors only), same shape as `plg_goals` rows.
 - Not in the artifact: the daily reconciliation against the metrics table (ETL-only).
+
+## Headline tiles (MBR definitions)
+
+1. **New workspaces:** all new workspaces, compared with the previous period.
+2. **Tier 1–3 workspaces:** HQ (non-personal: high quality) workspaces at Salesforce Tier 1–3 accounts, compared with the previous period. Also shown against the Q4 Tier 1 + 2 + 3 HQ goal, prorated to the selected dates.
+3. **Non-personal share:** non-personal is high and low quality combined; personal is shown alongside it. Both counts and shares are compared with the previous period. The remainder (spam, not yet scored) is in neither.
+4. **Conversion rates:** each is compared with the previous period, in percentage points.
+   - **Visitor → HQ trial user** = HQ new workspaces ÷ unique visitors. Unique visitors are distinct `ANONYMOUS_ID` on the marketing site plus signup pages in MARKETING_PAGEVIEWS, excluding UTC and Asia/* timezones.
+   - **Trial → paid** = new PLG paid workspaces ÷ HQ new workspaces in the same period. New PLG paid workspaces are those with `FIRST_INVOICE_UTC` in the period and `FIRST_GTM_MOTION = 'PLG'`.
+   - **Activation** = new workspaces that ran a first table within 7 days ÷ new workspaces. This one isn't in the MBR.
+
+These match the MBR "PLG Headline Metrics" for July 2026:
+
+| Metric | Dashboard | MBR |
+|---|---|---|
+| Unique visitors | 292,509 | 291,177 |
+| HQ trial users | 16,551 | 16,604 |
+| New paid workspaces | 1,741 | 1,737 |
+
+Visitor counts are distinct per period, so a weekly visitor → HQ rate is lower than the monthly MBR rate: weekly uniques don't add up to monthly uniques.

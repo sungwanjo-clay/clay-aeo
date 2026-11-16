@@ -66,14 +66,12 @@ export default function CumulativeChart({ v, onZoom }: { v: DashboardPayload; on
                   <div className="rounded-xl px-3 py-2 text-[13px] shadow-sm" style={{ background: '#fff', border: `1px solid ${T.border}`, fontFamily: T.mono }}>
                     <p className="mb-1" style={{ color: T.muted }}>{p.start === p.end ? fmtRange(p.start, p.end).split(',')[0].split(' – ')[0] : fmtRange(p.start, p.end)}</p>
                     <p style={{ color: T.pos }}>Actual {fmtInt(p.actual)}</p>
-                    {p.prev != null && <p style={{ color: '#5B8DEF' }}>Previous {fmtInt(p.prev)}</p>}
                     {p.goal != null && <p style={{ color: T.muted }}>Goal {fmtInt(p.goal)}</p>}
                   </div>
                 )
               }}
             />
             <Line type="linear" dataKey="goal" stroke="#7A7770" strokeWidth={2} strokeDasharray="6 5" dot={false} isAnimationActive={false} connectNulls />
-            <Line type="linear" dataKey="prev" stroke="#5B8DEF" strokeWidth={2} strokeDasharray="4 4" dot={false} isAnimationActive={false} connectNulls />
             <Line type="linear" dataKey="actual" stroke={T.pos} strokeWidth={3} isAnimationActive={false}
               dot={(props: { cx?: number; cy?: number; index?: number }) =>
                 props.index === lastIdx && props.cx != null && props.cy != null
@@ -94,7 +92,6 @@ export default function CumulativeChart({ v, onZoom }: { v: DashboardPayload; on
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-6">
           <LegendSwatch color={T.pos} label="Actual" />
-          <LegendSwatch color="#5B8DEF" dash="4 3" label={v.range.compare === 'previous_year' ? 'Last year' : 'Previous period'} />
           <LegendSwatch color="#7A7770" dash="5 4" label="Goal" />
         </div>
         <p className="text-[14px]" style={{ color: T.muted }}>Drag across the chart to zoom into those dates.</p>
