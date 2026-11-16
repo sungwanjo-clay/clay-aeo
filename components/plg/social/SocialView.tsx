@@ -5,7 +5,7 @@ import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, 
 import type { SocialMode, SocialViewModel as SV } from '@/lib/plg/social/compute'
 import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, NO_ANALYTICS, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
 import { fmtShort } from '@/lib/plg/dates'
-import { Card, Delta, Eyebrow, H2, Pill, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned } from '../ui'
+import { Card, Delta, Eyebrow, H2, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned } from '../ui'
 
 export type SocialChannel = 'all' | 'peter' | 'payton'
 
@@ -123,17 +123,6 @@ function Kpis({ s }: { s: SV }) {
   )
 }
 
-function Leak({ s }: { s: SV }) {
-  if (!s.leak) return null
-  return (
-    <div className="flex flex-col gap-1">
-      <Eyebrow>Biggest leak</Eyebrow>
-      <p className="text-[26px] font-bold" style={{ color: '#3B1405', letterSpacing: '-0.02em' }}>{({ visits: s.showEmailSteps ? 'View → offer page' : 'View → site visit', captures: 'Offer page → email capture', ws: s.showEmailSteps ? 'Email capture → new workspace' : 'Site visit → new workspace' } as Record<string, string>)[s.leak.id] ?? s.leak.label}</p>
-      <p className="text-[15px]" style={{ color: '#3B1405' }}>+{fmtInt(s.leak.impact)} new workspaces if this step hit goal</p>
-    </div>
-  )
-}
-
 const TREND_NAMES = { views: 'Views', visits: 'Tagged visits', untagged: 'Untagged visits', ws: 'New workspaces (tagged)', ws_untagged: 'New workspaces (untagged)' } as const
 function Trend({ s }: { s: SV }) {
   const [metric, setMetric] = useState<(typeof s.trend)[number]['metric']>(s.yt.viewsKnown ? 'views' : 'visits')
@@ -242,33 +231,29 @@ function Unmapped({ s }: { s: SV }) {
 function Funnel({ s }: { s: SV }) {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
-      <H2>Funnel by step: where to push</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Each step’s conversion is scored against its own goal. Impact holds every other step at today’s rate, so the steps are directly comparable. The email steps are placeholders until their data is connected (hover “Not connected” for what’s missing).</p>
+      <H2>Funnel</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Count at each step and the conversion rate from the step before it. Activated and paid are rates of new workspaces. The email steps are placeholders until their data is connected (hover “Not connected” for what’s missing).</p>
       {s.channel?.fallbackNote && <p className="text-[13px]" style={{ color: T.faint }}>{s.channel.fallbackNote}</p>}
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[820px] text-[15px]" style={{ color: T.ink }}>
+        <table className="w-full min-w-[640px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left`}>Step · lever · source</th><th className={`${th} text-right`}>Count</th><th className={`${th} text-right`}>Δ</th>
-            <th className={`${th} text-right`}>Step rate</th><th className={`${th} text-right`}>Goal</th><th className={`${th} text-right`}>Prev. rate</th><th className={`${th} text-right`}>If at goal</th>
+            <th className={`${th} text-left`}>Step · source</th><th className={`${th} text-right`}>Count</th><th className={`${th} text-right`}>Δ</th>
+            <th className={`${th} text-right`}>Step rate</th>
           </tr></thead>
           <tbody>{s.steps.map((st, i) => {
             const stageHead = i === 0 || s.steps[i - 1].stage !== st.stage
-            const below = st.rate != null && st.goal != null && st.rate < st.goal
             const blank = !!st.notConnected
             const first = st.id === 'views'
             return [
-              stageHead && <tr key={`h-${st.id}`}><td colSpan={7} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
-              <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}`, background: s.leak?.id === st.id ? '#FFF4EC' : undefined }}>
+              stageHead && <tr key={`h-${st.id}`}><td colSpan={4} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
+              <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3">
-                  <p className="font-semibold">{st.label} {s.leak?.id === st.id && <Pill tone="behind">Biggest leak</Pill>}</p>
-                  <p className="text-[13px]" style={{ color: T.muted }}>{st.lever} · {st.source}{st.goalNote && ` · goal ${st.goalNote}`}</p>
+                  <p className="font-semibold">{st.label}</p>
+                  <p className="text-[13px]" style={{ color: T.muted }}>{st.source}</p>
                 </td>
                 <td className={num} style={mono}>{blank ? <NC why={st.why} /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
                 <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{blank ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
-                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{first ? '' : blank ? (st.goal != null ? <NC why={st.why} /> : '') : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
-                <td className={num} style={{ ...mono, color: T.muted }}>{st.goal != null ? fmtPct(st.goal, 0) : ''}</td>
-                <td className={num} style={{ ...mono, color: T.muted }}>{first || blank ? '' : fmtPct(st.prevRate, st.prevRate != null && st.prevRate < 0.1 ? 1 : 0)}</td>
-                <td className={num} style={mono}>{first ? '' : blank ? (st.goal != null ? <NC why={st.why} /> : '') : st.impact == null ? <NC why={NO_ANALYTICS} /> : st.impact ? `+${fmtInt(st.impact)} WS` : '–'}</td>
+                <td className={num} style={mono}>{first ? '' : blank ? <NC why={st.why} /> : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
               </tr>,
             ]
           })}</tbody>
@@ -496,7 +481,6 @@ export default function SocialView({ s, loading }: { s: SV; loading: boolean }) 
   const body = s.scope !== 'all' ? (
     <>
       <CreatorKpis s={s} />
-      <Leak s={s} />
       <Trend s={s} />
       <Funnel s={s} />
       <AfterSignup s={s} />
@@ -507,7 +491,6 @@ export default function SocialView({ s, loading }: { s: SV; loading: boolean }) 
   ) : (
     <>
       <Kpis s={s} />
-      <Leak s={s} />
       <Trend s={s} />
       <ChannelsTable s={s} />
       <Unmapped s={s} />

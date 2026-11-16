@@ -273,6 +273,13 @@ export function buildSocial(o: {
     goal: showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace,
     goalNote: showEmailSteps ? 'of captures (placeholder while opens/clicks aren’t connected)' : 'of site visits',
     impact: wsBase ? Math.max(0, wsBase * (showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace) - pc.newWs) : 0 })
+  // Downstream of signup (as in the mockup): rates are ÷ new workspaces.
+  steps.push(
+    { id: 'activated', stage: 'Workspaces', label: 'Activated workspaces', lever: 'First table run within 7 days', source: 'Snowflake · FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION',
+      cur: pc.activated, prev: pp.activated, rate: rate(pc.activated, pc.newWs), prevRate: rate(pp.activated, pp.newWs), goal: null, impact: null },
+    { id: 'paid', stage: 'Workspaces', label: 'Paid workspaces', lever: 'First invoice paid', source: 'Snowflake · CUSTOMERS',
+      cur: pc.paid, prev: pp.paid, rate: rate(pc.paid, pc.newWs), prevRate: rate(pp.paid, pp.newWs), goal: null, impact: null },
+  )
   const leak = steps.filter(s => s.impact != null && s.impact > 0).sort((a, b) => b.impact! - a.impact!)[0] ?? null
 
   // ── All channels rows ──────────────────────────────────────────────────────
