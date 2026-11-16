@@ -111,3 +111,19 @@ export function Pill({ children, tone = 'neutral', title }: { children: ReactNod
     </span>
   )
 }
+
+/** Small ⓘ that shows a definition on hover or keyboard focus. */
+export function InfoTip({ children, label = 'Definition' }: { children: ReactNode; label?: string }) {
+  return (
+    <span className="relative inline-flex group align-middle">
+      <button type="button" aria-label={label}
+        className="inline-flex h-[16px] w-[16px] items-center justify-center rounded-full text-[10px] font-semibold leading-none focus:outline-none focus-visible:ring-2"
+        style={{ border: `1px solid ${T.faint}`, color: T.muted, fontFamily: T.mono, background: 'transparent' }}>i</button>
+      <span role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-[280px] -translate-x-1/2 rounded-xl px-3.5 py-3 text-left text-[13px] font-normal normal-case leading-snug opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        style={{ background: T.ink, color: '#fff', letterSpacing: 'normal', fontFamily: 'inherit' }}>
+        {children}
+      </span>
+    </span>
+  )
+}
