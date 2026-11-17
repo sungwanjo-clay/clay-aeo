@@ -41,7 +41,7 @@ function Kpis({ s }: { s: SV }) {
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
       <Tile label="MQALs · Tier 1–3 domains" value={fmtInt(c.mqal)}
-        tip={<>Distinct Tier 1–3 company domains among page visitors we could identify (their browser later signed in to Clay). Counts companies, not workspaces, and includes visitors from existing workspaces. Will switch to applications once the Typeform is in Snowflake.</>}>
+        tip={<>Distinct Tier 1–3 company domains (Salesforce sales tier) among new workspaces created by startup-page visitors. Counts companies, so two workspaces from one company count once. Same basis as “New workspaces (Tier 1–3)” in the funnel.</>}>
         {dl(c.mqal, p.mqal)}
       </Tile>
       <Tile label="Total new workspaces" value={fmtInt(c.newWs)}
@@ -135,8 +135,8 @@ function Funnel({ s }: { s: SV }) {
 function TiersAndReasons({ s }: { s: SV }) {
   const rows = s.T.tiers.map((t, i) => {
     const pt = s.P.tiers[i]
-    const r = t.mqal ? t.newWs / t.mqal : null
-    const pr = pt.mqal ? pt.newWs / pt.mqal : null
+    const r = s.T.newWs ? t.newWs / s.T.newWs : null
+    const pr = s.P.newWs ? pt.newWs / s.P.newWs : null
     return { ...t, r, pr }
   })
   const mx = Math.max(0.0001, ...rows.map(r => r.r ?? 0))
@@ -145,12 +145,12 @@ function TiersAndReasons({ s }: { s: SV }) {
   return (
     <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <Card className="p-5 sm:p-8 flex flex-col gap-4">
-        <H2>MQALs to workspaces by tier</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>Denominator is MQALs (Tier 1–3 domains), numerator is new workspaces.</p>
+        <H2>MQALs and new workspaces by tier</H2>
+        <p className="text-[15px]" style={{ color: T.muted }}>MQALs = Tier 1–3 company domains with a new workspace. Share = the tier’s new workspaces ÷ all new workspaces.</p>
         <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
             <th className={`${th} text-left`}>Tier</th><th className={`${th} text-right`}>MQALs</th><th className={`${th} text-right`}>New WS</th>
-            <th className={`${th} text-right`}>Redeemed</th><th className={`${th} text-right`}>MQAL → workspace</th><th className={`${th} text-right`}>Δ rate</th>
+            <th className={`${th} text-right`}>Redeemed</th><th className={`${th} text-right`}>Share of new WS</th><th className={`${th} text-right`}>Δ share</th>
           </tr></thead>
           <tbody>{rows.map(r => (
             <tr key={r.tier} style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -187,6 +187,22 @@ function TiersAndReasons({ s }: { s: SV }) {
         </div>
       </Card>
     </div>
+  )
+}
+
+function Partners() {
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>Partner penetration</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Penetration = portfolio companies with a Clay workspace by the end of the selected dates ÷ portfolio companies shared with us.</p>
+      <div className="overflow-x-auto"><table className="w-full min-w-[960px] text-[15px]" style={{ color: T.ink }}>
+        <thead><tr style={head}>
+          {['Partner', 'Type', 'Portfolio', 'MQALs in period', 'Workspaces to date', 'Penetration', 'New WS in period', 'Δ vs comp.'].map((h, i) =>
+            <th key={h} className={`${th} ${i < 2 ? 'text-left' : 'text-right'}`}>{h}</th>)}
+        </tr></thead>
+        <tbody><tr><td colSpan={8} className="px-3 py-4 text-[14px]"><NC why="Partner portfolio lists aren’t in Snowflake" /> · needs the VC and accelerator portfolio lists in Snowflake (partner, type and portfolio company domains).</td></tr></tbody>
+      </table></div>
+    </Card>
   )
 }
 
@@ -234,6 +250,7 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <RateCards s={s} />
       <Funnel s={s} />
       <TiersAndReasons s={s} />
+      <Partners />
       <Campaigns s={s} />
       <section className="flex flex-col gap-3">
         <Eyebrow>Discuss</Eyebrow>

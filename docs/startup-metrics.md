@@ -48,3 +48,7 @@
 **Removed:**
 - The identified-visitors step.
 - The inbound vs partner-list split, and the Partner penetration section.
+
+**MQALs (from Nov 17):** distinct Tier 1–3 company domains among new workspaces created by startup-page visitors. This is the same basis as the funnel's "New workspaces (Tier 1–3)" step. Before this change, MQALs counted Tier 1–3 domains among all identified visitors, including people from existing workspaces.
+
+**Partner penetration:** the section is kept. Only the partner-list row was removed from the funnel.

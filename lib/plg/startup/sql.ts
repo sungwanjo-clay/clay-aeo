@@ -17,6 +17,7 @@
  *         n distinct domains (business classes), a identified visitors, p new workspaces, x activated ≤7d, c paid
  *   ws    new workspaces: n, a activated ≤7d, p paid, x paid and still active, c eligible for the offer
  *         (not Tier 4, and the domain wasn't already a paying customer when the workspace was created)
+ *   mqn   MQALs: distinct Tier 1–3 domains among NEW workspaces (d = tier), n domains, a workspaces
  *   cmp   paid campaigns (d = platform|campaign): n visitors, a MQALs (Tier 1–3 domains), p new workspaces
  */
 import { addDays, type ISODate } from '../dates'
@@ -99,7 +100,7 @@ lw AS (
   LEFT JOIN dc ON dc."dom" = cu."dom" AND cu."seg" = 'other'
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = cu."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
-mq AS (SELECT DISTINCT "aid", "b", "dom" FROM lw WHERE "cls" IN ('Tier 1', 'Tier 2', 'Tier 3')),
+mq AS (SELECT DISTINCT "aid", "b", "dom" FROM lw WHERE "is_new" = 1 AND "cls" IN ('Tier 1', 'Tier 2', 'Tier 3')),
 pc AS (SELECT DISTINCT pv."aid", ${bucket('pv."day"')} AS "b", pv."platform", pv."camp" FROM pv WHERE pv."platform" IS NOT NULL AND ${bucket('pv."day"')} IS NOT NULL)
 SELECT 'vis' AS "k", fv."b", '' AS "d", COUNT(DISTINCT fv."aid") AS "n", COUNT(DISTINCT lw."aid") AS "a", 0 AS "p", 0 AS "x", 0 AS "c"
 FROM fv LEFT JOIN lw ON lw."aid" = fv."aid" AND lw."b" = fv."b" GROUP BY fv."b"
@@ -110,6 +111,9 @@ FROM lw GROUP BY "b", "cls"
 UNION ALL
 SELECT 'ws', "b", '', COUNT(DISTINCT "wid"), COUNT(DISTINCT CASE WHEN "act" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "paid" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "active" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "elig" = 1 THEN "wid" END)
 FROM lw WHERE "is_new" = 1 GROUP BY "b"
+UNION ALL
+SELECT 'mqn', "b", "cls", COUNT(DISTINCT "dom"), COUNT(DISTINCT "wid"), 0, 0, 0
+FROM lw WHERE "is_new" = 1 AND "cls" IN ('Tier 1', 'Tier 2', 'Tier 3') GROUP BY "b", "cls"
 UNION ALL
 SELECT 'cmp', pc."b", pc."platform" || '|' || pc."camp", COUNT(DISTINCT pc."aid"), COUNT(DISTINCT mq."dom"), COUNT(DISTINCT CASE WHEN lw."is_new" = 1 THEN lw."wid" END), 0, 0
 FROM pc LEFT JOIN mq ON mq."aid" = pc."aid" AND mq."b" = pc."b" LEFT JOIN lw ON lw."aid" = pc."aid" AND lw."b" = pc."b"

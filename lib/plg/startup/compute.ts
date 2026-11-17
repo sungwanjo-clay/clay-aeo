@@ -26,7 +26,9 @@ function period(rows: Row[], b: 'cur' | 'prev') {
   const vis = rs.find(r => r.k === 'vis')
   const ws = rs.find(r => r.k === 'ws')
   const cls = (d: string) => rs.find(r => r.k === 'cls' && r.d === d) ?? { n: 0, a: 0, p: 0, x: 0, c: 0 }
-  const tiers = MQAL_TIERS.map(t => ({ tier: t, mqal: cls(t).n, people: cls(t).a, newWs: cls(t).p }))
+  const mqn = (t: string) => rs.find(r => r.k === 'mqn' && r.d === t)?.n ?? 0
+  // MQAL = a Tier 1–3 company domain with a new workspace from a startup-page visitor (same basis as the funnel).
+  const tiers = MQAL_TIERS.map(t => ({ tier: t, mqal: mqn(t), people: cls(t).a, newWs: cls(t).p }))
   return {
     visits: vis?.n ?? 0, identified: vis?.a ?? 0,
     mqal: sum(tiers.map(t => t.mqal)), tiers,
