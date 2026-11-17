@@ -51,9 +51,9 @@ function Kpis({ s }: { s: SV }) {
       <Tile label="Offer redeemed" value={<NC why="No offer sent yet" />} muted tip={<>Workspaces that used the startup discount. No offer has been sent yet.</>}>
         No offer sent yet
       </Tile>
-      <Tile label="Eligible workspaces" value={fmtInt(c.eligible)}
-        tip={<>New workspaces that could receive the offer: everything except Tier 4 domains and domains that were already paying customers. This is the audience the offer email goes to.</>}>
-        {dl(c.eligible, p.eligible)}<br />{fmtPct(c.newWs ? c.eligible / c.newWs : null, 0)} of new workspaces
+      <Tile label="Eligible workspaces" value={<NC why="Eligibility source isn’t in Snowflake yet" />} muted
+        tip={<>New workspaces from venture-backed startups at Pre-Seed to Series A, or portfolio companies of partner VC firms. The source will be in Snowflake; it isn’t hooked up yet. This is the audience the offer email goes to.</>}>
+        Source not hooked up yet
       </Tile>
     </div>
   )

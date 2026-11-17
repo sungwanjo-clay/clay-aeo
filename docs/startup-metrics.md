@@ -52,3 +52,5 @@
 **MQALs (from Nov 17):** distinct Tier 1–3 company domains among new workspaces created by startup-page visitors. This is the same basis as the funnel's "New workspaces (Tier 1–3)" step. Before this change, MQALs counted Tier 1–3 domains among all identified visitors, including people from existing workspaces.
 
 **Partner penetration:** the section is kept. Only the partner-list row was removed from the funnel.
+
+**Eligible workspaces (from Nov 17):** a workspace is eligible if it's a venture-backed startup at Pre-Seed to Series A, or a portfolio company of a partner VC firm. The data will come from a Snowflake source that isn't hooked up yet, so the tile and funnel step show "Not connected". The Salesforce funding-round field is not used for this.
