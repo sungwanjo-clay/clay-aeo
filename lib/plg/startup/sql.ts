@@ -15,7 +15,8 @@
  *   vis   distinct visitors (n), identified visitors (a)
  *   cls   identified visitors by class (d = Tier 1..4 | No Salesforce account | Personal email | Academic | Invalid or missing domain):
  *         n distinct domains (business classes), a identified visitors, p new workspaces, x activated ≤7d, c paid
- *   ws    new workspaces: n, a activated ≤7d, p paid, x paid and still active
+ *   ws    new workspaces: n, a activated ≤7d, p paid, x paid and still active, c eligible for the offer
+ *         (not Tier 4, and the domain wasn't already a paying customer when the workspace was created)
  *   cmp   paid campaigns (d = platform|campaign): n visitors, a MQALs (Tier 1–3 domains), p new workspaces
  */
 import { addDays, type ISODate } from '../dates'
@@ -70,6 +71,7 @@ cu AS (
          MIN("FIRST_INVOICE_UTC") AS "first_inv", MAX("BINARY_CURRENT_CUSTOMER") AS "current"
   FROM ${t(T.customers)} GROUP BY "WORKSPACE_ID"
 ),
+dc AS (SELECT "dom", MIN("first_inv") AS "first_paid" FROM cu WHERE "seg" = 'other' AND "dom" IS NOT NULL GROUP BY "dom"),
 acct AS (
   SELECT LOWER("DOMAIN_C") AS "dom", MIN("SALES_TIER_C") AS "tier"
   FROM ${t(T.accounts)} WHERE "IS_DELETED" = false AND "DOMAIN_C" IS NOT NULL AND "SALES_TIER_C" IS NOT NULL
@@ -87,11 +89,14 @@ lw AS (
          CASE WHEN CAST(cu."created" AS date) >= fv."d0" AND CAST(cu."created" AS date) <= DATE_ADD('day', ${STARTUP.newWindowDays}, fv."d0") THEN 1 ELSE 0 END AS "is_new",
          CASE WHEN b."BINARY_ACTIVATED_WORKSPACE" = 1 AND b."DAYS_TO_ACTIVATION" <= ${ACTIVATION_DAYS} THEN 1 ELSE 0 END AS "act",
          CASE WHEN cu."first_inv" IS NOT NULL THEN 1 ELSE 0 END AS "paid",
-         CASE WHEN cu."first_inv" IS NOT NULL AND COALESCE(cu."current", 0) = 1 THEN 1 ELSE 0 END AS "active"
+         CASE WHEN cu."first_inv" IS NOT NULL AND COALESCE(cu."current", 0) = 1 THEN 1 ELSE 0 END AS "active",
+         -- Eligible for the offer: not Tier 4, and the domain wasn't already paying before this workspace was created.
+         CASE WHEN COALESCE(acct."tier", '') = 'Tier 4' THEN 0 WHEN dc."first_paid" IS NOT NULL AND dc."first_paid" < cu."created" THEN 0 ELSE 1 END AS "elig"
   FROM fv
   JOIN ck ON ck."aid" = fv."aid" AND ck."nws" <= ${STARTUP.maxWorkspacesPerVisitor}
   JOIN cu ON cu."wid" = ck."wid" AND COALESCE(cu."dom", '') NOT IN (${STARTUP.internalDomains.map(x => `'${x}'`).join(', ')})
   LEFT JOIN acct ON acct."dom" = cu."dom" AND cu."seg" = 'other'
+  LEFT JOIN dc ON dc."dom" = cu."dom" AND cu."seg" = 'other'
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = cu."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
 mq AS (SELECT DISTINCT "aid", "b", "dom" FROM lw WHERE "cls" IN ('Tier 1', 'Tier 2', 'Tier 3')),
@@ -103,7 +108,7 @@ SELECT 'cls', "b", "cls", COUNT(DISTINCT CASE WHEN "cls" NOT IN ('Personal email
        COUNT(DISTINCT CASE WHEN "is_new" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "is_new" = 1 AND "act" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "is_new" = 1 AND "paid" = 1 THEN "wid" END)
 FROM lw GROUP BY "b", "cls"
 UNION ALL
-SELECT 'ws', "b", '', COUNT(DISTINCT "wid"), COUNT(DISTINCT CASE WHEN "act" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "paid" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "active" = 1 THEN "wid" END), 0
+SELECT 'ws', "b", '', COUNT(DISTINCT "wid"), COUNT(DISTINCT CASE WHEN "act" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "paid" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "active" = 1 THEN "wid" END), COUNT(DISTINCT CASE WHEN "elig" = 1 THEN "wid" END)
 FROM lw WHERE "is_new" = 1 GROUP BY "b"
 UNION ALL
 SELECT 'cmp', pc."b", pc."platform" || '|' || pc."camp", COUNT(DISTINCT pc."aid"), COUNT(DISTINCT mq."dom"), COUNT(DISTINCT CASE WHEN lw."is_new" = 1 THEN lw."wid" END), 0, 0

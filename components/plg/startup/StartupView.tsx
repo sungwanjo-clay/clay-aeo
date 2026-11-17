@@ -3,7 +3,7 @@
 import type { FunnelStep, StartupPeriod, StartupViewModel as SV } from '@/lib/plg/startup/compute'
 import { STEPS } from '@/lib/plg/startup/compute'
 import { STARTUP } from '@/lib/plg/startup/sql'
-import { Card, Delta, Eyebrow, H2, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
+import { Card, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
 const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
@@ -19,10 +19,10 @@ function ppTxt(r: number, pr: number) {
   return <span style={{ ...mono, color: deltaColor(pp) }}>{fmtPp(pp)}</span>
 }
 
-function Tile({ label, value, children, muted }: { label: string; value: React.ReactNode; children?: React.ReactNode; muted?: boolean }) {
+function Tile({ label, value, children, muted, tip }: { label: string; value: React.ReactNode; children?: React.ReactNode; muted?: boolean; tip?: React.ReactNode }) {
   return (
     <div className="rounded-[22px] p-6 flex flex-col gap-3" style={{ background: T.tile }}>
-      <Eyebrow>{label}</Eyebrow>
+      <div className="flex items-center gap-2"><Eyebrow>{label}</Eyebrow>{tip && <InfoTip label={`About ${label}`}>{tip}</InfoTip>}</div>
       <p className={muted ? 'text-[22px] leading-tight' : 'text-[40px] leading-none'} style={{ fontFamily: T.mono, color: muted ? T.faint : T.ink }}>{value}</p>
       {children && <p className="text-[15px] leading-snug" style={{ color: T.ink }}>{children}</p>}
     </div>
@@ -34,22 +34,27 @@ const dl = (cur: number, prev: number) => {
 }
 
 function Kpis({ s }: { s: SV }) {
-  const { T: c, P: p, move } = s
+  const { T: c, P: p } = s
   if (s.beforeLaunch || c.visits < 1) {
     return <div className="grid gap-4 grid-cols-1"><Tile label="No program data" value="–">The startup program launched {STARTUP.launch}. Pick a later range.</Tile></div>
   }
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
-      <Tile label="MQALs" value={fmtInt(c.mqal)}>
-        <span className="inline-block rounded-full px-2.5 py-0.5 text-[12px] uppercase mr-1" style={{ background: '#EFEEEA', color: T.muted, letterSpacing: '0.08em', ...mono }}>Goal not set</span>
-        Tier 1–3 domains<br />{dl(c.mqal, p.mqal)}
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+      <Tile label="MQALs · Tier 1–3 domains" value={fmtInt(c.mqal)}
+        tip={<>Distinct Tier 1–3 company domains among page visitors we could identify (their browser later signed in to Clay). Counts companies, not workspaces, and includes visitors from existing workspaces. Will switch to applications once the Typeform is in Snowflake.</>}>
+        {dl(c.mqal, p.mqal)}
       </Tile>
-      <Tile label="New workspaces" value={fmtInt(c.newWs)}>{dl(c.newWs, p.newWs)}<br />from <span style={mono}>{fmtInt(c.visits)}</span> visits</Tile>
-      <Tile label="Offer redeemed" value={<NC why="No offer sent yet" />} muted>No offer sent yet · <span style={mono}>{fmtInt(c.activated)}</span> activated</Tile>
-      <Tile label="Paid" value={fmtInt(c.paid)}>{dl(c.paid, p.paid)}<br />any paid plan, no discount yet</Tile>
-      {move && <Tile label="Biggest rate change" value={<span className="text-[24px]">{move.rl}</span>}>
-        <span style={mono}>{fmtPct(move.pr, dp(move.pr))} → {fmtPct(move.r, dp(move.r))}</span> {ppTxt(move.r, move.pr)}
-      </Tile>}
+      <Tile label="Total new workspaces" value={fmtInt(c.newWs)}
+        tip={<>Workspaces created within {STARTUP.newWindowDays} days of a visit to the startup page, all tiers and email types.</>}>
+        {dl(c.newWs, p.newWs)}<br /><span style={mono}>{fmtInt(c.newWsT13)}</span> at Tier 1–3
+      </Tile>
+      <Tile label="Offer redeemed" value={<NC why="No offer sent yet" />} muted tip={<>Workspaces that used the startup discount. No offer has been sent yet.</>}>
+        No offer sent yet
+      </Tile>
+      <Tile label="Eligible workspaces" value={fmtInt(c.eligible)}
+        tip={<>New workspaces that could receive the offer: everything except Tier 4 domains and domains that were already paying customers. This is the audience the offer email goes to.</>}>
+        {dl(c.eligible, p.eligible)}<br />{fmtPct(c.newWs ? c.eligible / c.newWs : null, 0)} of new workspaces
+      </Tile>
     </div>
   )
 }
@@ -57,8 +62,8 @@ function Kpis({ s }: { s: SV }) {
 function RateCards({ s }: { s: SV }) {
   if (s.beforeLaunch || s.T.visits < 1) return null
   const cards: { label: string; k: keyof StartupPeriod | null; p?: keyof StartupPeriod; desc: string; nc?: string }[] = [
-    { label: 'Visit → email capture', k: null, desc: 'Email captures ÷ visits', nc: 'Typeform responses aren’t in Snowflake' },
-    { label: 'MQAL rate', k: 'mqal', p: 'identified', desc: 'Tier 1–3 domains ÷ identified visitors' },
+    { label: 'Visit → application', k: null, desc: 'Applications ÷ visits', nc: 'Typeform responses aren’t in Snowflake' },
+    { label: 'Visit → workspace', k: 'newWs', p: 'visits', desc: 'New workspaces ÷ visits' },
     { label: 'Redemption rate', k: null, desc: 'Redeemed ÷ new workspaces', nc: 'No offer sent yet' },
     { label: 'Activation rate', k: 'activated', p: 'newWs', desc: 'Activated ÷ new workspaces' },
   ]
@@ -87,10 +92,6 @@ function Funnel({ s }: { s: SV }) {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Funnel</H2>
-      <p className="text-[15px] max-w-[880px]" style={{ color: T.muted }}>
-        Inbound visitors qualify into MQALs when their domain is a Tier 1–3 account, and partner portfolio lists add pre-approved MQALs. Both get the offer email. The downstream steps show whether the discount turned into paying customers.
-        {' '}MQALs here are Tier 1–3 domains, not the sales hand-raise MQAL.
-      </p>
       <div className="overflow-x-auto -mx-5 sm:mx-0">
         <table className="w-full min-w-[880px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
@@ -101,7 +102,6 @@ function Funnel({ s }: { s: SV }) {
             if ('h' in st) return (
               <tr key={`h-${i}`}><td colSpan={6} className="px-3 pt-5 pb-1">
                 <span className="text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.h}</span>
-                {st.n && <span className="ml-3 text-[13px]" style={{ color: T.faint }}>{st.n}</span>}
               </td></tr>
             )
             const c = cell(st)
@@ -128,10 +128,6 @@ function Funnel({ s }: { s: SV }) {
           })}</tbody>
         </table>
       </div>
-      <p className="text-[13px]" style={{ color: T.muted }}>
-        Change columns compare with the previous period. Highlighted rates are the ones we manage to. Identified = the visitor’s browser later signed in to a Clay workspace
-        (Clay staff and visitors seen in more than {STARTUP.maxWorkspacesPerVisitor} workspaces are excluded). New workspaces created in the last {STARTUP.newWindowDays} days of the range are still accruing.
-      </p>
     </Card>
   )
 }
@@ -176,10 +172,8 @@ function TiersAndReasons({ s }: { s: SV }) {
         </table></div>
       </Card>
       <Card className="p-5 sm:p-8 flex flex-col gap-4">
-        <H2>Why visitors didn’t qualify</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>
-          <span style={mono}>{fmtInt(notQ)}</span> identified visitors weren’t at a Tier 1–3 domain. Criteria are a lever too. (Captured emails aren’t in Snowflake, so this uses identified visitors.)
-        </p>
+        <H2>Why new workspaces didn’t qualify</H2>
+        <p className="text-[15px]" style={{ color: T.muted }}><span style={mono}>{fmtInt(notQ)}</span> new workspaces weren’t at a Tier 1–3 domain.</p>
         <div className="flex flex-col gap-2.5">
           {s.T.reasons.map(r => (
             <div key={r.reason} className="grid items-center gap-3 text-[15px]" style={{ gridTemplateColumns: 'minmax(140px, 190px) 1fr 48px', color: T.ink }}>
@@ -193,22 +187,6 @@ function TiersAndReasons({ s }: { s: SV }) {
         </div>
       </Card>
     </div>
-  )
-}
-
-function Partners() {
-  return (
-    <Card className="p-5 sm:p-8 flex flex-col gap-4">
-      <H2>Partner penetration</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Penetration = portfolio companies with a Clay workspace by the end of the selected dates ÷ portfolio companies shared with us.</p>
-      <div className="overflow-x-auto"><table className="w-full min-w-[960px] text-[15px]" style={{ color: T.ink }}>
-        <thead><tr style={head}>
-          {['Partner', 'Type', 'Portfolio', 'MQALs in period', 'Workspaces to date', 'Penetration', 'New WS in period', 'Δ vs comp.'].map((h, i) =>
-            <th key={h} className={`${th} ${i < 2 ? 'text-left' : 'text-right'}`}>{h}</th>)}
-        </tr></thead>
-        <tbody><tr><td colSpan={8} className="px-3 py-4 text-[14px]"><NC why="Partner portfolio lists aren’t in Snowflake" /> · needs the VC and accelerator portfolio lists in Snowflake (partner, type and portfolio company domains).</td></tr></tbody>
-      </table></div>
-    </Card>
   )
 }
 
@@ -246,7 +224,7 @@ function Campaigns({ s }: { s: SV }) {
 const DISCUSS = [
   'Where is the biggest leak between visit and new workspace, and who owns it?',
   'Is the MQAL rate low because of who applies or because the criteria are too strict?',
-  'Partner-list MQALs skip the form. Do they open and convert as well as inbound MQALs?',
+  'How many eligible workspaces will get the offer, and when does the first send go out?',
 ]
 
 export default function StartupView({ s, loading }: { s: SV; loading: boolean }) {
@@ -256,7 +234,6 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <RateCards s={s} />
       <Funnel s={s} />
       <TiersAndReasons s={s} />
-      <Partners />
       <Campaigns s={s} />
       <section className="flex flex-col gap-3">
         <Eyebrow>Discuss</Eyebrow>

@@ -30,8 +30,10 @@ function period(rows: Row[], b: 'cur' | 'prev') {
   return {
     visits: vis?.n ?? 0, identified: vis?.a ?? 0,
     mqal: sum(tiers.map(t => t.mqal)), tiers,
-    newWs: ws?.n ?? 0, activated: ws?.a ?? 0, paid: ws?.p ?? 0, active: ws?.x ?? 0,
-    reasons: NOT_QUALIFIED.map(r => ({ reason: r, people: cls(r).a })).filter(r => r.people > 0).sort((a, b) => b.people - a.people),
+    newWs: ws?.n ?? 0, activated: ws?.a ?? 0, paid: ws?.p ?? 0, active: ws?.x ?? 0, eligible: ws?.c ?? 0,
+    newWsT13: sum(tiers.map(t => t.newWs)),
+    /** New workspaces outside Tier 1–3, by reason. */
+    reasons: NOT_QUALIFIED.map(r => ({ reason: r, people: cls(r).p })).filter(r => r.people > 0).sort((a, b) => b.people - a.people),
     campaigns: rs.filter(r => r.k === 'cmp').map(r => {
       const [platform, ...rest] = r.d.split('|')
       return { platform, campaign: rest.join('|'), visits: r.n, mqal: r.a, newWs: r.p }
@@ -45,24 +47,23 @@ export type FunnelStep =
   | { h: string; n?: string }
   | { k: keyof StartupPeriod | null; p?: keyof StartupPeriod; rl?: string; key?: boolean; name: string; lever: string; nc?: string }
 
+const NO_TYPEFORM = `Applications come in through a Typeform (${STARTUP.applyUrl}) whose responses aren’t in Snowflake yet`
+const NO_LIFECYCLE = 'No offer sent yet, and lifecycle email isn’t in Snowflake'
 export const STEPS: FunnelStep[] = [
-  { h: 'Site', n: 'Startup program page' },
-  { k: 'visits', name: 'Visits', lever: 'Paid, partner newsletters, SEO' },
-  { k: null, rl: 'Visit → email capture', key: true, name: 'Email captures', lever: 'Page copy & form length', nc: `The Apply button opens a Typeform (${STARTUP.applyUrl}); its responses aren’t in Snowflake` },
-  { k: 'identified', p: 'visits', rl: 'Identified rate', name: 'Identified visitors', lever: 'Visitor later seen signed in to Clay · cookie map' },
-  { h: 'Qualify' },
-  { k: 'mqal', p: 'identified', rl: 'MQAL rate', key: true, name: 'MQALs (inbound)', lever: 'Tier 1–3 domains · Salesforce sales tier' },
-  { k: null, name: 'MQALs (partner lists)', lever: 'Pre-approved VC & accelerator portfolio companies', nc: 'No partner portfolio lists in Snowflake yet' },
-  { k: 'mqal', name: 'All MQALs', lever: 'Inbound + partner lists (inbound only until partner lists connect)' },
+  { h: 'Site' },
+  { k: 'visits', name: 'Visits', lever: 'Snowflake · MARKETING_PAGEVIEWS (www.clay.com/clay-for-startups)' },
+  { k: null, rl: 'Visit → application', key: true, name: 'Applications', lever: 'Typeform', nc: NO_TYPEFORM },
+  { h: 'Workspaces' },
+  { k: 'newWsT13', p: 'newWs', rl: 'Share of all new workspaces', key: true, name: 'New workspaces (Tier 1–3)', lever: 'Snowflake · CUSTOMERS → Salesforce sales tier' },
+  { k: 'newWs', p: 'visits', rl: 'Visit → workspace', name: 'Total new workspaces (all tiers)', lever: `Snowflake · CUSTOMERS · created within ${STARTUP.newWindowDays} days of the visit` },
+  { k: 'eligible', p: 'newWs', rl: 'Eligible share', key: true, name: 'Eligible workspaces', lever: 'Excludes Tier 4 and domains that were already paying customers' },
   { h: 'Email' },
-  { k: null, rl: 'Send rate', name: 'Email sends', lever: 'Every MQAL gets the offer email · Lifecycle', nc: 'No offer sent yet; lifecycle email isn’t in Snowflake' },
-  { k: null, rl: 'Open rate', name: 'Email opens', lever: 'Sender, subject, partner co-branding', nc: 'No offer sent yet; lifecycle email isn’t in Snowflake' },
+  { k: null, rl: 'Send rate', name: 'Email sends', lever: 'Lifecycle (Inflection)', nc: NO_LIFECYCLE },
+  { k: null, rl: 'Open rate', name: 'Email opens', lever: 'Lifecycle (Inflection)', nc: NO_LIFECYCLE },
   { h: 'Outcome' },
-  { k: 'newWs', p: 'visits', rl: 'Visit → workspace', name: 'New workspaces', lever: `Offer email CTA & signup flow · created within ${STARTUP.newWindowDays} days of the visit` },
-  { h: 'Downstream', n: 'Did the discount buy a customer?' },
-  { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Discount auto-applied at checkout vs code', nc: 'No offer sent yet' },
-  { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated', lever: 'Onboarding: first table run within 7 days' },
-  { k: 'paid', p: 'activated', rl: 'Paid rate', name: 'Paid', lever: 'No discount offered yet, so any paid plan · first invoice paid' },
+  { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Stripe discount', nc: 'No offer sent yet' },
+  { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated', lever: 'Snowflake · first table run within 7 days' },
+  { k: null, rl: 'Paid rate', name: 'Paid (discounted price)', lever: 'Stripe · first discounted invoice paid', nc: 'No offer sent yet' },
 ]
 
 export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate]; dataEnd: ISODate; rows: Row[] }) {

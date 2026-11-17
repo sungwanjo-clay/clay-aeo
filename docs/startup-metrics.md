@@ -20,3 +20,31 @@
 **Paid campaigns:** paid visits are those with a gclid, fbclid or LinkedIn click id, or a paid utm_medium. Spend and cost columns are "Not connected" because there's no ad-spend table.
 
 **Partner penetration:** "Not connected" until the VC and accelerator portfolio lists are in Snowflake.
+
+## Nov 17 revision
+
+**Tiles:**
+- MQALs (Tier 1–3 domains)
+- Total new workspaces
+- Offer redeemed (Not connected)
+- Eligible workspaces
+
+**Funnel steps:**
+1. Visits
+2. Applications (Not connected: Typeform)
+3. New workspaces (Tier 1–3)
+4. Total new workspaces
+5. Eligible workspaces
+6. Email sends (Not connected)
+7. Email opens (Not connected)
+8. Offer redeemed (Not connected)
+9. Activated
+10. Paid at discounted price (Not connected)
+
+**Eligible:** a new workspace counts as eligible unless:
+- its domain is Tier 4, or
+- its domain already had a paid workspace (first invoice) before this workspace was created.
+
+**Removed:**
+- The identified-visitors step.
+- The inbound vs partner-list split, and the Partner penetration section.
