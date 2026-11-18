@@ -3,7 +3,8 @@
 import type { FunnelStep, StartupPeriod, StartupViewModel as SV } from '@/lib/plg/startup/compute'
 import { STEPS } from '@/lib/plg/startup/compute'
 import { STARTUP } from '@/lib/plg/startup/sql'
-import { Card, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
+import { useState } from 'react'
+import { Card, Delta, Eyebrow, H2, InfoTip, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
 const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
@@ -52,7 +53,7 @@ function Kpis({ s }: { s: SV }) {
         No offer sent yet
       </Tile>
       <Tile label="Eligible workspaces" value={<NC why="Eligibility source isn’t in Snowflake yet" />} muted
-        tip={<>New workspaces from venture-backed startups at Pre-Seed to Series A, or portfolio companies of partner VC firms. The source will be in Snowflake; it isn’t hooked up yet. This is the audience the offer email goes to.</>}>
+        tip={<>New workspaces from companies that pass the Startup Offer Eligibility rule: verified Seed or Series A, VC-backed (Pre-Seed doesn’t qualify), and a net-new workspace. Backing from a partner firm can change the offer tier but doesn’t make a company eligible on its own. Comes from the eligibility workflow’s weekly snapshot in Snowflake, which isn’t hooked up yet.</>}>
         Source not hooked up yet
       </Tile>
     </div>
@@ -190,18 +191,109 @@ function TiersAndReasons({ s }: { s: SV }) {
   )
 }
 
+type PartnerCut = 'partnered' | 'not'
+const PARTNER_COLS: { h: string; tip?: string }[] = [
+  { h: 'Firm' }, { h: 'Type', tip: 'VC fund or accelerator.' },
+  { h: 'Verified portfolio', tip: 'Portfolio companies we verified from firm-first sources: Harmonic, PitchBook, Crunchbase, Dealroom, the firm’s portfolio page, official accelerator rosters (YC directory), partner-shared lists and funding announcements. Companies found only by matching our own workspaces aren’t counted, so the denominator doesn’t depend on Clay usage.' },
+  { h: 'Shared by partner', tip: 'How many of the verified companies were on a list the firm shared with us. A coverage check, not the denominator.' },
+  { h: 'With a workspace', tip: 'Distinct verified portfolio companies with at least one Clay workspace (free or paid) by the end of the selected dates. A company with several workspaces counts once.' },
+  { h: 'Penetration', tip: 'With a workspace ÷ verified portfolio, as of the end of the selected dates.' },
+  { h: 'Eligible', tip: 'Companies confirmed eligible since tracking began: verified Seed or Series A, VC-backed, with a net-new workspace. Stays in the count if the company later pays or raises again.' },
+  { h: 'Needs check', tip: 'Fits on funding, but has an existing free workspace or an unconfirmed match, so the net-new workspace check is still open. Not counted as eligible or ineligible.' },
+  { h: 'Redeemed', tip: 'Eligible companies that redeemed the startup offer, counted once per company.' },
+  { h: 'Redemption rate', tip: 'Redeemed ÷ eligible, cumulative since tracking began. New redemptions in the period are shown underneath.' },
+  { h: 'Referrals', tip: 'Recorded referrals from the firm. Separate from portfolio backing and promo codes.' },
+]
+
+function ColDefs({ cols }: { cols: { h: string; tip?: string }[] }) {
+  return (
+    <details className="text-[14px]" style={{ color: T.ink }}>
+      <summary className="cursor-pointer select-none" style={{ color: T.muted }}>What each column means</summary>
+      <dl className="mt-3 grid gap-x-6 gap-y-2 grid-cols-1 md:grid-cols-[180px_1fr]">
+        {cols.filter(c => c.tip).map(c => <div key={c.h} className="contents"><dt className="font-semibold">{c.h}</dt><dd style={{ color: T.muted }}>{c.tip}</dd></div>)}
+      </dl>
+    </details>
+  )
+}
+
 function Partners() {
+  const [cut, setCut] = useState<PartnerCut>('partnered')
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
-      <H2>Partner penetration</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Penetration = portfolio companies with a Clay workspace by the end of the selected dates ÷ portfolio companies shared with us.</p>
-      <div className="overflow-x-auto"><table className="w-full min-w-[960px] text-[15px]" style={{ color: T.ink }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <H2>Partner penetration</H2>
+        <Segmented ariaLabel="Firm cut" value={cut} onChange={setCut}
+          options={[{ id: 'partnered', label: 'Partnered firms' }, { id: 'not', label: 'Not partnered' }]} />
+      </div>
+      <div className="grid gap-3 grid-cols-1 md:grid-cols-2 text-[15px]" style={{ color: T.ink }}>
+        <p><b>Penetration</b> = verified portfolio companies with a Clay workspace ÷ verified portfolio companies. How much of the portfolio uses Clay.</p>
+        <p><b>Redemption rate</b> = eligible companies that redeemed ÷ companies confirmed eligible. A smaller denominator: only Seed to Series A, VC-backed, with a net-new workspace.</p>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-[15px]" style={{ color: T.ink }}>
         <thead><tr style={head}>
-          {['Partner', 'Type', 'Portfolio', 'MQALs in period', 'Workspaces to date', 'Penetration', 'New WS in period', 'Δ vs comp.'].map((h, i) =>
-            <th key={h} className={`${th} ${i < 2 ? 'text-left' : 'text-right'}`}>{h}</th>)}
+          {PARTNER_COLS.map((c, i) =>
+            <th key={c.h} className={`${th} ${i < 2 ? 'text-left' : 'text-right'}`}>
+              {c.h}
+            </th>)}
         </tr></thead>
-        <tbody><tr><td colSpan={8} className="px-3 py-4 text-[14px]"><NC why="Partner portfolio lists aren’t in Snowflake" /> · needs the VC and accelerator portfolio lists in Snowflake (partner, type and portfolio company domains).</td></tr></tbody>
+        <tbody><tr><td colSpan={PARTNER_COLS.length} className="px-3 py-4 text-[14px]">
+          <NC why="The portfolio roster isn’t in Snowflake yet" /> · needs the portfolio roster and weekly eligibility snapshot in Snowflake
+        </td></tr></tbody>
       </table></div>
+      <p className="text-[14px]" style={{ color: T.muted }}>{cut === 'partnered' ? 'Partnered = the Partner box is checked in the firm list. Firms marked To approve show as pending.' : 'Not partnered = firms in the list without the Partner box checked.'}</p>
+      <ColDefs cols={PARTNER_COLS} />
+      <p className="text-[13px]" style={{ color: T.muted }}>A company backed by two firms counts in both rows but once in the total. Redemption shows Not connected, not zero, until offer redemptions are in Snowflake.</p>
+    </Card>
+  )
+}
+
+/** Clay account and offer status are separate fields: a company can be paid and have redeemed. */
+const ACCOUNT_STATES = [
+  { l: 'Not on Clay', bg: '#FFFFFF', ink: T.ink, bd: T.border },
+  { l: 'Free workspace', bg: '#EFEEEA', ink: T.ink },
+  { l: 'Paid', bg: '#E6EEFF', ink: '#1E3A8A' },
+]
+const OFFER_STATES = [
+  { l: 'Eligible', bg: '#E8F6F8', ink: '#0E4F57' },
+  { l: 'Needs check', bg: T.amberBg, ink: T.amberInk },
+  { l: 'Not eligible', bg: '#EFEEEA', ink: T.muted },
+  { l: 'Redeemed', bg: '#E6EEFF', ink: '#1E3A8A' },
+  { l: 'Unknown', bg: '#FFFFFF', ink: T.faint, bd: T.border },
+]
+function Chip({ l, bg, ink, bd }: { l: string; bg: string; ink: string; bd?: string }) {
+  return <span className="inline-flex rounded-full px-2.5 py-1 text-[13px] whitespace-nowrap" style={{ background: bg, color: ink, border: bd ? `1px solid ${bd}` : undefined }}>{l}</span>
+}
+
+const COMPANY_COLS: { h: string; tip?: string }[] = [
+  { h: 'Company' }, { h: 'Backed by', tip: 'Firms in the firm list that back the company, with the source and evidence link for each.' },
+  { h: 'Stage', tip: 'Latest verified round, from the weekly snapshot.' }, { h: 'Last round' },
+  { h: 'Headcount 6-mo', tip: 'Headcount growth over the last six months.' },
+  { h: 'Score', tip: 'Provisional opportunity score from funding recency and six-month headcount growth. Missing signals stay unknown rather than scoring zero. Separate from offer eligibility.' },
+  { h: 'Clay account' }, { h: 'Offer' },
+]
+
+function Companies() {
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>Portfolio companies</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>The outreach list: filter to Not on Clay + Eligible for net-new prospects. Paid and redeemed companies are left out of the offer queue.</p>
+      <div className="flex flex-wrap gap-x-6 gap-y-2 text-[13px]" style={{ color: T.muted }}>
+        <span className="inline-flex flex-wrap items-center gap-1.5">Clay account {ACCOUNT_STATES.map(c => <Chip key={c.l} {...c} />)}</span>
+        <span className="inline-flex flex-wrap items-center gap-1.5">Offer {OFFER_STATES.map(c => <Chip key={c.l} {...c} />)}</span>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-[15px]" style={{ color: T.ink }}>
+        <thead><tr style={head}>
+          {COMPANY_COLS.map((c, i) =>
+            <th key={c.h} className={`${th} ${i < 3 || i > 5 ? 'text-left' : 'text-right'}`}>
+              {c.h}
+            </th>)}
+        </tr></thead>
+        <tbody><tr><td colSpan={COMPANY_COLS.length} className="px-3 py-4 text-[14px]">
+          <NC why="The portfolio roster isn’t in Snowflake yet" /> · fills from the same roster and eligibility snapshot as the table above
+        </td></tr></tbody>
+      </table></div>
+      <ColDefs cols={COMPANY_COLS} />
+      <p className="text-[13px]" style={{ color: T.muted }}>Needs check = fits on funding but has an existing free workspace or an unconfirmed match; it isn’t counted as eligible or ineligible until the net-new workspace check is done.</p>
     </Card>
   )
 }
@@ -251,6 +343,7 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <Funnel s={s} />
       <TiersAndReasons s={s} />
       <Partners />
+      <Companies />
       <Campaigns s={s} />
       <section className="flex flex-col gap-3">
         <Eyebrow>Discuss</Eyebrow>

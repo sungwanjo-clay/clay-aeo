@@ -16,7 +16,8 @@
  *   cls   identified visitors by class (d = Tier 1..4 | No Salesforce account | Personal email | Academic | Invalid or missing domain):
  *         n distinct domains (business classes), a identified visitors, p new workspaces, x activated ≤7d, c paid
  *   ws    new workspaces: n, a activated ≤7d, p paid, x paid and still active, c = 0 (eligibility not connected:
- *         venture-backed Pre-Seed to Series A OR partner-VC portfolio, from a Snowflake source not hooked up yet)
+ *         Startup Offer Eligibility = verified Seed or Series A, VC-backed, net-new workspace; Pre-Seed is out and
+ *         partner backing changes the offer tier, not eligibility. Source: the workflow's weekly snapshot, not in Snowflake yet)
  *   mqn   MQALs: distinct Tier 1–3 domains among NEW workspaces (d = tier), n domains, a workspaces
  *   cmp   paid campaigns (d = platform|campaign): n visitors, a MQALs (Tier 1–3 domains), p new workspaces
  */

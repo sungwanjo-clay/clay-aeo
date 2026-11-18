@@ -19,7 +19,7 @@
 
 **Paid campaigns:** paid visits are those with a gclid, fbclid or LinkedIn click id, or a paid utm_medium. Spend and cost columns are "Not connected" because there's no ad-spend table.
 
-**Partner penetration:** "Not connected" until the VC and accelerator portfolio lists are in Snowflake.
+**Partner penetration:** "Not connected" until the portfolio roster and eligibility snapshot are in Snowflake (see Portfolio penetration below).
 
 ## Nov 17 revision
 
@@ -53,4 +53,24 @@
 
 **Partner penetration:** the section is kept. Only the partner-list row was removed from the funnel.
 
-**Eligible workspaces (from Nov 17):** a workspace is eligible if it's a venture-backed startup at Pre-Seed to Series A, or a portfolio company of a partner VC firm. The data will come from a Snowflake source that isn't hooked up yet, so the tile and funnel step show "Not connected". The Salesforce funding-round field is not used for this.
+**Eligible workspaces (from Nov 18):** eligibility follows the Startup Offer Eligibility workflow in Clay: verified Seed or Series A, VC-backed, and a net-new workspace. Pre-Seed doesn't qualify. Backing from a partner firm can change the offer tier but doesn't make a company eligible on its own. The data will come from the workflow's weekly eligibility snapshot in Snowflake, which isn't hooked up yet, so the tile and funnel step show "Not connected". The Salesforce funding-round field is not used for this.
+
+## Portfolio penetration (from Nov 18)
+
+The partner section measures company adoption across firm portfolios. It's a different population from the inbound funnel (startup-page visitors), and it counts companies, not workspaces. It uses the same eligibility rule as the funnel.
+
+| Metric | Definition |
+|---|---|
+| Verified portfolio | Companies verified from firm-first sources: Harmonic, PitchBook, Crunchbase, Dealroom, firm portfolio pages, official accelerator rosters (YC directory), partner-shared lists, funding announcements. Companies found only by matching our own workspaces are excluded, so the denominator doesn't depend on Clay usage. They're used as an audit of roster gaps. |
+| Shared by partner | Verified companies that were on a list the firm shared. A coverage column, not the denominator. |
+| With a workspace | Verified companies with at least one Clay workspace, free or paid, by period end. Once per company. |
+| Penetration | With a workspace ÷ verified portfolio, as of period end. |
+| Eligible | Companies confirmed eligible since tracking began. They stay in the count if they later pay or raise again. |
+| Needs check | Fits on funding, but has an existing free workspace or an unconfirmed match. Counted as neither eligible nor ineligible. |
+| Redeemed / Redemption rate | Eligible companies that redeemed ÷ eligible, cumulative, with new redemptions in the period underneath. "Not connected", not zero, until redemption events are in Snowflake. Cohorts by first-eligible date come later, once weekly snapshots have built up history. |
+| Referrals | Recorded referrals from the firm, kept separate from backing and promo codes. |
+
+- **Cuts:** Partnered (the Partner box is checked in the firm list; To approve shows as pending) and Not partnered.
+- A company backed by two firms counts in both firm rows and once in the total.
+- **Portfolio companies drill-down:** one row per company, with firms backing it, stage, last round, six-month headcount growth, a provisional opportunity score, Clay account (Not on Clay / Free workspace / Paid) and Offer (Eligible / Needs check / Not eligible / Redeemed / Unknown) as separate fields. A company can be paid and redeemed. The outreach queue is Not on Clay + Eligible.
+- **Sources:** a current company × firm roster and a dated weekly eligibility history, both landed in Snowflake by Data Engineering from the Clay workflow, plus offer redemption events. Everything shows "Not connected" until these exist.
