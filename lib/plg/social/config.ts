@@ -38,7 +38,14 @@ export const CHANNELS: CreatorChannel[] = [
       firstTouch: `(f."UTM_MEDIUM" = 'marketingcontentowned' AND (LOWER(f."UTM_CAMPAIGN") = 'not-my-business' OR (f."UTM_SOURCE" = 'other' AND (f."RAW_REFERRER" ILIKE '%youtu%' OR f."PATH" ILIKE '/wedge%'))))`,
       note: 'Matched on utm_medium=marketingcontentowned + the /wedge offer page + a YouTube referrer, because Snowflake drops utm_campaign on cohorts.clay.com. Form submits keep the campaign (not-my-business).',
     } },
-  { id: 'eric', label: 'Eric', youtubeId: null, handle: null, campaignPrefix: null, requireSource: null, fallback: null },
+  { id: 'eric', label: 'Eric Nowoslawski', youtubeId: 'UC6ef5yDFz7gm8rARwX3HaDw', handle: '@ericnowoslawski',
+    campaignPrefix: null, requireSource: null,
+    fallback: {
+      // His descriptions link app.clay.com/signup?via=bb305b (Rewardful affiliate code), no UTMs.
+      pageview: `(p."AFFILIATE_ID" = 'bb305b')`,
+      firstTouch: `(f."URL" ILIKE '%via=bb305b%')`,
+      note: 'Matched on Eric’s Rewardful affiliate code (?via=bb305b): his video links go straight to app.clay.com/signup with no UTMs, so visits are counted per channel, not per video. In blended attribution this traffic is the Influencer: Affiliate channel.',
+    } },
 ]
 
 /** Each video is measured over its first N days after publish. */

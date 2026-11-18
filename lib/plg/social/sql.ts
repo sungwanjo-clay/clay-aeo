@@ -92,7 +92,7 @@ export function socialSql(q: SocialQuery): string {
 pv AS (
   SELECT p."ANONYMOUS_ID" AS "aid", p."USER_ID" AS "uid", p."TIMESTAMP_UTC" AS "ts", CAST(p."TIMESTAMP_UTC" AS date) AS "day",
          ${DEVICE_SQL('p."PLATFORM"')} AS "dev", ${REGION_SQL('p."TIMEZONE"')} AS "geo",
-         CASE WHEN p."REFERRER" = 'affiliate' AND COALESCE(p."UTM_CAMPAIGN", '') = '' THEN 'affiliate'
+         CASE ${q.fallbacks.length ? fb('p').map(f => `WHEN ${f.pred} THEN ${lit(f.key)}`).join(' ') : ''} WHEN p."REFERRER" = 'affiliate' AND COALESCE(p."UTM_CAMPAIGN", '') = '' THEN 'affiliate'
               ELSE ${keyExpr(`LOWER(COALESCE(p."UTM_CAMPAIGN", ''))`, 'p')} END AS "key",
          COALESCE(vm."cs", CASE ${fbWin('p', 'cohortStart') || 'WHEN FALSE THEN NULL'} END) AS "cs",
          COALESCE(vm."ce", CASE ${fbWin('p', 'cohortEnd') || 'WHEN FALSE THEN NULL'} END) AS "ce"
@@ -127,7 +127,7 @@ ft AS (
   LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(f."UTM_CAMPAIGN", '')) AND (vm."src" = '' OR f."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
   WHERE CAST(f."CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
     AND (f."UTM_SOURCE" ILIKE '%youtu%' OR f."RAW_REFERRER" ILIKE '%youtu%' OR f."REFERRER" ILIKE '%youtu%' OR vm."vid" IS NOT NULL OR ${fbAny('f')})
-    AND COALESCE(f."CHANNEL", '') <> 'Affiliate'
+    AND (COALESCE(f."CHANNEL", '') <> 'Affiliate' OR ${fbAny('f')})
 ),
 fx AS (
   SELECT ft.*, COALESCE(wt."tier", 'Untiered') AS "tier",

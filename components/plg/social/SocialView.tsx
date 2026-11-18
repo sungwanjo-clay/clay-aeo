@@ -7,7 +7,7 @@ import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, NO_ANALYTICS, STEP_GOALS, TIER_LA
 import { fmtShort } from '@/lib/plg/dates'
 import { Card, Delta, Eyebrow, H2, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned } from '../ui'
 
-export type SocialChannel = 'all' | 'peter' | 'payton'
+export type SocialChannel = 'all' | 'peter' | 'payton' | 'eric'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
 const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const

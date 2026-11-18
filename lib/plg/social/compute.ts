@@ -65,7 +65,10 @@ export function channelFallbacks(docs: YtChannelDoc[], dataEnd: ISODate): Channe
     if (!ch?.fallback) return []
     const linked = doc.videos.filter(v => v.campaign)
     const only = linked.length === 1 ? linked[0] : null
-    const first = [...doc.videos].map(v => v.published).sort()[0] ?? dataEnd
+    // Channel-level rule: start no earlier than the sync window (an old channel's first video can be years back).
+    const since = (doc as YtChannelDoc & { since?: ISODate }).since ?? addDays(dataEnd, -180)
+    const firstVideo = [...doc.videos].map(v => v.published).sort()[0] ?? dataEnd
+    const first = firstVideo > since ? firstVideo : since
     return [{
       key: only ? only.id : `ch:${ch.id}`,
       cohortStart: only ? only.published : first, cohortEnd: only ? cohortEnd(only.published, dataEnd) : dataEnd,
@@ -122,7 +125,8 @@ export function buildSocial(o: {
     if (!doc) return { ch, doc: null }
     const analytics = doc.analyticsAccess !== false
     const tracked = (v: YtVideo) => !!v.campaign || fallbackKeys.has(v.id)
-    const videos = doc.videos.map(v => {
+    const sinceDay = (doc as YtChannelDoc & { since?: ISODate }).since ?? '1970-01-01'
+    const videos = doc.videos.filter(v => v.published >= sinceDay).map(v => {
       const isTracked = tracked(v)
       const coh = v.cohort28
       const vis = isTracked ? one('vis', 'coh', v.id) : null

@@ -21,6 +21,7 @@ import { resolve } from 'node:path'
 const CHANNELS = [
   { id: 'UC1C7lmXOfNHlS2cORnPbgaA', key: 'peter' },
   { id: 'UCinB0eB_WDaCTESqfQf_40A', key: 'payton' },
+  { id: 'UC6ef5yDFz7gm8rARwX3HaDw', key: 'eric' },
 ]
 const since = process.argv[2] ?? '2026-07-01'
 const today = new Date().toISOString().slice(0, 10)

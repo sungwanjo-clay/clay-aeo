@@ -120,7 +120,7 @@ function App() {
   // Social tab: routed on the hash (#social, #social-peter) so links can point at it.
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
-    return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' }
+    return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' } : h === 'social-eric' ? { tab: 'social', channel: 'eric' }
       : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
@@ -128,7 +128,7 @@ function App() {
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
   // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
-  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'cohort', payton: 'cohort' })
+  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'cohort', payton: 'cohort', eric: 'calendar' })
 
   // Capabilities
   useEffect(() => {
@@ -341,7 +341,8 @@ function App() {
       onTab={t => go(t, route.channel)}
       socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)'
         : route.channel === 'payton' ? 'Payton’s YouTube channel, Not My Business (@itsnotmybusiness)'
-        : 'YouTube channels · Peter Kang and Payton, plus untagged YouTube traffic'}
+        : route.channel === 'eric' ? 'Eric Nowoslawski’s YouTube channel (@ericnowoslawski) · matched on his affiliate code, by channel'
+        : 'YouTube channels · Peter Kang, Payton and Eric Nowoslawski, plus untagged YouTube traffic'}
       social={<div className="flex flex-col gap-6 sm:gap-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <ChannelPills value={route.channel} onChange={c => go('social', c)} />

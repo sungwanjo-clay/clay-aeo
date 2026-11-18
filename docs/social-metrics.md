@@ -79,3 +79,10 @@ YouTube data comes through Viewer access to Peter's channel, a path Google doesn
   - Email captures: real for offer-page videos.
   - MQALs (Tier 1–3 domains): captured emails aren't in Snowflake yet.
   - Email sends, opens and clicks: lifecycle email data isn't in Snowflake yet.
+
+## Eric Nowoslawski (@ericnowoslawski, UC6ef5yDFz7gm8rARwX3HaDw)
+
+- **Links:** his video descriptions link `app.clay.com/signup?via=bb305b`. That's a Rewardful affiliate code, with no UTMs.
+- **Matching:** the channel rule matches page views on `AFFILIATE_ID = 'bb305b'` and first touch on a URL containing `via=bb305b`. Visits are credited to his channel as a whole, not to individual videos.
+- **Attribution:** in blended attribution this traffic is the Influencer: Affiliate channel. On this tab it counts toward Eric's row, not the excluded affiliate footnote.
+- **Views:** "Not connected" until Eric does the owner sign-in.
