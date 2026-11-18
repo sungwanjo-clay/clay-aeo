@@ -19,12 +19,16 @@ export interface YtVideo {
   /** [day, views, minutes, avgViewPct, subsGained] */
   daily: [ISODate, number, number, number, number][]
   cohort28: { start: ISODate; end: ISODate; days: number; views: number; minutes: number; avgViewPct: number; subsGained: number } | null
+  /** [day, thumbnail impressions, thumbnail clicks] from the Reporting API; null/absent = not connected. */
+  impressions?: [ISODate, number, number][] | null
 }
 export interface YtChannelDoc {
   channelId: string; key: string; title: string; handle: string; subscribers: number; videoCount: number
   fetchedAt: string
   /** false = no Viewer access; views/watch time unknown (Data API metadata only). */
   analyticsAccess?: boolean
+  /** Channel [day, impressions, clicks]. null/absent = no owner sign-in; [] = job set up, no files yet. */
+  impressionsDaily?: [ISODate, number, number][] | null
   /** [day, views, minutes, subsGained, subsLost, avgViewPct] */
   daily: [ISODate, number, number, number, number, number][]
   videos: YtVideo[]
@@ -135,10 +139,11 @@ export function buildSocial(o: {
       const ex = isTracked ? one('ex', 'coh', v.id) : null
       const cohortDay = Math.min(COHORT_DAYS, Math.max(0, daysBetween(v.published, o.dataEnd)))
       const views = analytics ? (coh?.views || null) : null
+      const impr28 = v.impressions?.length ? sum(v.impressions.filter(r => r[0] >= v.published && r[0] <= addDays(v.published, COHORT_DAYS - 1)).map(r => r[1])) : null
       const offerPage = !!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!))
       return {
         id: v.id, title: v.title, published: v.published, channel: ch.label, durationSec: v.durationSec,
-        cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews,
+        cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews, impressions: impr28,
         views, viewsPending: analytics && !coh?.views, minutes: coh?.minutes ?? 0, avgViewPct: analytics && coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
         destination: v.destination, campaign: v.campaign, tagged: isTracked, offerPage,
         visits: vis?.n ?? null, captures: offerPage && form ? form.n : null,
@@ -151,7 +156,8 @@ export function buildSocial(o: {
       }
     }).sort((a, b) => b.published.localeCompare(a.published))
     const keys = new Set([...doc.videos.map(v => v.id), `ch:${ch.id}`])
-    return { ch, doc, analytics, videos, keys }
+    const imprState: 'live' | 'pending' | 'none' = doc.impressionsDaily == null ? 'none' : doc.impressionsDaily.length ? 'live' : 'pending'
+    return { ch, doc, analytics, videos, keys, imprState }
   })
   type Ch = Extract<(typeof channels)[number], { videos: unknown }>
   const connected = channels.filter((c): c is Ch => !!c.doc)
@@ -170,8 +176,9 @@ export function buildSocial(o: {
       const reported = vs.filter(v => v.views)
       const views = !c.analytics ? null : reported.length ? sum(reported.map(v => v.views!)) : (vs.length ? null : 0)
       const tagged = vs.filter(v => v.tagged)
+      const impressions = c.imprState === 'live' ? sum(vs.map(v => v.impressions ?? 0)) : null
       return {
-        videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0,
+        videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions,
         views, minutes: sum(vs.map(v => v.minutes)), subs: sum(vs.map(v => v.subsGained)),
         avgPct: views ? sum(reported.map(v => v.views! * (v.avgViewPct ?? 0))) / views : null,
         visits: sum(tagged.map(v => v.visits ?? 0)), captures: sum(tagged.map(v => v.captures ?? 0)),
@@ -187,8 +194,9 @@ export function buildSocial(o: {
     const views = yt ? sum(yt.map(r => r[1])) : null
     const kr = (k: string) => rows.filter(r => r.k === k && r.b === b && c.keys.has(r.key))
     const ws = kr('ws'); const ex = kr('ex')
+    const impressions = c.imprState === 'live' ? sum(c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end).map(r => r[1])) : null
     return {
-      videos: null as number | null, pending: 0,
+      videos: null as number | null, pending: 0, impressions,
       views, minutes: yt ? sum(yt.map(r => r[2])) : 0, subs: yt ? sum(yt.map(r => r[3] - r[4])) : 0,
       avgPct: yt && views ? sum(yt.map(r => r[1] * r[5])) / views / 100 : null,
       visits: sum(kr('vis').map(r => r.n)), captures: sum(kr('form').map(r => r.n)),
@@ -204,6 +212,7 @@ export function buildSocial(o: {
   type Tot = ReturnType<typeof totals>
   const combine = (ts: Tot[]): Tot => ({
     videos: ts.every(t => t.videos == null) ? null : sum(ts.map(t => t.videos ?? 0)), pending: sum(ts.map(t => t.pending)),
+    impressions: nsum(ts.map(t => t.impressions)),
     views: nsum(ts.map(t => t.views)), minutes: sum(ts.map(t => t.minutes)), subs: sum(ts.map(t => t.subs)), avgPct: ts.length === 1 ? ts[0].avgPct : null,
     visits: sum(ts.map(t => t.visits)), captures: sum(ts.map(t => t.captures)), newWs: sum(ts.map(t => t.newWs)),
     activated: sum(ts.map(t => t.activated)), paid: sum(ts.map(t => t.paid)), expanded: sum(ts.map(t => t.expanded)), churned: sum(ts.map(t => t.churned)),
@@ -249,8 +258,15 @@ export function buildSocial(o: {
   const nc = (id: string, stage: string, label: string, lever: string, source: string, goal: number | null, why: string): Step =>
     ({ id, stage, label, lever, source, cur: null, prev: null, rate: null, prevRate: null, goal, notConnected: true, impact: null, why })
   const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
+  const imprKnown = inScope.length > 0 && inScope.every(c => c.imprState === 'live')
+  const imprWhy = inScope.some(c => c.imprState === 'none')
+    ? 'Needs the channel owner’s one-time sign-in (YouTube Reporting API, channel_reach_basic_a1)'
+    : 'Report job is set up; Google delivers the first daily files about 48 hours after setup'
   const steps: Step[] = [
-    { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail, title, topic, cadence', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views, rate: null, prevRate: null, goal: null,
+    { id: 'impr', stage: 'Reach', label: 'Impressions', lever: 'Thumbnail, title, topic, cadence', source: 'YouTube Reporting API', cur: pc.impressions, prev: pp.impressions, rate: null, prevRate: null, goal: null,
+      notConnected: !imprKnown, why: imprWhy, impact: null },
+    { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail & title', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views,
+      rate: imprKnown ? rate(pc.views, pc.impressions) : null, prevRate: imprKnown ? rate(pp.views, pp.impressions) : null, goal: null,
       notConnected: !viewsKnown, why: NO_ANALYTICS, impact: null },
     { id: 'visits', stage: 'Click', label: showEmailSteps ? 'Offer page visits' : 'Site visits (tagged links)', lever: 'CTA: pinned comment, description, end screen', source: 'Snowflake · MARKETING_PAGEVIEWS', cur: pc.visits, prev: pp.visits,
       rate: rate(pc.visits, pc.views), prevRate: rate(pp.visits, pp.views), goal: STEP_GOALS.viewToVisit,

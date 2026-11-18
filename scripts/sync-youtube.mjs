@@ -120,6 +120,36 @@ async function ensureReachJob() {
   return { id: made.id, created: true }
 }
 
+/**
+ * Owner token only: download the channel_reach_basic_a1 daily files and total thumbnail impressions
+ * per day and per video. Columns used: date, video_id, video_thumbnail_impressions,
+ * video_thumbnail_impressions_ctr (clicks = impressions × ctr). Files appear ~48h after the job exists.
+ */
+async function reachReports(jobId) {
+  const out = { daily: new Map(), byVideo: new Map(), files: 0 }
+  let page = ''
+  do {
+    const r = await get(`https://youtubereporting.googleapis.com/v1/jobs/${jobId}/reports?pageSize=100${page ? `&pageToken=${page}` : ''}`)
+    for (const rep of r.reports ?? []) {
+      const res = await fetch(rep.downloadUrl, { headers: { Authorization: `Bearer ${at}` } })
+      if (!res.ok) continue
+      const [head, ...lines] = (await res.text()).trim().split('\n')
+      const cols = head.split(','); const ix = n => cols.indexOf(n)
+      const iD = ix('date'), iV = ix('video_id'), iI = ix('video_thumbnail_impressions'), iC = ix('video_thumbnail_impressions_ctr')
+      if (iD < 0 || iI < 0) continue
+      out.files++
+      for (const line of lines) {
+        const c = line.split(','); const d = c[iD]; const day = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
+        const imp = Number(c[iI]) || 0, clk = imp * (Number(c[iC]) || 0)
+        const a = out.daily.get(day) ?? [0, 0]; a[0] += imp; a[1] += clk; out.daily.set(day, a)
+        if (iV >= 0) { const k = `${c[iV]}|${day}`; const b = out.byVideo.get(k) ?? [0, 0]; b[0] += imp; b[1] += clk; out.byVideo.set(k, b) }
+      }
+    }
+    page = r.nextPageToken ?? ''
+  } while (page)
+  return out
+}
+
 for (const ch of CHANNELS) {
  try {
   const own = ownerToken(ch.key)
@@ -144,6 +174,8 @@ for (const ch of CHANNELS) {
   }
   const state = { analyticsAccess: true, analyticsError: null }
   const daily = (await tryAnalytics(ch.id, { metrics: 'views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewPercentage', dimensions: 'day', sort: 'day' }, state)).rows ?? []
+  let reachData = null
+  if (reach) { try { reachData = await reachReports(reach.id) } catch (e) { console.warn(`${ch.key}: reach reports not read (${e.message})`) } }
   const videos = []
   for (const v of vids) {
     const published = v.snippet.publishedAt.slice(0, 10)
@@ -159,6 +191,8 @@ for (const ch of CHANNELS) {
       lifetimeViews: Number(v.statistics.viewCount ?? 0), ...parseLinks(v.snippet.description ?? ''),
       // [day, views, minutes, avgViewPct, subsGained]
       daily: rows.filter(r => r[1] > 0 || r[2] > 0).map(r => [r[0], r[1], r[2], r[3], r[4]]),
+      // [day, impressions, thumbnail clicks] from the Reporting API (owner token only; null = not connected)
+      impressions: reachData ? [...reachData.byVideo.entries()].filter(([k]) => k.startsWith(`${v.id}|`)).map(([k, x]) => [k.split('|')[1], Math.round(x[0]), Math.round(x[1])]).sort() : null,
       cohort28: coh ? { start: published, end: cohortEnd, days: daysBetween(published, cohortEnd), views: coh[0], minutes: coh[1], avgViewPct: coh[2], subsGained: coh[3] } : null,
     })
   }
@@ -168,11 +202,13 @@ for (const ch of CHANNELS) {
     videoCount: Number(info.statistics.videoCount), since, fetchedAt: new Date().toISOString(),
     analyticsAccess: state.analyticsAccess, tokenSource: own ? 'owner' : 'shared',
     reachJobId: reach?.id ?? null,
+    // Channel daily [day, impressions, thumbnail clicks]; [] = job exists but no files yet; null = no owner token.
+    impressionsDaily: reachData ? [...reachData.daily.entries()].map(([d, x]) => [d, Math.round(x[0]), Math.round(x[1])]).sort() : null,
     // [day, views, minutes, subsGained, subsLost, avgViewPct]
     daily: daily.map(r => [r[0], r[1], r[2], r[3], r[4], r[5]]), videos,
   }
   writeFileSync(resolve(outDir, `${ch.id}.json`), JSON.stringify(doc))
-  if (reach) console.log(`${ch.key}: impressions report job ${reach.created ? 'created' : 'exists'} (first files within ~48h)`)
+  if (reach) console.log(`${ch.key}: impressions job ${reach.created ? 'created' : 'exists'}; ${reachData?.files ?? 0} report files read${reachData?.files ? '' : ' (first files arrive ~48h after the job is created)'}`)
   if (!state.analyticsAccess) console.warn(`${ch.key}: no Analytics access (${state.analyticsError}); stored Data API metadata only`)
   console.log(`${ch.key}: ${daily.length} days, ${videos.length} videos → dist/youtube/${ch.id}.json (${(JSON.stringify(doc).length / 1024).toFixed(0)} KB)`)
  } catch (e) {

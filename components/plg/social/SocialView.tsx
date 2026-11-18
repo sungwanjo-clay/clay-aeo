@@ -243,7 +243,7 @@ function Funnel({ s }: { s: SV }) {
           <tbody>{s.steps.map((st, i) => {
             const stageHead = i === 0 || s.steps[i - 1].stage !== st.stage
             const blank = !!st.notConnected
-            const first = st.id === 'views'
+            const first = st.id === 'impr'
             return [
               stageHead && <tr key={`h-${st.id}`}><td colSpan={4} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
               <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -253,7 +253,7 @@ function Funnel({ s }: { s: SV }) {
                 </td>
                 <td className={num} style={mono}>{blank ? <NC why={st.why} /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
                 <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{blank ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
-                <td className={num} style={mono}>{first ? '' : blank ? <NC why={st.why} /> : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={mono}>{first ? '' : blank ? <NC why={st.why} /> : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : st.rate == null && st.id === 'views' ? <NC why={s.steps[0]?.why} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
               </tr>,
             ]
           })}</tbody>
