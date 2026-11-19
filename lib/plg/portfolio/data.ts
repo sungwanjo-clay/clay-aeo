@@ -21,7 +21,13 @@ export type Counts = {
   shared_by_partner?: number
   paying_arr_usd?: number | null      // current paying ARR, USD (null before ARR was connected)
   paying_arr_unknown?: number         // paying companies whose ARR wasn't read
+  churned?: number                    // ever paid, nothing paying now (migration 008; else ever_paid − paying_now)
+  churned_90d?: number                // of those, cancelled in the 90 days before the week
+  churned_arr_usd?: number            // ARR at churn: their last invoice, annualized
 }
+
+/** Churned companies: the 008 count when synced, else ever paid minus paying now (paying implies ever paid). */
+export const churnedOf = (c: Counts) => c.churned ?? Math.max(0, c.ever_paid - c.paying_now)
 export type TotalsRow = Counts & { snapshot_date: string; cut: CutFilter }
 export type FirmRow = Counts & { snapshot_date: string; firm_id: string; partnership_cut: Cut }
 
@@ -57,6 +63,8 @@ export type CompanyRow = {
   stage: string | null
   lastRoundAt: string | null
   payingArr?: number | null          // current paying ARR over the company's workspaces, USD
+  churnedArr?: number | null         // ARR at churn (last invoice, annualized) when it paid and stopped
+  churnedAt?: string | null          // latest cancellation over those workspaces
 }
 
 export type PortfolioMeta = {
@@ -70,6 +78,7 @@ export type PortfolioMeta = {
   firms: Firm[]                     // every firm in the list, with or without a roster
   eligibilityConnected: boolean     // any eligibility row in the latest snapshot
   arrConnected?: boolean            // paying ARR written for the latest snapshot
+  churnConnected?: boolean          // churned ARR written for the latest snapshot (migration 008 + a status refresh)
   companyChunks: number
   openWeek?: { snapshot_date: string; lookups: number } | null   // the week being built, before it closes
   sources?: SourceCoverage[]        // verified companies per firm × source
@@ -122,8 +131,8 @@ export function countsFor(meta: PortfolioMeta, date: string | null, cut: CutFilt
   return meta.totals.find(r => r.snapshot_date === date && r.cut === cut) ?? null
 }
 
-export type StatusFilter = 'All' | 'Not on Clay' | 'Recently funded · not on Clay' | 'With a workspace' | 'Paying now' | 'Ever paid' | 'Lookup unknown' | 'Eligible' | 'Redeemed' | 'Not in denominator'
-export const STATUS_FILTERS: StatusFilter[] = ['All', 'Not on Clay', 'Recently funded · not on Clay', 'With a workspace', 'Paying now', 'Ever paid', 'Lookup unknown', 'Eligible', 'Redeemed', 'Not in denominator']
+export type StatusFilter = 'All' | 'Not on Clay' | 'Recently funded · not on Clay' | 'With a workspace' | 'Paying now' | 'Churned' | 'Ever paid' | 'Lookup unknown' | 'Eligible' | 'Redeemed' | 'Not in denominator'
+export const STATUS_FILTERS: StatusFilter[] = ['All', 'Not on Clay', 'Recently funded · not on Clay', 'With a workspace', 'Paying now', 'Churned', 'Ever paid', 'Lookup unknown', 'Eligible', 'Redeemed', 'Not in denominator']
 
 /** A round in the 12 months before the snapshot week. */
 export function recentlyFunded(r: CompanyRow, asOf: string | null): boolean {
@@ -143,6 +152,7 @@ export function filterCompanies(rows: CompanyRow[], o: { cut: CutFilter; firmId:
       case 'Recently funded · not on Clay': return r.inDenominator && r.hasWorkspace === false && recentlyFunded(r, o.asOf ?? null)
       case 'With a workspace': return r.inDenominator && r.hasWorkspace === true
       case 'Paying now': return r.inDenominator && r.payingNow === true
+      case 'Churned': return r.inDenominator && r.everPaid === true && r.payingNow === false
       case 'Ever paid': return r.inDenominator && r.everPaid === true
       case 'Lookup unknown': return r.inDenominator && r.hasWorkspace === null
       case 'Eligible': return r.inDenominator && r.eligibleToDate
@@ -157,8 +167,8 @@ export function csvOf(rows: CompanyRow[], firmName: (id: string) => string): str
     const s = v == null ? '' : String(v)
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
-  const head = ['company', 'domain', 'firms', 'in_denominator', 'lookup_status', 'has_workspace', 'workspaces', 'ever_paid', 'paying_now', 'paying_arr_usd', 'eligible_to_date', 'redemption', 'stage', 'last_round_at']
+  const head = ['company', 'domain', 'firms', 'in_denominator', 'lookup_status', 'has_workspace', 'workspaces', 'ever_paid', 'paying_now', 'paying_arr_usd', 'churned_arr_usd', 'churned_at', 'eligible_to_date', 'redemption', 'stage', 'last_round_at']
   const lines = rows.map(r => [r.name, r.domain, r.firms.map(firmName).join('; '), r.inDenominator ? 'yes' : (r.notCountedReason ?? 'no'),
-    r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.payingArr ?? '', r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
+    r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.payingArr ?? '', r.churnedArr ?? '', r.churnedAt ?? '', r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
   return [head.join(','), ...lines].join('\n') + '\n'
 }

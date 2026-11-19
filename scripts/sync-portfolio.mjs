@@ -68,6 +68,9 @@ const counts = r => ({
   paying_unknown: num(r.paying_unknown), eligible_to_date: num(r.eligible_to_date), redeemed: num(r.redeemed),
   // Current paying ARR (USD); null until migration 006 and a Clay status refresh have written it.
   paying_arr_usd: r.paying_arr_usd == null ? null : Number(r.paying_arr_usd), paying_arr_unknown: num(r.paying_arr_unknown),
+  // Churned = ever paid, nothing paying now; ARR at churn is the annualized last invoice (null until migration 008).
+  ...(r.churned != null ? { churned: num(r.churned), churned_90d: num(r.churned_90d) } : {}),
+  ...(r.churned_arr_usd != null ? { churned_arr_usd: Number(r.churned_arr_usd) } : {}),
   redemption_connected: r.redemption_connected ?? null,
   ...(r.shared_by_partner != null ? { shared_by_partner: num(r.shared_by_partner) } : {}),
 })
@@ -88,6 +91,7 @@ if (latest) {
       inDenominator: true, lookup: s.lookup_status, hasWorkspace: s.has_workspace, workspaces: s.workspace_count,
       everPaid: s.ever_paid, payingNow: s.paying_now, redemption: s.redemption_status, eligibleToDate: !!s.eligible_to_date,
       payingArr: s.paying_arr_usd == null ? null : Number(s.paying_arr_usd),
+      ...(s.churned_arr_usd != null ? { churnedArr: Number(s.churned_arr_usd) } : {}), ...(s.churned_at ? { churnedAt: String(s.churned_at).slice(0, 10) } : {}),
       stage: st.funding_stage ?? null, lastRoundAt: st.last_round_at ?? null,
     })
   }
@@ -127,6 +131,8 @@ const meta = {
   // Discovery writes the week's rounds with funding_fit 'unknown'; eligibility is connected only once the
   // eligibility workflow has assessed companies for that week.
   // ARR is connected once any matched company in the latest week has it (Clay's status lookup, after migration 006).
+  churnConnected: latest ? (META_ONLY ? firmPen.some(r => r.snapshot_date === latest.snapshot_date && Number(r.churned_arr_usd) > 0)
+    : snapCos.some(s => s.snapshot_date === latest.snapshot_date && Number(s.churned_arr_usd) > 0)) : false,
   arrConnected: latest ? (META_ONLY ? firmPen.some(r => r.snapshot_date === latest.snapshot_date && Number(r.paying_arr_usd) > 0)
     : snapCos.some(s => s.snapshot_date === latest.snapshot_date && s.paying_arr_usd != null && s.lookup_status === 'matched')) : false,
   eligibilityConnected: latest ? status.some(s => s.snapshot_date === latest.snapshot_date && s.funding_fit && s.funding_fit !== 'unknown') : false,

@@ -30,13 +30,15 @@ def handler(context):
     st = st.get('result', st) if isinstance(st, dict) else {}
     rows = st.get('rows') if isinstance(st, dict) else None
     lookup_ok = isinstance(rows, list) and len(rows) > 0
-    by_dom, arr_by = {}, {}
+    by_dom, arr_by, churn_by = {}, {}, {}
     for r in rows or []:
         d = (r.get('DOMAIN') or '').lower()
         if d:
             by_dom[d] = _json(r.get('WS_JSON'))
             try: arr_by[d] = round(float(r.get('WS_ARR')), 2) if r.get('WS_ARR') not in (None, '') else None
             except (TypeError, ValueError): arr_by[d] = None
+            try: churn_by[d] = (round(float(r['WS_CHURN_ARR']), 2), (r.get('WS_CHURNED_AT') or '')[:10] or None) if r.get('WS_CHURN_ARR') not in (None, '') else None
+            except (TypeError, ValueError, KeyError): churn_by[d] = None
 
     lookups, elig = [], []
     seen = set()
@@ -57,7 +59,10 @@ def handler(context):
                            'ever_paid': bool(w.get('ever_paid')), 'paying_now': bool(w.get('paying_now'))})
             # Current paying ARR over all of the company's workspaces (null when the query predates the ARR column).
             lookups.append({'snapshot_date': snap, 'domain': d, 'lookup_status': 'matched' if ws else 'no_exact_match',
-                            'workspaces': ws, 'run_id': run_id, 'paying_arr_usd': arr_by.get(d) if ws else 0})
+                            'workspaces': ws, 'run_id': run_id, 'paying_arr_usd': arr_by.get(d) if ws else 0,
+                            # ARR at churn over workspaces that paid and stopped (null when the query predates it).
+                            'churned_arr_usd': (churn_by[d][0] if churn_by.get(d) else None) if ws else 0,
+                            'churned_at': churn_by[d][1] if ws and churn_by.get(d) else None})
         lr = (c.get('latest_round_date') or '')[:10]
         last = lookups[-1]
         acct = ('unknown' if last['lookup_status'] == 'failed' else 'none' if last['lookup_status'] == 'no_exact_match'
