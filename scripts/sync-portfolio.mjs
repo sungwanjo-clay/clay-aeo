@@ -28,20 +28,29 @@ if (!out) { console.error('usage: node scripts/sync-portfolio.mjs <out.json>'); 
 async function view(name) {
   const rows = []
   for (let offset = 0; ; offset += 5000) {
-    const res = await fetch(`${URL_}/rest/v1/rpc/portfolio_export`, {
-      method: 'POST', headers: { apikey: PK, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ p_key: RK, p_view: name, p_offset: offset, p_limit: 5000 }),
-    })
-    const j = await res.json()
-    if (!res.ok) throw new Error(`${name}: ${j.message ?? res.status}`)
+    let j
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(`${URL_}/rest/v1/rpc/portfolio_export`, {
+        method: 'POST', headers: { apikey: PK, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_key: RK, p_view: name, p_offset: offset, p_limit: 5000 }),
+      })
+      j = await res.json()
+      if (res.ok) break
+      // Heavy views can hit the statement timeout while others run; retry once on its own.
+      if (attempt < 1 && /statement timeout/i.test(j.message ?? '')) { await new Promise(r => setTimeout(r, 3000)); continue }
+      throw new Error(`${name}: ${j.message ?? res.status}`)
+    }
     rows.push(...j.rows)
     if (j.done) return rows
   }
 }
 
-const [snapshots, totals, firmPen, snapCos, firms, roster, companies, status, coverage, sourceRuns] = await Promise.all(
-  ['snapshots', 'portfolio_totals', 'firm_penetration', 'snapshot_companies', 'firms', 'roster', 'companies', 'company_status',
-   'source_coverage', 'source_runs'].map(view))
+// One view at a time: the snapshot views are heavy, and running them together hits Supabase's statement timeout.
+const NAMES = ['snapshots', 'portfolio_totals', 'firm_penetration', 'snapshot_companies', 'firms', 'roster', 'companies', 'company_status',
+  'source_coverage', 'source_runs']
+const got = []
+for (const n of NAMES) { const t = Date.now(); got.push(await view(n)); console.error(`${n}: ${got.at(-1).length} rows in ${Date.now() - t} ms`) }
+const [snapshots, totals, firmPen, snapCos, firms, roster, companies, status, coverage, sourceRuns] = got
 
 const complete = snapshots.filter(s => s.status === 'complete' && !s.is_staging).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
 const latest = complete[0] ?? null
