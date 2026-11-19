@@ -77,3 +77,11 @@ The Portfolio tab (`#portfolio`) measures company adoption across firm portfolio
 - **Next action** (removed Nov 19; kept here for reference): one per company from the Supabase `dashboard_targets` view: route to sales, lifecycle nudge, outreach, ad audience, research, wait (contacted in 30 days), hold out, or none.
 - **Audiences card (removed Nov 19):** per audience: channel, members, holdout, new-workspace rate for targeted vs holdout, lift (pp), redeemed, last synced. Audiences pool firms, since one firm's portfolio is usually under platform minimum match sizes. Contacts never reach the dashboard.
 - **Sources:** a current company × firm roster and a dated weekly eligibility history, both landed in Snowflake by Data Engineering from the Clay workflow, plus offer redemption events. Everything shows "Not connected" until these exist.
+
+## Portfolio pilot: YC Winter 2025 (Nov 19)
+
+- **Partnership cut (agreed):** Partnered = Partner box checked and not on To Approve (82 firms). Pending = on To Approve (8; all have the box checked). Not partnered = everyone else (168, including 17 Proven firms with the box unchecked). Proven is a separate flag and isn't promoted without the program owner's approval.
+- **Firms:** 258 loaded from the Venture Partner Program sheet (All Priority, Proven, To Approve); a second load changed nothing.
+- **Roster:** 164 YC W25 companies from the official directory (Clay handoff `wfr_0toq39lyhwRQjvmfYUP`), loaded twice; the second load added 0 companies, 0 links, 0 evidence rows. All 164 verified, all in the denominator.
+- **Snowflake match (exact domain, read back from Supabase):** 75 / 164 companies (45.7%) have a workspace on prod `CUSTOMERS.DOMAIN`, the same count as the GTM agent's benchmark on `IDENTITY_RESOLUTION_WORKSPACE_BASE` + `FCT_PLG_WORKSPACE_ATTRIBUTION_MAP`. Those two prod tables aren't catalogued in Sigma (only dev copies), so the dashboard uses `CUSTOMERS`. The 75 companies hold 205 workspaces (47 have more than one). 32 have ever paid; 12 are current customers.
+- Eligibility and redemption are not established by this load and stay Not connected.
