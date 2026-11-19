@@ -270,13 +270,14 @@ const COMPANY_COLS: { h: string; tip?: string }[] = [
   { h: 'Headcount 6-mo', tip: 'Headcount growth over the last six months.' },
   { h: 'Score', tip: 'Provisional opportunity score from funding recency and six-month headcount growth. Missing signals stay unknown rather than scoring zero. Separate from offer eligibility.' },
   { h: 'Clay account' }, { h: 'Offer' },
+  { h: 'Next action', tip: 'One action per company: route to sales (AE-owned or open opportunity), lifecycle nudge (has a free workspace), email / LinkedIn outreach (has a reachable contact), ad audience (no contact yet), research (funding unknown), wait (contacted in the last 30 days) or hold out. Paid and not-eligible companies get none.' },
 ]
 
 function Companies() {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Portfolio companies</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>The outreach list: filter to Not on Clay + Eligible for net-new prospects. Paid and redeemed companies are left out of the offer queue.</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>The outreach list: each company gets one next action. Paid and redeemed companies are left out of the offer queue, and AE-owned accounts route to sales.</p>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-[13px]" style={{ color: T.muted }}>
         <span className="inline-flex flex-wrap items-center gap-1.5">Clay account {ACCOUNT_STATES.map(c => <Chip key={c.l} {...c} />)}</span>
         <span className="inline-flex flex-wrap items-center gap-1.5">Offer {OFFER_STATES.map(c => <Chip key={c.l} {...c} />)}</span>
@@ -294,6 +295,38 @@ function Companies() {
       </table></div>
       <ColDefs cols={COMPANY_COLS} />
       <p className="text-[13px]" style={{ color: T.muted }}>Needs check = fits on funding but has an existing free workspace or an unconfirmed match; it isn’t counted as eligible or ineligible until the net-new workspace check is done.</p>
+    </Card>
+  )
+}
+
+const AUDIENCE_COLS: { h: string; tip?: string }[] = [
+  { h: 'Audience', tip: 'A named, rule-based list, e.g. “Seed to Series A, VC-backed, not on Clay”. Built across firms, because one firm’s portfolio is usually below the platforms’ minimum match sizes.' },
+  { h: 'Channel', tip: 'LinkedIn, Meta or Google ads, an email sequence, or LinkedIn outreach.' },
+  { h: 'Members', tip: 'Companies (or contacts) currently in the audience, excluding the holdout.' },
+  { h: 'Holdout', tip: 'Matching companies deliberately kept out (about 10%), so the lift can be measured.' },
+  { h: 'New WS · targeted', tip: 'Share of targeted companies that created a Clay workspace since they were added, from Snowflake.' },
+  { h: 'New WS · holdout', tip: 'The same rate for the holdout.' },
+  { h: 'Lift', tip: 'Targeted rate minus holdout rate, in percentage points. The part of the conversion the audience is likely responsible for.' },
+  { h: 'Redeemed', tip: 'Targeted companies that redeemed the startup offer.' },
+  { h: 'Last synced', tip: 'When the list was last pushed to the platform.' },
+]
+
+function Audiences() {
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>Audiences</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Ad and outreach audiences built from the portfolio list. Judge each one on lift over its holdout, not on raw conversions.</p>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-[15px]" style={{ color: T.ink }}>
+        <thead><tr style={head}>
+          {AUDIENCE_COLS.map((c, i) =>
+            <th key={c.h} className={`${th} ${i < 2 || i === 8 ? 'text-left' : 'text-right'}`}>{c.h}</th>)}
+        </tr></thead>
+        <tbody><tr><td colSpan={AUDIENCE_COLS.length} className="px-3 py-4 text-[14px]">
+          <NC why="Audiences aren’t set up yet" /> · fills once audiences and their members are in Supabase and synced
+        </td></tr></tbody>
+      </table></div>
+      <ColDefs cols={AUDIENCE_COLS} />
+      <p className="text-[13px]" style={{ color: T.muted }}>Contacts stay in Supabase and are pushed to platforms from Clay; this card shows only counts and rates.</p>
     </Card>
   )
 }
@@ -344,6 +377,7 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <TiersAndReasons s={s} />
       <Partners />
       <Companies />
+      <Audiences />
       <Campaigns s={s} />
       <section className="flex flex-col gap-3">
         <Eyebrow>Discuss</Eyebrow>
