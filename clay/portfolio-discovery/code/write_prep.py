@@ -71,30 +71,37 @@ def handler(context):
     if run_id: meta.append(body('source_runs', runs))
     # 4. Roster evidence for every verified company, grouped by company so parallel batches never share one.
     ver = _items(g('verified')); tv = g('to_verify') or []
-    roster, verifs = [], []
+    roster, verifs = {}, {}
+    canon = {}   # verified domain -> the first name it was written under, so one company is never created twice
     for i, c in enumerate(tv):
         v = ver[i] if i < len(ver) else {}
         v = v.get('output', v) if isinstance(v, dict) else {}
         if not isinstance(v, dict) or v.get('backing') not in ('Confirmed', 'Not confirmed', 'Different firm', 'Unclear'): continue
-        domain = v.get('company_domain') or c.get('domain') or ''
+        domain = (v.get('company_domain') or c.get('domain') or '').strip().lower()
         name = v.get('company_name') or c.get('name') or ''
-        group = []
+        key = domain or ('name:' + name.strip().lower())
+        name = canon.setdefault(key, name)
+        group = roster.setdefault(key, [])
+        seen_refs = {(x['source'], x['source_ref']) for x in group}
         for e in c.get('evidence') or []:
             src = LANE_SOURCE.get(e.get('lane'))
             if not src: continue
             ref = e.get('id') or e.get('url') or (src + ':' + (domain or name))
+            if (src, ref[:500]) in seen_refs: continue
+            seen_refs.add((src, ref[:500]))
             group.append({'firm': firm, 'source': src, 'source_ref': ref[:500], 'company_name': name, 'domain': domain,
                           'evidence_url': e.get('url') or '', 'observed_at': now, 'run_id': run_id or None,
                           'round_or_batch': e.get('round') or '', 'invested_at': e.get('date') if re.match(r'^\d{4}-\d{2}-\d{2}$', e.get('date') or '') else None,
                           'payload': {'note': e.get('note') or '', 'role': e.get('role') or '', 'event': e.get('event') or ''}})
-        if group: roster.append(group)
-        verifs.append({'firm': firm, 'domain': domain, 'company_name': name, 'backing': v.get('backing'), 'relationship': v.get('relationship') or '',
+        if key in verifs and verifs[key]['backing'] == 'Confirmed' and v.get('backing') != 'Confirmed': continue
+        verifs[key] = ({'firm': firm, 'domain': domain, 'company_name': name, 'backing': v.get('backing'), 'relationship': v.get('relationship') or '',
                        'backing_source_url': v.get('backing_source_url') or '', 'latest_round_type': v.get('latest_round_type') or '',
                        'latest_round_date': v.get('latest_round_date') or '', 'latest_round_amount_usd': v.get('latest_round_amount_usd') or 0,
                        'latest_round_leads': v.get('latest_round_leads') or '', 'latest_round_source_url': v.get('latest_round_source_url') or '',
                        'firm_in_latest_round': v.get('firm_in_latest_round') or 'Unknown', 'signal_key': c.get('latest_hint') or '', 'run_id': run_id or None})
     roster_bodies, cur, n = [], [], 0
-    for grp in roster:
+    verifs = list(verifs.values())
+    for grp in (gr for gr in roster.values() if gr):
         if n + len(grp) > 400 and cur: roster_bodies.append(body('roster', cur)); cur, n = [], 0
         cur += grp; n += len(grp)
     if cur: roster_bodies.append(body('roster', cur))

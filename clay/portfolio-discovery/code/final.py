@@ -31,18 +31,22 @@ def handler(context):
     for r in (snow.get('rows') or []) if lookup_ok else []:
         try: ws = json.loads(r.get('WS_JSON') or '[]'); sf = json.loads(r.get('SF_JSON') or '[]')
         except (ValueError, TypeError): ws, sf = None, []
-        st[r.get('DOMAIN')] = (ws, sf)
+        num = lambda k: int(r[k]) if r.get(k) not in (None, '') else None
+        st[r.get('DOMAIN')] = (ws, sf, {'n': num('WS_TOTAL'), 'paying': num('WS_PAYING'), 'ever': num('WS_EVER'), 'shared': num('WS_SHARED')})
 
     def clay_status(d):
         if not d: return 'unknown: no domain', 0, None, None, []
         if not lookup_ok or d not in st: return 'unknown: lookup failed', 0, None, None, []
-        ws, sf = st[d]
+        ws, sf, tot = st[d]
         if ws is None: return 'unknown: lookup failed', 0, None, None, sf
         ids = {w.get('workspace_id') for w in ws if w.get('workspace_id')}
-        if any((w.get('shared_domains') or 1) > 1 for w in ws): return 'needs review: workspace shared across domains', len(ids), None, None, sf
-        if not ids: return 'not on Clay (no exact domain match)', 0, False, False, sf
-        paying = any(w.get('paying_now') == 1 for w in ws); ever = any(w.get('ever_paid') == 1 for w in ws)
-        return ('paying' if paying else 'paid before, not now' if ever else 'free workspace'), len(ids), ever, paying, sf
+        n = tot['n'] if tot['n'] is not None else len(ids)
+        shared = tot['shared'] > 1 if tot['shared'] is not None else any((w.get('shared_domains') or 1) > 1 for w in ws)
+        if shared: return 'needs review: workspace shared across domains', n, None, None, sf
+        if not n: return 'not on Clay (no exact domain match)', 0, False, False, sf
+        paying = tot['paying'] == 1 if tot['paying'] is not None else any(w.get('paying_now') == 1 for w in ws)
+        ever = tot['ever'] == 1 if tot['ever'] is not None else any(w.get('ever_paid') == 1 for w in ws)
+        return ('paying' if paying else 'paid before, not now' if ever else 'free workspace'), n, ever, paying, sf
 
     rows, review = [], []
     for i, c in enumerate(tv):
@@ -136,7 +140,9 @@ def handler(context):
         'confirmed_only_this_lane': {l: sum(1 for r in conf if r['found_by'] == [l]) for l in LANES},
         'candidates_by_lane': {l: int((g('lane_counts') or {}).get(l) or 0) for l in LANES},
         'caps': {'salesforce_capped': bool((g('caps') or {}).get('salesforce_capped')), 'salesforce_total_matches': int((g('caps') or {}).get('salesforce_total_matches') or 0),
-                 'dealroom_capped': bool((g('caps') or {}).get('dealroom_capped')), 'dealroom_total': int((g('caps') or {}).get('dealroom_total') or 0)},
+                 'dealroom_capped': bool((g('caps') or {}).get('dealroom_capped')), 'dealroom_total': int((g('caps') or {}).get('dealroom_total') or 0),
+                 'provider_rows_total': int((g('caps') or {}).get('provider_rows_total') or 0), 'provider_rows_kept': int((g('caps') or {}).get('provider_rows_kept') or 0),
+                 'provider_rows_capped': bool((g('caps') or {}).get('provider_rows_capped'))},
         'portfolio_page_status': g('portfolio_page_status') or '',
         'archive_status': g('archive_status') or '', 'archive_coverage': g('archive_coverage') or '',
         'status_lookup_ok': lookup_ok, 'review_count': len(review),

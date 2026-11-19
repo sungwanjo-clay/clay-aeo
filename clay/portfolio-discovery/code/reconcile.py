@@ -45,7 +45,9 @@ def handler(context):
 
     def upsert(name, domain, lane, ev):
         # PitchBook appends the industry: "Punch (Business/Productivity Software)". Emails are page junk, not companies.
-        name = _PAREN.sub('', name or '').strip()
+        name = name or ''
+        if '(' in name: name = _PAREN.sub('', name)
+        name = name.strip()
         if '@' in name: name = ''
         if '@' in (domain or ''): domain = ''
         d, k = dom(domain), nkey(name)
@@ -54,25 +56,31 @@ def handler(context):
         if d and d in by_dom: c = by_dom[d]
         elif k and k in by_name: c = by_name[k]
         if c is None:
-            c = {'name': (name or d).strip(), 'domain': d, 'lanes': [], 'evidence': [], 'dates': [], 'round_hints': []}
+            c = {'name': (name or d).strip(), 'domain': d, 'lanes': [], 'ev': [], 'latest': '', 'round_hints': []}
             cos.append(c)
         if d and not c['domain']: c['domain'] = d
         if d: by_dom[d] = c
         if k: by_name.setdefault(k, c)
         if lane not in c['lanes']: c['lanes'].append(lane)
-        if len(c['evidence']) < 8:
-            e = {k: str(ev.get(k) or '') for k in ('note', 'date', 'round', 'url', 'id', 'role', 'event')}
-            e['lane'] = lane
-            c['evidence'].append(e)
-        if ev.get('date'): c['dates'].append(str(ev['date']))
-        if ev.get('round'): c['round_hints'].append(str(ev['round']))
+        # Evidence is kept raw and only formatted for the companies sent to verification.
+        if len(c['ev']) < 5: c['ev'].append((lane, ev))
+        dt = ev.get('date')
+        if dt and str(dt) > c['latest']: c['latest'] = str(dt)
+        if ev.get('round') and len(c['round_hints']) < 3: c['round_hints'].append(str(ev['round']))
         lane_raw[lane] += 1
 
-    # Dealroom, PitchBook and Salesforce, already flattened by the normalize step (lane, name, domain, date, round, url, id, note).
+    # Provider rows, already merged to one line per company by the merge step: lanes, name, domain, latest date, rounds, evidence.
     sf_total = int(g('salesforce_total') or 0); sf_rows = int(g('salesforce_rows') or 0)
-    for line in g('provider_rows') or []:
-        f = (line.split('\t') + [''] * 8)[:8]
-        upsert(f[1], f[2], f[0], {'date': f[3], 'round': f[4], 'url': f[5], 'id': f[6], 'note': f[7]})
+    for line in g('merged') or []:
+        f = (line.split('\t') + [''] * 6)[:6]
+        d, k = f[2], nkey(f[1])
+        c = {'name': f[1], 'domain': d, 'lanes': f[0].split(',') if f[0] else [], 'latest': f[3],
+             'round_hints': f[4].split(';')[:3] if f[4] else [], 'ev': [], 'ev_raw': f[5]}   # evidence unpacked only if verified
+        cos.append(c)
+        if d: by_dom[d] = c
+        if k: by_name.setdefault(k, c)
+    for l, n in (g('merge_lane_raw') or {}).items():
+        if l in lane_raw: lane_raw[l] += int(n or 0)
     # Announcements from official pages, Google, LinkedIn, X.
     try: ann = json.loads(g('announcements_json') or '[]')
     except (ValueError, TypeError): ann = []
@@ -97,7 +105,9 @@ def handler(context):
     per_lane = {l: sum(1 for c in cos if l in c['lanes']) for l in LANES}
     only = {l: sum(1 for c in cos if c['lanes'] == [l]) for l in LANES}
     caps = {'salesforce_capped': sf_total > sf_rows, 'salesforce_total_matches': sf_total,
-            'dealroom_capped': bool(g('dealroom_capped')), 'dealroom_total': int(g('dealroom_total') or 0)}
+            'dealroom_capped': bool(g('dealroom_capped')), 'dealroom_total': int(g('dealroom_total') or 0),
+            'provider_rows_total': int(g('provider_rows_total') or 0), 'provider_rows_kept': int(g('provider_rows_kept') or 0),
+            'provider_rows_capped': int(g('provider_rows_kept') or 0) < int(g('provider_rows_total') or 0)}
 
     # Incremental: what we already know about this firm's companies.
     known_by = {}
@@ -110,15 +120,26 @@ def handler(context):
     def loose(n):
         n = _PAREN.sub('', n or '')
         return re.sub(r'^the', '', nkey(n))
-    known_loose = [(loose(k.get('name')), k) for k in g('known_companies') or [] if '@' not in (k.get('name') or '') and len(loose(k.get('name'))) >= 3]
+    # Bucketed by the first 3 characters: names that prefix-match always share them.
+    known_loose = {}
+    for k in g('known_companies') or []:
+        kn = loose(k.get('name'))
+        if '@' not in (k.get('name') or '') and len(kn) >= 3: known_loose.setdefault(kn[:3], []).append((kn, k))
     def fuzzy_known(name):
         q = loose(name)
         if len(q) < 3: return None
-        hits = {id(k): k for kn, k in known_loose if kn.startswith(q) or q.startswith(kn) or (len(q) >= 6 and q in kn)}
+        hits = {id(k): k for kn, k in known_loose.get(q[:3], ()) if kn.startswith(q) or q.startswith(kn)}
         return next(iter(hits.values())) if len(hits) == 1 else None
+    def evidence(c):
+        ev = list(c['ev'])
+        if c.get('ev_raw'):
+            try: ev = [(e[0], {'date': e[1], 'round': e[2], 'url': e[3], 'id': e[4], 'note': e[5]}) for e in json.loads(c['ev_raw'])
+                       if isinstance(e, list) and len(e) >= 6] + ev
+            except ValueError: pass
+        return [dict({k: str(e.get(k) or '') for k in ('note', 'date', 'round', 'url', 'id', 'role', 'event')}, lane=l) for l, e in ev[:5]]
     today = (g('today') or '')[:10]
     def prio(c):
-        recent = max(c['dates']) if c['dates'] else ''
+        recent = c['latest']
         independent = [l for l in c['lanes'] if l != 'salesforce']
         return ((('official_page' in c['lanes']) or ('official_portfolio' in c['lanes'])), len(independent), recent >= since, recent)
     ranked = sorted(cos, key=prio, reverse=True)
@@ -127,7 +148,7 @@ def handler(context):
     verify, held, cached = [], [], []
     used_known = set()
     for c in ranked:
-        c['latest_hint'] = max(c['dates']) if c['dates'] else ''
+        c['latest_hint'] = c['latest']
         k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name'])) or fuzzy_known(c['name'])
         if k:
             # A name-only lane hit for a company we already resolved keeps the saved domain, and two lane hits for the
@@ -143,7 +164,7 @@ def handler(context):
         elif c['latest_hint'] and c['latest_hint'] > (k.get('signal_key') or ''): why = 'changed'
         elif k.get('verified_at') and today and k['verified_at'][:10] < today and (int(today[:4]) * 12 + int(today[5:7])) - (int(k['verified_at'][:4]) * 12 + int(k['verified_at'][5:7])) >= 6 and rotation_budget > 0:
             why = 'refresh'; rotation_budget -= 1
-        item = {'key': c['key'], 'name': c['name'] or '', 'domain': c['domain'] or '', 'lanes': c['lanes'], 'evidence': c['evidence'][:5],
+        item = {'key': c['key'], 'name': c['name'] or '', 'domain': c['domain'] or '', 'lanes': c['lanes'], 'evidence': evidence(c) if why else [],
                 'latest_hint': c['latest_hint'] or '', 'round_hints': c['round_hints'][:3], 'why': why or 'cached'}
         if why and picked < max_verify:
             verify.append(item); picked += 1; reasons[why] += 1

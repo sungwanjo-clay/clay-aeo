@@ -1,3 +1,7 @@
+from datetime import date
+
+ROW_CAP = 5000
+
 def _items(x):
     if isinstance(x, list): return x
     if isinstance(x, dict):
@@ -43,6 +47,22 @@ def handler(context):
         rows.append(row('salesforce', x.get('NAME'), x.get('DOMAIN'), x.get('LAST_FUNDING_DATE'), x.get('LAST_FUNDING_TYPE'), x.get('SOURCE_LINK'), x.get('ID'),
                         'Salesforce investors: ' + _clean(x.get('INVESTORS'))[:200]))
     sf_rows = sum(1 for r in rows if r.startswith('salesforce\t'))
+    # Very large portfolios (YC: ~11k rows) exceed what one code step can process in Clay's 1-second limit. Keep every
+    # Salesforce and Crunchbase row, then the newest PitchBook/Dealroom rows, plus a slice of older ones that rotates
+    # weekly so every company is still seen over a few weeks.
+    total_rows = len(rows)
+    if total_rows > ROW_CAP:
+        keep = [r for r in rows if r.startswith(('salesforce\t', 'crunchbase\t'))]
+        rest = sorted((r for r in rows if not r.startswith(('salesforce\t', 'crunchbase\t'))), key=lambda r: r.split('\t')[3], reverse=True)
+        budget = max(0, ROW_CAP - len(keep)); newest = int(budget * 0.7)
+        older = rest[newest:]; slice_n = budget - newest
+        if older and slice_n:
+            start = (date.today().isocalendar()[1] * slice_n) % len(older)
+            older = (older[start:] + older[:start])[:slice_n]
+        else:
+            older = []
+        rows = keep + rest[:newest] + older
     fails = {k: int((g(k) or {}).get('failedCount') or 0) if isinstance(g(k), dict) else 0 for k in ('dealroom_p1', 'dealroom_more', 'pitchbook', 'crunchbase', 'linkedin', 'google')}
     return {'provider_rows': rows, 'salesforce_total': total, 'salesforce_rows': sf_rows,
+            'provider_rows_total': total_rows, 'provider_rows_kept': len(rows),
             'failed_counts': {'dealroom': fails['dealroom_p1'] + fails['dealroom_more'], 'pitchbook': fails['pitchbook'], 'crunchbase': fails['crunchbase'], 'linkedin': fails['linkedin'], 'google': fails['google']}}
