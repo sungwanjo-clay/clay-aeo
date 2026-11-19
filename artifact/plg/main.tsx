@@ -48,7 +48,6 @@ type Problem = { code: string; message: string } | null
  */
 type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate }
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
-const NO_SIGMA = new Set(['no_runtime', 'server_not_connected', 'needs_reauth', 'not_granted', 'blocked_by_policy', 'approval_required', 'not_in_manifest'])
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
     const h = await db.doc(`cache/${name}`).get()
@@ -218,8 +217,11 @@ function App() {
   }, [mcp, handleError, attempt])
 
   const quarters = useMemo(() => resolveQuarters(DEFAULT_QUARTERS, goals), [goals])
-  // No Sigma for this viewer (no connector, not allowed, signed out of Sigma…): fall back to the saved default view.
-  const sigmaDown = mcp === null || (!!problem && NO_SIGMA.has(problem.code) && !result)
+  // No live data for this viewer: no connector, not allowed, any Sigma error, or no answer within 12 seconds (a pending
+  // permission request can wait for minutes). Show the saved default view; live data replaces it if it arrives later.
+  const [waitedOut, setWaitedOut] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setWaitedOut(true), 12_000); return () => clearTimeout(t) }, [])
+  const sigmaDown = mcp === null || (!result && (!!problem || waitedOut))
   const offline = sigmaDown && !!saved?.main
   const effEnd = offline ? saved!.main!.dataEnd : dataEnd
   const plan = useMemo(() => (effEnd ? planDashboard(new URLSearchParams(offline ? '' : qs), effEnd, quarters) : null), [effEnd, qs, quarters, offline])
