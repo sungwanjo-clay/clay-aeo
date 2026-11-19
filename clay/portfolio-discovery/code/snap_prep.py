@@ -55,7 +55,14 @@ def handler(context):
             lookups.append({'snapshot_date': snap, 'domain': d, 'lookup_status': 'matched' if ws else 'no_exact_match',
                             'workspaces': ws, 'run_id': run_id})
         lr = (c.get('latest_round_date') or '')[:10]
-        elig.append({'snapshot_date': snap, 'domain': d, 'run_id': run_id,
+        last = lookups[-1]
+        acct = ('unknown' if last['lookup_status'] == 'failed' else 'none' if last['lookup_status'] == 'no_exact_match'
+                else 'paid' if any(w['paying_now'] for w in last['workspaces']) else 'free')
+        # Eligibility (Seed/Series A, VC-backed, net new) belongs to the Startup Offer Eligibility workflow; discovery
+        # only records the round it verified, so these stay unknown / needs_check.
+        elig.append({'snapshot_date': snap, 'domain': d, 'run_id': run_id, 'clay_account': acct,
+                     'funding_fit': 'unknown', 'funding_fit_reason': 'Not assessed by portfolio discovery (set by the eligibility workflow)',
+                     'net_new_check': 'needs_check', 'net_new_reason': 'Not assessed by portfolio discovery',
                      'funding_stage': c.get('latest_round_type') or None,
                      'last_round_at': lr if re.fullmatch(r'\d{4}-\d{2}-\d{2}', lr) else None,
                      'last_round_amount_usd': _amount(c.get('latest_round_amount_usd'))})

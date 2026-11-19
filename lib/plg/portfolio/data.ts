@@ -67,6 +67,18 @@ export type PortfolioMeta = {
   firms: Firm[]                     // every firm in the list, with or without a roster
   eligibilityConnected: boolean     // any eligibility row in the latest snapshot
   companyChunks: number
+  openWeek?: { snapshot_date: string; lookups: number } | null   // the week being built, before it closes
+  sources?: SourceCoverage[]        // verified companies per firm × source
+  sourceRuns?: SourceRun[]          // latest run per firm × source
+}
+
+export type SourceCoverage = { firm_id: string; source: string; companies: number; only: number }
+export type SourceRun = { firm_id: string; source: string; status: string; companies: number; cap_hit: boolean; error: string | null; recorded_at: string }
+
+/** Sources in display order, with plain names. Salesforce is a lookup of our CRM, not a portfolio source. */
+export const SOURCE_LABEL: Record<string, string> = {
+  official_portfolio: 'Firm website', official_page: 'Firm pages', crunchbase: 'Crunchbase', pitchbook: 'PitchBook',
+  dealroom: 'Dealroom', google: 'News search', linkedin: 'LinkedIn', x: 'X', salesforce: 'Salesforce',
 }
 
 export type PortfolioData = { meta: PortfolioMeta; companies: CompanyRow[] }
@@ -84,10 +96,17 @@ export function countsFor(meta: PortfolioMeta, date: string | null, cut: CutFilt
   return meta.totals.find(r => r.snapshot_date === date && r.cut === cut) ?? null
 }
 
-export type StatusFilter = 'All' | 'Not on Clay' | 'With a workspace' | 'Paying now' | 'Ever paid' | 'Lookup unknown' | 'Eligible' | 'Redeemed' | 'Not in denominator'
-export const STATUS_FILTERS: StatusFilter[] = ['All', 'Not on Clay', 'With a workspace', 'Paying now', 'Ever paid', 'Lookup unknown', 'Eligible', 'Redeemed', 'Not in denominator']
+export type StatusFilter = 'All' | 'Not on Clay' | 'Recently funded · not on Clay' | 'With a workspace' | 'Paying now' | 'Ever paid' | 'Lookup unknown' | 'Eligible' | 'Redeemed' | 'Not in denominator'
+export const STATUS_FILTERS: StatusFilter[] = ['All', 'Not on Clay', 'Recently funded · not on Clay', 'With a workspace', 'Paying now', 'Ever paid', 'Lookup unknown', 'Eligible', 'Redeemed', 'Not in denominator']
 
-export function filterCompanies(rows: CompanyRow[], o: { cut: CutFilter; firmId: string | null; status: StatusFilter; q: string }) {
+/** A round in the 12 months before the snapshot week. */
+export function recentlyFunded(r: CompanyRow, asOf: string | null): boolean {
+  if (!r.lastRoundAt || !asOf) return false
+  const d = new Date(asOf + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() - 1)
+  return r.lastRoundAt >= d.toISOString().slice(0, 10)
+}
+
+export function filterCompanies(rows: CompanyRow[], o: { cut: CutFilter; firmId: string | null; status: StatusFilter; q: string; asOf?: string | null }) {
   const q = o.q.trim().toLowerCase()
   return rows.filter(r => {
     if (o.firmId ? !r.firms.includes(o.firmId) : o.cut !== 'all' && !r.cuts.includes(o.cut)) return false
@@ -95,6 +114,7 @@ export function filterCompanies(rows: CompanyRow[], o: { cut: CutFilter; firmId:
     switch (o.status) {
       case 'All': return r.inDenominator
       case 'Not on Clay': return r.inDenominator && r.hasWorkspace === false
+      case 'Recently funded · not on Clay': return r.inDenominator && r.hasWorkspace === false && recentlyFunded(r, o.asOf ?? null)
       case 'With a workspace': return r.inDenominator && r.hasWorkspace === true
       case 'Paying now': return r.inDenominator && r.payingNow === true
       case 'Ever paid': return r.inDenominator && r.everPaid === true

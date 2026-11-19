@@ -12,7 +12,7 @@ import { useMemo, useState } from 'react'
 import { Card, Eyebrow, H2, InfoTip, Pill, Segmented, T, fmtInt, fmtPct, fmtPp } from '../ui'
 import {
   CUT_LABEL, STATUS_FILTERS, countsFor, csvOf, filterCompanies, rate,
-  type CompanyRow, type Counts, type CutFilter, type PortfolioData, type StatusFilter,
+  type CompanyRow, type Counts, type CutFilter, type PortfolioData, type PortfolioMeta, type StatusFilter, SOURCE_LABEL,
 } from '@/lib/plg/portfolio/data'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
@@ -131,6 +131,57 @@ function paidCell(r: CompanyRow) {
   return <span style={{ color: T.amberInk }}>Unknown</span>
 }
 
+const SOURCE_ORDER = ['official_portfolio', 'official_page', 'crunchbase', 'pitchbook', 'dealroom', 'google', 'linkedin', 'x', 'salesforce']
+const RUN_TONE: Record<string, string> = { ok: T.ink, partial: T.amberInk, failed: T.neg, skipped: T.faint }
+
+/** How each firm's list is built: verified companies per source, and how many only that source found. */
+function Sources({ meta, firmIds, firmName, pick, selected }: {
+  meta: PortfolioMeta; firmIds: string[] | null; firmName: (id: string) => string; pick: (id: string | null) => void; selected: string | null
+}) {
+  const cov = meta.sources ?? []
+  const runs = meta.sourceRuns ?? []
+  const ids = firmIds ?? [...new Set(cov.map(r => r.firm_id))]
+  if (!ids.length) return null
+  const cell = new Map(cov.map(r => [`${r.firm_id}|${r.source}`, r]))
+  const run = new Map(runs.map(r => [`${r.firm_id}|${r.source}`, r]))
+  const used = SOURCE_ORDER.filter(s => cov.some(r => r.source === s) || runs.some(r => r.source === s))
+  const lastRun = (id: string) => runs.filter(r => r.firm_id === id).map(r => r.recorded_at).sort().at(-1)
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>How each list is built</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>
+        Verified portfolio companies each source found, with how many only that source found in brackets. Every candidate is checked
+        against public evidence before it counts, whichever source found it. A source in orange or red had a partial or failed run this week (hover for detail).
+      </p>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-[15px]" style={{ color: T.ink }}>
+        <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+          <th className="px-3 py-2 text-left text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>Firm</th>
+          {used.map(s => <th key={s} className="px-3 py-2 text-right text-[12px] uppercase whitespace-nowrap" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{SOURCE_LABEL[s] ?? s}</th>)}
+          <th className="px-3 py-2 text-right text-[12px] uppercase whitespace-nowrap" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>Last run</th>
+        </tr></thead>
+        <tbody>{ids.map(id => (
+          <tr key={id} onClick={() => pick(selected === id ? null : id)} className="cursor-pointer"
+            style={{ borderBottom: `1px solid ${T.border}`, background: selected === id ? '#E8F6F8' : undefined }}>
+            <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(id)}</td>
+            {used.map(s => {
+              const c = cell.get(`${id}|${s}`); const r = run.get(`${id}|${s}`)
+              const tone = r ? RUN_TONE[r.status] ?? T.ink : T.ink
+              const tip = r ? `${SOURCE_LABEL[s] ?? s}: ${r.status} on ${fmtDate(r.recorded_at)}, ${fmtInt(r.companies)} candidates${r.cap_hit ? ' (hit its cap)' : ''}${r.error ? ` · ${r.error}` : ''}` : 'Not run for this firm'
+              return (
+                <td key={s} className={num} style={{ ...mono, color: c ? tone : T.faint }} title={tip}>
+                  {c ? <>{fmtInt(c.companies)}<span style={{ color: T.muted }}> ({fmtInt(c.only)})</span></> : '–'}
+                </td>
+              )
+            })}
+            <td className={num} style={{ ...mono, color: T.muted }}>{fmtDate(lastRun(id))}</td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+      <p className="text-[13px]" style={{ color: T.muted }}>Salesforce is our own CRM: it shows which accounts already list the firm as an investor, so it confirms rather than discovers.</p>
+    </Card>
+  )
+}
+
 export default function PortfolioView({ data, onExport }: { data: PortfolioData | null | undefined; onExport?: (filename: string, csv: string) => Promise<void> }) {
   const [cut, setCut] = useState<CutFilter>('partnered')
   const [firmId, setFirmId] = useState<string | null>(null)
@@ -159,7 +210,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
 
   const c = meta ? countsFor(meta, latest, cut, firmId) : null
   const p = meta ? countsFor(meta, meta.previous, cut, firmId) : null
-  const list = useMemo(() => (data ? filterCompanies(data.companies, { cut, firmId, status, q }) : []), [data, cut, firmId, status, q])
+  const list = useMemo(() => (data ? filterCompanies(data.companies, { cut, firmId, status, q, asOf: latest }) : []), [data, cut, firmId, status, q, latest])
 
   const setCutAndReset = (v: CutFilter) => { setCut(v); setFirmId(null); setShown(PAGE) }
   const pickStep = (s: StepId | null) => { setStep(s); setStatus(s ? STEP_FILTER[s] : 'All'); setShown(PAGE) }
@@ -198,6 +249,10 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
             {fmtInt(meta.firms.length)} firms are loaded from the Venture Partner Program sheet. Numbers appear here once the first weekly
             snapshot closes: Clay builds the roster, looks each company up in Snowflake and writes the week to Supabase.
           </p>
+          {meta.openWeek && <p className="text-[15px]" style={{ color: T.ink }}>
+            The week of {fmtDate(meta.openWeek.snapshot_date)} is being built: {fmtInt(meta.openWeek.lookups)} companies looked up so far.
+            It closes once every firm in the week has run.
+          </p>}
         </Card>
       ) : (<>
         <section className="flex flex-col gap-3">
@@ -243,6 +298,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <ColDefs cols={FIRM_COLS} />
         </Card>
       </>)}
+
+      <Sources meta={meta} firmIds={latest ? firmRows.map(r => r.firm_id) : null} firmName={firmName} pick={pickFirm} selected={firmId} />
 
       {latest && (
         <Card className="p-5 sm:p-8 flex flex-col gap-4">

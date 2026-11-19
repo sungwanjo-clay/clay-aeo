@@ -39,8 +39,9 @@ async function view(name) {
   }
 }
 
-const [snapshots, totals, firmPen, snapCos, firms, roster, companies, status] = await Promise.all(
-  ['snapshots', 'portfolio_totals', 'firm_penetration', 'snapshot_companies', 'firms', 'roster', 'companies', 'company_status'].map(view))
+const [snapshots, totals, firmPen, snapCos, firms, roster, companies, status, coverage, sourceRuns] = await Promise.all(
+  ['snapshots', 'portfolio_totals', 'firm_penetration', 'snapshot_companies', 'firms', 'roster', 'companies', 'company_status',
+   'source_coverage', 'source_runs'].map(view))
 
 const complete = snapshots.filter(s => s.status === 'complete' && !s.is_staging).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
 const latest = complete[0] ?? null
@@ -106,8 +107,19 @@ const meta = {
   firmRows: firmPen.filter(t => keep.has(t.snapshot_date)).map(t => ({ snapshot_date: t.snapshot_date, firm_id: t.firm_id, partnership_cut: t.partnership_cut, ...counts(t) })),
   firms: firms.map(f => ({ firm_id: f.firm_id, name: f.name, firm_type: f.firm_type, partnership_cut: f.partnership_cut,
     on_proven_tab: !!f.on_proven_tab, stage_focus: f.stage_focus, region: f.region, roster_refreshed_at: f.roster_refreshed_at })),
-  eligibilityConnected: latest ? status.some(s => s.snapshot_date === latest.snapshot_date) : false,
+  // Discovery writes the week's rounds with funding_fit 'unknown'; eligibility is connected only once the
+  // eligibility workflow has assessed companies for that week.
+  eligibilityConnected: latest ? status.some(s => s.snapshot_date === latest.snapshot_date && s.funding_fit && s.funding_fit !== 'unknown') : false,
   companyChunks: chunks.length,
+  openWeek: (() => { const o = snapshots.find(x => x.status === 'open' && !x.is_staging); return o ? { snapshot_date: o.snapshot_date, lookups: num(o.lookups) } : null })(),
+  // How each firm's list is built: verified companies per source (and found only by it), and each source's latest run.
+  sources: coverage.map(r => ({ firm_id: r.firm_id, source: r.source, companies: num(r.companies), only: num(r.only_this_source) })),
+  sourceRuns: [...sourceRuns.reduce((m, r) => {
+    const k = `${r.firm_id}|${r.source}`; const cur = m.get(k)
+    if (!cur || r.recorded_at > cur.recorded_at) m.set(k, r)
+    return m
+  }, new Map()).values()].map(r => ({ firm_id: r.firm_id, source: r.source, status: r.status, companies: num(r.companies),
+    cap_hit: !!r.cap_hit, error: r.error || null, recorded_at: r.recorded_at })),
 }
 const docs = [{ path: 'portfolio/meta', data: meta }, ...chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } }))]
 writeFileSync(out, JSON.stringify({ docs }))
