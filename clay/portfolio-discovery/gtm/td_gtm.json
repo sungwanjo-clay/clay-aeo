@@ -1,0 +1,116 @@
+{
+  "workspace": {
+    "id": "859539",
+    "name": "Clay GTM"
+  },
+  "trigger": {
+    "id": "d535d730-07ab-4b77-93be-5df7e8b16e35"
+  },
+  "data": [
+    {
+      "id": "wfts_0tord9g9ADpqe8NSCn7",
+      "origin": "manual",
+      "label": "Gutter Capital",
+      "inputs": {
+        "firm_name": "Gutter Capital",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9gisz3tW6rvMbD",
+      "origin": "manual",
+      "label": "Vendep Capital",
+      "inputs": {
+        "firm_name": "Vendep Capital",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9grYXVanyuTSCQ",
+      "origin": "manual",
+      "label": "Basis Set Ventures",
+      "inputs": {
+        "firm_name": "Basis Set Ventures",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9gsXGa3Bn6oRpX",
+      "origin": "manual",
+      "label": "Frontline Ventures",
+      "inputs": {
+        "firm_name": "Frontline Ventures",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9gJFmrvUq55u3b",
+      "origin": "manual",
+      "label": "Precursor Ventures",
+      "inputs": {
+        "firm_name": "Precursor Ventures",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9gEfp5p5GoRNgr",
+      "origin": "manual",
+      "label": "Accel",
+      "inputs": {
+        "firm_name": "Accel",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "accel.com",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9gpkryKV8qkmj6",
+      "origin": "manual",
+      "label": "Sequoia Capital",
+      "inputs": {
+        "firm_name": "Sequoia Capital",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "sequoiacap.com",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    },
+    {
+      "id": "wfts_0tord9g7QKkS4aGqaeY",
+      "origin": "manual",
+      "label": "Y Combinator",
+      "inputs": {
+        "firm_name": "Y Combinator",
+        "run_label": "panel-v1",
+        "max_verify": 300,
+        "firm_domain": "ycombinator.com",
+        "lookback_months": 12
+      },
+      "createdAt": "2026-11-19T16:46:28.678Z"
+    }
+  ],
+  "hasMore": false
+}

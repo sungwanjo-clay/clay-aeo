@@ -1,0 +1,134 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Scrape new profile pages",
+    "description": "Opens only new company profile pages to read each company's website, fund or batch, and status.",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "scrape-website",
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "description": "Scrape website",
+        "toolId": "tct_0toqnsaBRNYWAkX2UrS",
+        "inputMappingConfig": {
+          "url": {
+            "type": "item",
+            "path": "$"
+          },
+          "respectRobotsTxt": {
+            "type": "static",
+            "value": false
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "url",
+            "type": "string",
+            "required": true,
+            "description": " "
+          },
+          {
+            "name": "respectRobotsTxt",
+            "type": "boolean",
+            "required": false,
+            "description": "Check the website’s robots.txt rules. Skip scraping the URL if it is disallowed."
+          },
+          {
+            "name": "waitFor",
+            "type": "number",
+            "required": false,
+            "description": "The number of seconds to wait before scraping the website. This gives the javascript in the website time to load. If you find a bunch of results are missing, try adding a delay. Maximum of 10 seconds."
+          },
+          {
+            "name": "keepNonText",
+            "type": "boolean",
+            "required": false,
+            "description": "When scraping body text, we automatically remove any scripts, styles, or images that may be present in the returned text. However, in certain cases, you may want to keep this content. If so, set this to true."
+          },
+          {
+            "name": "outputFields",
+            "type": "string",
+            "required": false,
+            "description": "Optionally, select the fields you want to receive in your output data."
+          },
+          {
+            "name": "customRegex",
+            "type": "string",
+            "required": false,
+            "description": "Use this field to extract custom data from the website. For example, if you want to extract all of the wikipedia links from the website, you can use https?://([a-z]{2,3}.)?wikipedia.org/wiki/[a-zA-Z0-9_-]*"
+          },
+          {
+            "name": "enableJavaScriptRendering",
+            "type": "boolean",
+            "required": false,
+            "description": "Many sites dynamically render content with JavaScript. Set this to true to obtain that content."
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "title": "Website URL",
+          "description": " "
+        },
+        "waitFor": {
+          "type": "number",
+          "title": "Scrape Delay in Seconds",
+          "description": "The number of seconds to wait before scraping the website. This gives the javascript in the website time to load. If you find a bunch of results are missing, try adding a delay. Maximum of 10 seconds."
+        },
+        "customRegex": {
+          "type": "string",
+          "title": "Extract Custom Regex",
+          "description": "Use this field to extract custom data from the website. For example, if you want to extract all of the wikipedia links from the website, you can use https?://([a-z]{2,3}.)?wikipedia.org/wiki/[a-zA-Z0-9_-]*"
+        },
+        "keepNonText": {
+          "type": "boolean",
+          "title": "Keep Non-Text in Body",
+          "description": "When scraping body text, we automatically remove any scripts, styles, or images that may be present in the returned text. However, in certain cases, you may want to keep this content. If so, set this to true."
+        },
+        "outputFields": {
+          "type": "string",
+          "title": "Output Fields",
+          "description": "Optionally, select the fields you want to receive in your output data."
+        },
+        "respectRobotsTxt": {
+          "type": "boolean",
+          "title": "Respect robots.txt",
+          "description": "Check the website’s robots.txt rules. Skip scraping the URL if it is disallowed."
+        },
+        "enableJavaScriptRendering": {
+          "type": "boolean",
+          "title": "Enable JavaScript Rendering",
+          "description": "Many sites dynamically render content with JavaScript. Set this to true to obtain that content."
+        }
+      }
+    },
+    "listMode": true,
+    "listFailureMode": "ignore_errors",
+    "listEntriesRef": {
+      "path": "$.profiles_to_open",
+      "sourceNodeId": "wfn_0toqnrwwHJctjom4QKt"
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnrwwHJctjom4QKt"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnseCz777cjfNhbr"
+      }
+    ],
+    "id": "wfn_0toqns5WygyHfzRAVcq"
+  }
+}

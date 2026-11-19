@@ -1,0 +1,97 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Salesforce reverse lookup (Snowflake)",
+    "description": "Salesforce accounts whose investor names include the firm or an alias (whole-word, confusable names removed). Leads only until verified.",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "snowflake-lookup-row-v2",
+        "actionPackageId": "95e948a2-0e4c-43fb-84e4-06449ae1e077",
+        "appAccountId": "aa_0tdyu9hvui3Kk9fkgmd",
+        "description": "Look up row",
+        "toolId": "tct_0toqk1qtHK77hXxgh6U",
+        "appAccountName": "gtm-ops-prod",
+        "inputMappingConfig": {
+          "query": {
+            "type": "reference",
+            "expression": "{{sf_query}}"
+          },
+          "authFields|schema": {
+            "type": "static",
+            "value": "PROD"
+          },
+          "authFields|database": {
+            "type": "static",
+            "value": "DBT"
+          },
+          "authFields|warehouse": {
+            "type": "static",
+            "value": "COMPUTE_WH"
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "authFields",
+            "type": "string",
+            "required": false,
+            "description": "The fields to connect to the DB. Once these fields are filled out, you'll be able to run your query."
+          },
+          {
+            "name": "query",
+            "type": "string",
+            "required": true,
+            "description": " "
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "title": "SQL Query",
+          "description": " "
+        },
+        "sf_query": {
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.sf_query"
+        }
+      }
+    },
+    "recentOutputPaths": [
+      "$.result.rows[0].ID",
+      "$.result.rows[0].NAME",
+      "$.result.rows[0].DOMAIN",
+      "$.result.rows[0].SOURCE",
+      "$.result.rows[0].SEGMENT",
+      "$.result.rows[0].INVESTORS",
+      "$.result.rows[0].SF_CREATED",
+      "$.result.rows[0].SOURCE_LINK",
+      "$.result.rows[0].TOTAL_MATCHES",
+      "$.result.rows[0].LAST_FUNDING_DATE",
+      "$.result.rows[0].LAST_FUNDING_TYPE",
+      "$.result.rows[0].LAST_FUNDING_AMOUNT",
+      "$.success"
+    ],
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk1dCeRsymUA6zfv"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnr5pj3rVhFxte9P"
+      }
+    ],
+    "id": "wfn_0toqk1kDz3eABsEYwit"
+  }
+}

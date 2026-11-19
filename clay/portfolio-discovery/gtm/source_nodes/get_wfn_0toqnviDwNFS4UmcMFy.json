@@ -1,0 +1,256 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Prepare Supabase writes",
+    "description": "Builds the write batches: identity (when refreshed), sources with recipe, health and forward-only checkpoints, per-source run status, roster evidence grouped by company, and verification results.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "caps": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.caps"
+        },
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "x_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.x_url"
+        },
+        "run_id": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.run_id"
+        },
+        "aliases": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.aliases_text"
+        },
+        "verified": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqkc8zarHnufbSQG6",
+          "sourcePath": "$"
+        },
+        "firm_type": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_type"
+        },
+        "to_verify": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.to_verify"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_domain"
+        },
+        "firm_listed": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_listed"
+        },
+        "lane_counts": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.lane_counts"
+        },
+        "linkedin_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.linkedin_url"
+        },
+        "google_failed": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.failed_counts.google"
+        },
+        "is_new_recipe": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.is_new_recipe"
+        },
+        "official_name": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.official_name"
+        },
+        "portfolio_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.portfolio_url"
+        },
+        "recipe_method": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.method"
+        },
+        "archive_status": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqk9vwqh6oSnj2cvb",
+          "sourcePath": "$.archive_status"
+        },
+        "crunchbase_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.crunchbase_url"
+        },
+        "dealroom_failed": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.failed_counts.dealroom"
+        },
+        "directory_found": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnseCz777cjfNhbr",
+          "sourcePath": "$.directory_found"
+        },
+        "linkedin_failed": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.failed_counts.linkedin"
+        },
+        "recipe_list_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.source_url"
+        },
+        "recipe_needs_js": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.needs_js"
+        },
+        "alias_collisions": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.collisions_text"
+        },
+        "directory_status": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnseCz777cjfNhbr",
+          "sourcePath": "$.directory_status"
+        },
+        "pitchbook_failed": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.failed_counts.pitchbook"
+        },
+        "news_sources_json": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqk9vwqh6oSnj2cvb",
+          "sourcePath": "$.news_sources_json"
+        },
+        "identity_refreshed": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.identity_refreshed"
+        },
+        "identity_confidence": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.identity_confidence"
+        },
+        "recipe_link_pattern": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.link_pattern"
+        },
+        "recipe_recipe_notes": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.recipe_notes"
+        },
+        "directory_source_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.source_url"
+        },
+        "recipe_expected_count": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.expected_count"
+        },
+        "recipe_profile_pattern": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.profile_pattern"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "meta_writes",
+        "roster_writes",
+        "verification_writes",
+        "counts"
+      ],
+      "properties": {
+        "counts": {
+          "type": "object",
+          "required": [
+            "meta",
+            "roster_rows",
+            "verifications",
+            "sources"
+          ],
+          "properties": {
+            "meta": {
+              "type": "number"
+            },
+            "sources": {
+              "type": "number"
+            },
+            "roster_rows": {
+              "type": "number"
+            },
+            "verifications": {
+              "type": "number"
+            }
+          }
+        },
+        "meta_writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roster_writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verification_writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "code": "import json, re\nfrom datetime import datetime, timezone\n\nLANE_SOURCE = {'official_page': 'official_page', 'official_portfolio': 'official_portfolio', 'google': 'google', 'linkedin': 'linkedin',\n               'x': 'x', 'dealroom': 'dealroom', 'pitchbook': 'pitchbook', 'salesforce': 'salesforce'}\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef body(kind, rows):\n    return json.dumps({'p_kind': kind, 'p_rows': rows}, separators=(',', ':'))\n\ndef chunk(rows, n=300):\n    return [rows[i:i + n] for i in range(0, len(rows), n)]\n\ndef handler(context):\n    g = context.get_input\n    firm = g('firm_listed') or g('firm') or ''\n    run_id = g('run_id') or ''\n    now = datetime.now(timezone.utc).isoformat()\n    meta = []\n    # 1. Identity, when this run re-researched it.\n    if g('identity_refreshed') and g('official_name'):\n        split = lambda s: [x.strip() for x in (s or '').split('|') if x.strip()]\n        meta.append(body('firm_identity', [{'firm': firm, 'official_name': g('official_name'), 'firm_domain': g('firm_domain'), 'firm_type': g('firm_type'),\n            'aliases': split(g('aliases')), 'alias_collisions': split(g('alias_collisions')), 'crunchbase_url': g('crunchbase_url') or '',\n            'linkedin_url': g('linkedin_url') or '', 'x_url': g('x_url') or '', 'portfolio_url': g('portfolio_url') or '', 'identity_confidence': g('identity_confidence') or ''}]))\n    # 2. Sources: the directory recipe and its health, and each announcement page with its checkpoint.\n    srcs = []\n    dstat = g('directory_status') or ''\n    if g('directory_source_url'):\n        row = {'firm': firm, 'url': g('directory_source_url'), 'source_type': 'portfolio_directory',\n               'outcome': 'ok' if dstat == 'ok' else ('failed' if dstat == 'broken' else 'partial'),\n               'last_count': int(g('directory_found') or 0)}\n        row['last_success_at' if dstat in ('ok', 'partial') else 'last_failure_at'] = now\n        if g('is_new_recipe'):\n            row.update({k: g('recipe_' + k) for k in ('method', 'list_url', 'link_pattern', 'profile_pattern', 'recipe_notes')})\n            row['needs_js'] = bool(g('recipe_needs_js')); row['expected_count'] = int(g('recipe_expected_count') or 0)\n        srcs.append(row)\n    try: news = json.loads(g('news_sources_json') or '[]')\n    except (ValueError, TypeError): news = []\n    for n in news if isinstance(news, list) else []:\n        if not isinstance(n, dict) or not n.get('url'): continue\n        ok = n.get('status') == 'ok'\n        r = {'firm': firm, 'url': n['url'], 'source_type': n.get('source_type') or 'news', 'outcome': 'ok' if ok else 'failed'}\n        r['last_success_at' if ok else 'last_failure_at'] = now\n        if ok and re.match(r'^\\d{4}-\\d{2}-\\d{2}$', n.get('newest_date') or ''):\n            r['checkpoint_date'] = n['newest_date']; r['checkpoint_url'] = n.get('newest_url') or ''\n        srcs.append(r)\n    if srcs: meta.append(body('firm_sources', srcs))\n    # 3. Per-source run status (a failed source is recorded as failed, never as zero companies).\n    counts = g('lane_counts') or {}; caps = g('caps') or {}\n    fails = {'dealroom': g('dealroom_failed'), 'pitchbook': g('pitchbook_failed'), 'linkedin': g('linkedin_failed'), 'google': g('google_failed')}\n    runs = []\n    for lane, src in LANE_SOURCE.items():\n        c = int(counts.get(lane) or 0)\n        if lane == 'official_portfolio': st = {'ok': 'ok', 'partial': 'partial', 'broken': 'failed', 'no_recipe': 'partial'}.get(dstat, 'ok' if c else 'no_new')\n        elif lane == 'official_page': st = {'Read through window': 'ok', 'Partial: stopped early': 'partial', 'Fetch failed': 'failed'}.get(g('archive_status') or '', 'ok' if c else 'no_new')\n        elif int(fails.get(lane) or 0) > 0 and c == 0: st = 'failed'\n        elif (lane == 'dealroom' and caps.get('dealroom_capped')) or (lane == 'salesforce' and caps.get('salesforce_capped')): st = 'capped'\n        else: st = 'ok' if c else 'no_new'\n        runs.append({'run_id': run_id, 'firm': firm, 'source': src, 'status': st, 'companies': c, 'new_companies': 0,\n                     'cap_hit': st == 'capped', 'checkpoint': '', 'error': ''})\n    if run_id: meta.append(body('source_runs', runs))\n    # 4. Roster evidence for every verified company, grouped by company so parallel batches never share one.\n    ver = _items(g('verified')); tv = g('to_verify') or []\n    roster, verifs = [], []\n    for i, c in enumerate(tv):\n        v = ver[i] if i < len(ver) else {}\n        v = v.get('output', v) if isinstance(v, dict) else {}\n        if not isinstance(v, dict) or v.get('backing') not in ('Confirmed', 'Not confirmed', 'Different firm', 'Unclear'): continue\n        domain = v.get('company_domain') or c.get('domain') or ''\n        name = v.get('company_name') or c.get('name') or ''\n        group = []\n        for e in c.get('evidence') or []:\n            src = LANE_SOURCE.get(e.get('lane'))\n            if not src: continue\n            ref = e.get('id') or e.get('url') or (src + ':' + (domain or name))\n            group.append({'firm': firm, 'source': src, 'source_ref': ref[:500], 'company_name': name, 'domain': domain,\n                          'evidence_url': e.get('url') or '', 'observed_at': now, 'run_id': run_id or None,\n                          'round_or_batch': e.get('round') or '', 'invested_at': e.get('date') if re.match(r'^\\d{4}-\\d{2}-\\d{2}$', e.get('date') or '') else None,\n                          'payload': {'note': e.get('note') or '', 'role': e.get('role') or '', 'event': e.get('event') or ''}})\n        if group: roster.append(group)\n        verifs.append({'firm': firm, 'domain': domain, 'company_name': name, 'backing': v.get('backing'), 'relationship': v.get('relationship') or '',\n                       'backing_source_url': v.get('backing_source_url') or '', 'latest_round_type': v.get('latest_round_type') or '',\n                       'latest_round_date': v.get('latest_round_date') or '', 'latest_round_amount_usd': v.get('latest_round_amount_usd') or 0,\n                       'latest_round_leads': v.get('latest_round_leads') or '', 'latest_round_source_url': v.get('latest_round_source_url') or '',\n                       'firm_in_latest_round': v.get('firm_in_latest_round') or 'Unknown', 'signal_key': c.get('latest_hint') or '', 'run_id': run_id or None})\n    roster_bodies, cur, n = [], [], 0\n    for grp in roster:\n        if n + len(grp) > 400 and cur: roster_bodies.append(body('roster', cur)); cur, n = [], 0\n        cur += grp; n += len(grp)\n    if cur: roster_bodies.append(body('roster', cur))\n    return {'meta_writes': meta, 'roster_writes': roster_bodies, 'verification_writes': [body('verifications', ch) for ch in chunk(verifs)],\n            'counts': {'meta': len(meta), 'roster_rows': sum(len(x) for x in roster), 'verifications': len(verifs), 'sources': len(srcs)}}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqkf9j4QNgzu2D4m6"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnvtA7hZcEzcyeDV"
+      }
+    ],
+    "id": "wfn_0toqnviDwNFS4UmcMFy"
+  }
+}

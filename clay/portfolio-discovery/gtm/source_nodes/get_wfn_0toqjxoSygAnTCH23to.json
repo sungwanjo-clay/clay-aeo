@@ -1,0 +1,81 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Dealroom: investments page 1",
+    "description": "First page (100) of the firm's Dealroom investments, plus the total used to plan further pages. Names and websites only, no dates.",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "dealroom-get-investors-investments",
+        "actionPackageId": "0d93e023-4055-4fef-af01-e78e234e9314",
+        "appAccountId": "aa_0sw5puj2EoD7kCZGR92",
+        "description": "Get investor’s investments",
+        "toolId": "tct_0toqjxsHKukibrXtta8",
+        "appAccountName": "Clay-managed Dealroom account",
+        "inputMappingConfig": {
+          "domain": {
+            "type": "item",
+            "path": "$"
+          },
+          "pageNumber": {
+            "type": "static",
+            "value": 1
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "domain",
+            "type": "string",
+            "required": true,
+            "description": "The investor's domain you want to find investments data for. For example, 'sequoiacap.com'."
+          },
+          {
+            "name": "pageNumber",
+            "type": "number",
+            "required": false,
+            "description": "By default, the first page is fetched. You can specify a different page number to fetch."
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "domain"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "title": "Investor domain",
+          "description": "The investor's domain you want to find investments data for. For example, 'sequoiacap.com'."
+        },
+        "pageNumber": {
+          "type": "number",
+          "title": "Page number",
+          "description": "By default, the first page is fetched. You can specify a different page number to fetch."
+        }
+      }
+    },
+    "listMode": true,
+    "listFailureMode": "ignore_errors",
+    "listEntriesRef": {
+      "path": "$.dealroom_domains",
+      "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw"
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqjw72jYAJQqNCPXw"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk04WJ9DySSGvTV9"
+      }
+    ],
+    "id": "wfn_0toqjxoSygAnTCH23to"
+  }
+}

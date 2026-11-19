@@ -1,6 +1,6 @@
 import json, re
 
-LANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'salesforce']
+LANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'crunchbase', 'salesforce']
 BAD_DOMAINS = {'linkedin.com', 'crunchbase.com', 'twitter.com', 'x.com', 'facebook.com', 'medium.com', 'techcrunch.com', 'ycombinator.com', 'angel.co', 'wellfound.com', 'github.com', 'notion.site', 'google.com'}
 
 def _items(x):

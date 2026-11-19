@@ -1,0 +1,204 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "PitchBook: search the firm",
+    "description": "Finds the firm's PitchBook investor record by its domain (existing gtm-ops-pb connection).",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "http-api-v2",
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "appAccountId": "aa_0tazhcz7VoQQTDY9Nxe",
+        "description": "HTTP API",
+        "toolId": "tct_0toqk0nYFM6xZxPB27Z",
+        "appAccountName": "gtm-ops-pb",
+        "inputMappingConfig": {
+          "url": {
+            "type": "reference",
+            "expression": "https://api.pitchbook.com/search?query={{__item}}"
+          },
+          "method": {
+            "type": "static",
+            "value": "GET"
+          },
+          "shouldRetry": {
+            "type": "static",
+            "value": true
+          },
+          "followRedirects": {
+            "type": "static",
+            "value": true
+          },
+          "returnResponseMetadata": {
+            "type": "static",
+            "value": false
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "method",
+            "type": "string",
+            "required": false,
+            "description": "Enter the HTTP method of your call:  \n• GET – Get data  \n• POST – Send data  \n• PATCH – Update data with only the fields you specify  \n• PUT – Update data entirely  \n• DELETE – Remove data  \n• HEAD – To check if the endpoint is reachable  \n• OPTIONS – Get the supported HTTP methods  \n• QUERY – Query data using a request body"
+          },
+          {
+            "name": "url",
+            "type": "string",
+            "required": true,
+            "description": "Enter the endpoint to send the requests to, e.g. https://httpbin.org/post"
+          },
+          {
+            "name": "queryString",
+            "type": "object",
+            "required": false,
+            "description": "Enter any query parameters to set when making the API Request i.e. email -> eric@clay.com"
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "required": false,
+            "description": "Enter the data body to include, e.g:  \n```json\n{\n\t\"email\": \"sam@clay.com\",\n\t\"age\": 1,\n\t\"is_active\": true\n}\n```\nIt follows the rules of JSON bodies, so booleans/numbers will not be surrounded by quotes, but strings will."
+          },
+          {
+            "name": "headers",
+            "type": "object",
+            "required": false,
+            "description": "Enter request headers as JSON, e.g:  \n`{\"Content-Type\": \"application/json\"}`  \n💡 **Tip:** Store credentials like `X-API-Key` or `Authorization` in an HTTP API (Headers) account for added security and so you can reuse them."
+          },
+          {
+            "name": "fieldPaths",
+            "type": "string",
+            "required": false,
+            "description": "Want to keep just specific parts of the API response? Enter the fields you need here—for example: email, name, or contact.email.status. Use dots to access nested data. Leave this blank to keep everything."
+          },
+          {
+            "name": "removeNull",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to remove any values that are empty, null, or undefined from the request. This is useful when you want to avoid sending empty values to an API so no data is overwritten for blank fields."
+          },
+          {
+            "name": "returnResponseMetadata",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to return additional information from the API call, including the status code and headers."
+          },
+          {
+            "name": "followRedirects",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to follow HTTP 3xx responses (e.g. 301, 302, 303, 307, 308). This is useful if you want to follow redirects to the final URL. Defaults to true."
+          },
+          {
+            "name": "followRedirectsOptions",
+            "type": "string",
+            "required": false,
+            "description": " "
+          },
+          {
+            "name": "responseTimeout",
+            "type": "number",
+            "required": false,
+            "description": "Override the default maximum wait time for a response from the API in milliseconds. Minimum is 1000ms and maximum is 100000ms."
+          },
+          {
+            "name": "shouldRetry",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to retry the request if it fails. Defaults to true."
+          },
+          {
+            "name": "retryOptions",
+            "type": "string",
+            "required": false,
+            "description": " "
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "title": "Endpoint",
+          "description": "Enter the endpoint to send the requests to, e.g. https://httpbin.org/post"
+        },
+        "body": {
+          "type": "string",
+          "title": "Body",
+          "description": "Enter the data body to include, e.g:  \n```json\n{\n\t\"email\": \"sam@clay.com\",\n\t\"age\": 1,\n\t\"is_active\": true\n}\n```\nIt follows the rules of JSON bodies, so booleans/numbers will not be surrounded by quotes, but strings will."
+        },
+        "method": {
+          "type": "string",
+          "title": "Method",
+          "description": "Enter the HTTP method of your call:  \n• GET – Get data  \n• POST – Send data  \n• PATCH – Update data with only the fields you specify  \n• PUT – Update data entirely  \n• DELETE – Remove data  \n• HEAD – To check if the endpoint is reachable  \n• OPTIONS – Get the supported HTTP methods  \n• QUERY – Query data using a request body"
+        },
+        "headers": {
+          "type": "object",
+          "title": "Headers",
+          "description": "Enter request headers as JSON, e.g:  \n`{\"Content-Type\": \"application/json\"}`  \n💡 **Tip:** Store credentials like `X-API-Key` or `Authorization` in an HTTP API (Headers) account for added security and so you can reuse them."
+        },
+        "fieldPaths": {
+          "type": "string",
+          "title": "Response values to return",
+          "description": "Want to keep just specific parts of the API response? Enter the fields you need here—for example: email, name, or contact.email.status. Use dots to access nested data. Leave this blank to keep everything."
+        },
+        "removeNull": {
+          "type": "boolean",
+          "title": "Remove empty values",
+          "description": "Toggle this field if you want to remove any values that are empty, null, or undefined from the request. This is useful when you want to avoid sending empty values to an API so no data is overwritten for blank fields."
+        },
+        "queryString": {
+          "type": "object",
+          "title": "Query parameters",
+          "description": "Enter any query parameters to set when making the API Request i.e. email -> eric@clay.com"
+        },
+        "shouldRetry": {
+          "type": "boolean",
+          "title": "Retry on failure",
+          "description": "Toggle this field if you want to retry the request if it fails. Defaults to true."
+        },
+        "followRedirects": {
+          "type": "boolean",
+          "title": "Follow redirects",
+          "description": "Toggle this field if you want to follow HTTP 3xx responses (e.g. 301, 302, 303, 307, 308). This is useful if you want to follow redirects to the final URL. Defaults to true."
+        },
+        "responseTimeout": {
+          "type": "number",
+          "title": "Response timeout (ms)",
+          "description": "Override the default maximum wait time for a response from the API in milliseconds. Minimum is 1000ms and maximum is 100000ms."
+        },
+        "returnResponseMetadata": {
+          "type": "boolean",
+          "title": "Return response metadata",
+          "description": "Toggle this field if you want to return additional information from the API call, including the status code and headers."
+        }
+      }
+    },
+    "listMode": true,
+    "listFailureMode": "ignore_errors",
+    "listEntriesRef": {
+      "path": "$.pitchbook_queries",
+      "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw"
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk0cff5JvFwkHV8Z"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk0qNyrU7QFup5zR"
+      }
+    ],
+    "id": "wfn_0toqk0jb6YFneA4vVuE"
+  }
+}

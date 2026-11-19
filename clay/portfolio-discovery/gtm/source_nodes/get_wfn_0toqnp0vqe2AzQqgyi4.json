@@ -1,0 +1,258 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Load saved state (Supabase)",
+    "description": "Reads what earlier runs saved for this firm: identity, announcement pages and checkpoints, directory recipe, known companies and their last verification. Read-only; uses the Portfolio Supabase connection.",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "http-api-v2",
+        "actionPackageId": "4299091f-3cd3-4d68-b198-0143575f471d",
+        "appAccountId": "aa_0toqdhyeQEaFYikN2JU",
+        "description": "HTTP API",
+        "toolId": "tct_0toqnp6usuiW4Dgeg8X",
+        "appAccountName": "Portfolio Supabase (startups)",
+        "inputMappingConfig": {
+          "url": {
+            "type": "static",
+            "value": "https://erfisyzlrwzdgcafscmz.supabase.co/rest/v1/rpc/portfolio_state_h"
+          },
+          "body": {
+            "type": "reference",
+            "expression": "{\"p_firm\": \"{{firm_name}}\"}"
+          },
+          "method": {
+            "type": "static",
+            "value": "POST"
+          },
+          "shouldRetry": {
+            "type": "static",
+            "value": true
+          },
+          "followRedirects": {
+            "type": "static",
+            "value": false
+          },
+          "returnResponseMetadata": {
+            "type": "static",
+            "value": false
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "method",
+            "type": "string",
+            "required": false,
+            "description": "Enter the HTTP method of your call:  \n• GET – Get data  \n• POST – Send data  \n• PATCH – Update data with only the fields you specify  \n• PUT – Update data entirely  \n• DELETE – Remove data  \n• HEAD – To check if the endpoint is reachable  \n• OPTIONS – Get the supported HTTP methods  \n• QUERY – Query data using a request body"
+          },
+          {
+            "name": "url",
+            "type": "string",
+            "required": true,
+            "description": "Enter the endpoint to send the requests to, e.g. https://httpbin.org/post"
+          },
+          {
+            "name": "queryString",
+            "type": "object",
+            "required": false,
+            "description": "Enter any query parameters to set when making the API Request i.e. email -> eric@clay.com"
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "required": false,
+            "description": "Enter the data body to include, e.g:  \n```json\n{\n\t\"email\": \"sam@clay.com\",\n\t\"age\": 1,\n\t\"is_active\": true\n}\n```\nIt follows the rules of JSON bodies, so booleans/numbers will not be surrounded by quotes, but strings will."
+          },
+          {
+            "name": "headers",
+            "type": "object",
+            "required": false,
+            "description": "Enter request headers as JSON, e.g:  \n`{\"Content-Type\": \"application/json\"}`  \n💡 **Tip:** Store credentials like `X-API-Key` or `Authorization` in an HTTP API (Headers) account for added security and so you can reuse them."
+          },
+          {
+            "name": "fieldPaths",
+            "type": "string",
+            "required": false,
+            "description": "Want to keep just specific parts of the API response? Enter the fields you need here—for example: email, name, or contact.email.status. Use dots to access nested data. Leave this blank to keep everything."
+          },
+          {
+            "name": "removeNull",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to remove any values that are empty, null, or undefined from the request. This is useful when you want to avoid sending empty values to an API so no data is overwritten for blank fields."
+          },
+          {
+            "name": "returnResponseMetadata",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to return additional information from the API call, including the status code and headers."
+          },
+          {
+            "name": "followRedirects",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to follow HTTP 3xx responses (e.g. 301, 302, 303, 307, 308). This is useful if you want to follow redirects to the final URL. Defaults to true."
+          },
+          {
+            "name": "followRedirectsOptions",
+            "type": "string",
+            "required": false,
+            "description": " "
+          },
+          {
+            "name": "responseTimeout",
+            "type": "number",
+            "required": false,
+            "description": "Override the default maximum wait time for a response from the API in milliseconds. Minimum is 1000ms and maximum is 100000ms."
+          },
+          {
+            "name": "shouldRetry",
+            "type": "boolean",
+            "required": false,
+            "description": "Toggle this field if you want to retry the request if it fails. Defaults to true."
+          },
+          {
+            "name": "retryOptions",
+            "type": "string",
+            "required": false,
+            "description": " "
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "title": "Endpoint",
+          "description": "Enter the endpoint to send the requests to, e.g. https://httpbin.org/post"
+        },
+        "body": {
+          "type": "string",
+          "title": "Body",
+          "description": "Enter the data body to include, e.g:  \n```json\n{\n\t\"email\": \"sam@clay.com\",\n\t\"age\": 1,\n\t\"is_active\": true\n}\n```\nIt follows the rules of JSON bodies, so booleans/numbers will not be surrounded by quotes, but strings will."
+        },
+        "method": {
+          "type": "string",
+          "title": "Method",
+          "description": "Enter the HTTP method of your call:  \n• GET – Get data  \n• POST – Send data  \n• PATCH – Update data with only the fields you specify  \n• PUT – Update data entirely  \n• DELETE – Remove data  \n• HEAD – To check if the endpoint is reachable  \n• OPTIONS – Get the supported HTTP methods  \n• QUERY – Query data using a request body"
+        },
+        "headers": {
+          "type": "object",
+          "title": "Headers",
+          "description": "Enter request headers as JSON, e.g:  \n`{\"Content-Type\": \"application/json\"}`  \n💡 **Tip:** Store credentials like `X-API-Key` or `Authorization` in an HTTP API (Headers) account for added security and so you can reuse them."
+        },
+        "fieldPaths": {
+          "type": "string",
+          "title": "Response values to return",
+          "description": "Want to keep just specific parts of the API response? Enter the fields you need here—for example: email, name, or contact.email.status. Use dots to access nested data. Leave this blank to keep everything."
+        },
+        "removeNull": {
+          "type": "boolean",
+          "title": "Remove empty values",
+          "description": "Toggle this field if you want to remove any values that are empty, null, or undefined from the request. This is useful when you want to avoid sending empty values to an API so no data is overwritten for blank fields."
+        },
+        "queryString": {
+          "type": "object",
+          "title": "Query parameters",
+          "description": "Enter any query parameters to set when making the API Request i.e. email -> eric@clay.com"
+        },
+        "shouldRetry": {
+          "type": "boolean",
+          "title": "Retry on failure",
+          "description": "Toggle this field if you want to retry the request if it fails. Defaults to true."
+        },
+        "followRedirects": {
+          "type": "boolean",
+          "title": "Follow redirects",
+          "description": "Toggle this field if you want to follow HTTP 3xx responses (e.g. 301, 302, 303, 307, 308). This is useful if you want to follow redirects to the final URL. Defaults to true."
+        },
+        "responseTimeout": {
+          "type": "number",
+          "title": "Response timeout (ms)",
+          "description": "Override the default maximum wait time for a response from the API in milliseconds. Minimum is 1000ms and maximum is 100000ms."
+        },
+        "returnResponseMetadata": {
+          "type": "boolean",
+          "title": "Return response metadata",
+          "description": "Toggle this field if you want to return additional information from the API call, including the status code and headers."
+        },
+        "firm_name": {
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.firm_name"
+        }
+      }
+    },
+    "recentOutputPaths": [
+      "$.result.sources[0].url",
+      "$.result.sources[0].method",
+      "$.result.sources[0].status",
+      "$.result.sources[0].list_url",
+      "$.result.sources[0].needs_js",
+      "$.result.sources[0].last_count",
+      "$.result.sources[0].updated_at",
+      "$.result.sources[0].source_type",
+      "$.result.sources[0].link_pattern",
+      "$.result.sources[0].recipe_notes",
+      "$.result.sources[0].validated_at",
+      "$.result.sources[0].checkpoint_url",
+      "$.result.sources[0].expected_count",
+      "$.result.sources[0].recipe_version",
+      "$.result.sources[0].checkpoint_date",
+      "$.result.sources[0].last_failure_at",
+      "$.result.sources[0].last_success_at",
+      "$.result.sources[0].profile_pattern",
+      "$.result.sources[0].consecutive_failures",
+      "$.result.identity.x_url",
+      "$.result.identity.aliases[0]",
+      "$.result.identity.firm_type",
+      "$.result.identity.firm_domain",
+      "$.result.identity.linkedin_url",
+      "$.result.identity.official_name",
+      "$.result.identity.portfolio_url",
+      "$.result.identity.crunchbase_url",
+      "$.result.identity.alias_collisions[0]",
+      "$.result.identity.identity_checked_at",
+      "$.result.identity.identity_confidence",
+      "$.result.firm_known",
+      "$.result.known_count",
+      "$.result.known_companies[0].name",
+      "$.result.known_companies[0].domain",
+      "$.result.known_companies[0].backing",
+      "$.result.known_companies[0].company_id",
+      "$.result.known_companies[0].signal_key",
+      "$.result.known_companies[0].verified_at",
+      "$.result.known_companies[0].relationship",
+      "$.result.known_companies[0].latest_round_date",
+      "$.result.known_companies[0].latest_round_type",
+      "$.result.known_companies[0].backing_source_url",
+      "$.result.known_companies[0].latest_round_leads",
+      "$.result.known_companies[0].verification_status",
+      "$.result.known_companies[0].firm_in_latest_round",
+      "$.result.known_companies[0].latest_round_amount_usd",
+      "$.result.known_companies[0].latest_round_source_url",
+      "$.result.directory_read_at",
+      "$.result.known_profile_urls",
+      "$.success"
+    ],
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqjpsufUzUeSDNvaG"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnp7WurUhapbA5BM"
+      }
+    ],
+    "id": "wfn_0toqnp0vqe2AzQqgyi4"
+  }
+}

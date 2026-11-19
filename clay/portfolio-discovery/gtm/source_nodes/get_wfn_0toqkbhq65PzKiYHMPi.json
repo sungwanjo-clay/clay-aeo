@@ -1,0 +1,448 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Combine sources into one company list",
+    "description": "Merges every lane by domain, then normalized name. Keeps each company's lanes and evidence, counts per-lane and only-this-lane coverage, records caps, and picks up to max_verify companies to verify (official-page and multi-source first, then most recent).",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "since": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.since"
+        },
+        "today": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.today"
+        },
+        "max_verify": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.max_verify"
+        },
+        "provider_rows": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.provider_rows"
+        },
+        "dealroom_total": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqk04WJ9DySSGvTV9",
+          "sourcePath": "$.dealroom_total"
+        },
+        "portfolio_json": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqluhqCVXJSN6He4e",
+          "sourcePath": "$.portfolio_json"
+        },
+        "dealroom_capped": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqk04WJ9DySSGvTV9",
+          "sourcePath": "$.dealroom_capped"
+        },
+        "known_companies": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.known_companies"
+        },
+        "salesforce_rows": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.salesforce_rows"
+        },
+        "salesforce_total": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnu24GrASMbZN8BW",
+          "sourcePath": "$.salesforce_total"
+        },
+        "announcements_json": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqk9vwqh6oSnj2cvb",
+          "sourcePath": "$.announcements_json"
+        },
+        "directory_companies": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqnseCz777cjfNhbr",
+          "sourcePath": "$.directory_companies"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "companies_total",
+        "to_verify",
+        "not_verified_this_run",
+        "lane_counts",
+        "lane_only_counts",
+        "caps",
+        "announcements_parse_error",
+        "firm",
+        "cached",
+        "verify_reasons",
+        "not_verified_count",
+        "not_verified_domains"
+      ],
+      "properties": {
+        "caps": {
+          "type": "object",
+          "required": [
+            "salesforce_capped",
+            "salesforce_total_matches",
+            "dealroom_capped",
+            "dealroom_total"
+          ],
+          "properties": {
+            "dealroom_total": {
+              "type": "number"
+            },
+            "dealroom_capped": {
+              "type": "boolean"
+            },
+            "salesforce_capped": {
+              "type": "boolean"
+            },
+            "salesforce_total_matches": {
+              "type": "number"
+            }
+          }
+        },
+        "firm": {
+          "type": "string"
+        },
+        "cached": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "name",
+              "domain",
+              "latest_hint",
+              "backing",
+              "relationship",
+              "backing_source_url",
+              "latest_round_type",
+              "latest_round_date",
+              "latest_round_amount_usd",
+              "latest_round_leads",
+              "latest_round_source_url",
+              "firm_in_latest_round",
+              "verified_at",
+              "lanes"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "lanes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "domain": {
+                "type": "string"
+              },
+              "backing": {
+                "type": "string"
+              },
+              "latest_hint": {
+                "type": "string"
+              },
+              "verified_at": {
+                "type": "string"
+              },
+              "relationship": {
+                "type": "string"
+              },
+              "latest_round_date": {
+                "type": "string"
+              },
+              "latest_round_type": {
+                "type": "string"
+              },
+              "backing_source_url": {
+                "type": "string"
+              },
+              "latest_round_leads": {
+                "type": "string"
+              },
+              "firm_in_latest_round": {
+                "type": "string"
+              },
+              "latest_round_amount_usd": {
+                "type": "string"
+              },
+              "latest_round_source_url": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "to_verify": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "name",
+              "domain",
+              "lanes",
+              "evidence",
+              "latest_hint",
+              "round_hints",
+              "why"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "why": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "lanes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "domain": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "lane",
+                    "note",
+                    "date",
+                    "round",
+                    "url",
+                    "id",
+                    "role",
+                    "event"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "lane": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "round": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "latest_hint": {
+                "type": "string"
+              },
+              "round_hints": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "lane_counts": {
+          "type": "object",
+          "required": [
+            "official_page",
+            "official_portfolio",
+            "google",
+            "linkedin",
+            "x",
+            "dealroom",
+            "pitchbook",
+            "salesforce"
+          ],
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "google": {
+              "type": "number"
+            },
+            "dealroom": {
+              "type": "number"
+            },
+            "linkedin": {
+              "type": "number"
+            },
+            "pitchbook": {
+              "type": "number"
+            },
+            "salesforce": {
+              "type": "number"
+            },
+            "official_page": {
+              "type": "number"
+            },
+            "official_portfolio": {
+              "type": "number"
+            }
+          }
+        },
+        "verify_reasons": {
+          "type": "object",
+          "required": [
+            "new",
+            "changed",
+            "unresolved",
+            "refresh"
+          ],
+          "properties": {
+            "new": {
+              "type": "number"
+            },
+            "changed": {
+              "type": "number"
+            },
+            "refresh": {
+              "type": "number"
+            },
+            "unresolved": {
+              "type": "number"
+            }
+          }
+        },
+        "companies_total": {
+          "type": "number"
+        },
+        "lane_only_counts": {
+          "type": "object",
+          "required": [
+            "official_page",
+            "official_portfolio",
+            "google",
+            "linkedin",
+            "x",
+            "dealroom",
+            "pitchbook",
+            "salesforce"
+          ],
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "google": {
+              "type": "number"
+            },
+            "dealroom": {
+              "type": "number"
+            },
+            "linkedin": {
+              "type": "number"
+            },
+            "pitchbook": {
+              "type": "number"
+            },
+            "salesforce": {
+              "type": "number"
+            },
+            "official_page": {
+              "type": "number"
+            },
+            "official_portfolio": {
+              "type": "number"
+            }
+          }
+        },
+        "not_verified_count": {
+          "type": "number"
+        },
+        "not_verified_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "not_verified_this_run": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "name",
+              "domain",
+              "lanes",
+              "latest_hint"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "lanes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "domain": {
+                "type": "string"
+              },
+              "latest_hint": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "announcements_parse_error": {
+          "type": "boolean"
+        }
+      }
+    },
+    "code": "import json, re\n\nLANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'salesforce']\nBAD_DOMAINS = {'linkedin.com', 'crunchbase.com', 'twitter.com', 'x.com', 'facebook.com', 'medium.com', 'techcrunch.com', 'ycombinator.com', 'angel.co', 'wellfound.com', 'github.com', 'notion.site', 'google.com'}\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef _res(it):\n    return it.get('result') if isinstance(it, dict) and 'result' in it else it\n\n_PROTO = re.compile(r'^[a-z]+://'); _WWW = re.compile(r'^www\\d?\\.'); _DOMOK = re.compile(r'[a-z0-9][a-z0-9.-]*\\.[a-z]{2,63}')\n_PAREN = re.compile(r'\\s*\\([^)]*\\)\\s*$')\n_SUFFIX = re.compile(r'\\b(inc|llc|ltd|limited|corp|corporation|co|gmbh|sas|ab|oy|bv|plc|labs?|technologies|technology|ai|hq|app)\\b\\.?')\n_NONAL = re.compile(r'[^a-z0-9]+')\n_dc, _nc = {}, {}\n\ndef dom(u):\n    if u in _dc: return _dc[u]\n    x = (u or '').strip().lower()\n    x = _WWW.sub('', _PROTO.sub('', x))\n    x = x.split('/')[0].split('?')[0].split('#')[0].strip('.')\n    r = x if (_DOMOK.fullmatch(x) and x not in BAD_DOMAINS) else ''\n    _dc[u] = r\n    return r\n\ndef nkey(n):\n    if n in _nc: return _nc[n]\n    r = _NONAL.sub('', _SUFFIX.sub(' ', (n or '').lower()))\n    _nc[n] = r\n    return r\n\ndef handler(context):\n    g = context.get_input\n    firm = g('firm') or ''\n    since = g('since') or ''\n    max_verify = int(g('max_verify') or 300)\n    cos, by_dom, by_name = [], {}, {}\n    lane_raw = {l: 0 for l in LANES}\n\n    def upsert(name, domain, lane, ev):\n        # PitchBook appends the industry: \"Punch (Business/Productivity Software)\". Emails are page junk, not companies.\n        name = _PAREN.sub('', name or '').strip()\n        if '@' in name: name = ''\n        if '@' in (domain or ''): domain = ''\n        d, k = dom(domain), nkey(name)\n        if not d and not k: return\n        c = None\n        if d and d in by_dom: c = by_dom[d]\n        elif k and k in by_name: c = by_name[k]\n        if c is None:\n            c = {'name': (name or d).strip(), 'domain': d, 'lanes': [], 'evidence': [], 'dates': [], 'round_hints': []}\n            cos.append(c)\n        if d and not c['domain']: c['domain'] = d\n        if d: by_dom[d] = c\n        if k: by_name.setdefault(k, c)\n        if lane not in c['lanes']: c['lanes'].append(lane)\n        if len(c['evidence']) < 8:\n            e = {k: str(ev.get(k) or '') for k in ('note', 'date', 'round', 'url', 'id', 'role', 'event')}\n            e['lane'] = lane\n            c['evidence'].append(e)\n        if ev.get('date'): c['dates'].append(str(ev['date']))\n        if ev.get('round'): c['round_hints'].append(str(ev['round']))\n        lane_raw[lane] += 1\n\n    # Dealroom, PitchBook and Salesforce, already flattened by the normalize step (lane, name, domain, date, round, url, id, note).\n    sf_total = int(g('salesforce_total') or 0); sf_rows = int(g('salesforce_rows') or 0)\n    for line in g('provider_rows') or []:\n        f = (line.split('\\t') + [''] * 8)[:8]\n        upsert(f[1], f[2], f[0], {'date': f[3], 'round': f[4], 'url': f[5], 'id': f[6], 'note': f[7]})\n    # Announcements from official pages, Google, LinkedIn, X.\n    try: ann = json.loads(g('announcements_json') or '[]')\n    except (ValueError, TypeError): ann = []\n    ann_bad = not isinstance(ann, list)\n    for a in ann if isinstance(ann, list) else []:\n        if not isinstance(a, dict): continue\n        lane = a.get('source_lane') if a.get('source_lane') in LANES else 'google'\n        upsert(a.get('company'), a.get('company_domain'), lane,\n               {'date': a.get('announced_on') or '', 'round': a.get('round_type') or a.get('event_type') or '', 'url': a.get('source_url') or '',\n                'role': a.get('firm_role') or '', 'event': a.get('event_type') or ''})\n\n    # Official portfolio directory (undated membership): the deterministic reader first, then the research fallback.\n    try: port = json.loads(g('portfolio_json') or '[]')\n    except (ValueError, TypeError): port = []\n    port = (g('directory_companies') or []) + (port if isinstance(port, list) else [])\n    for p in port if isinstance(port, list) else []:\n        if isinstance(p, dict):\n            upsert(p.get('company') or p.get('website'), p.get('website') or p.get('domain'), 'official_portfolio',\n                   {'note': ('Official portfolio page' + (': ' + str(p.get('fund_or_batch')) if p.get('fund_or_batch') else '') + (' (' + str(p.get('status')) + ')' if p.get('status') else '')),\n                    'url': p.get('profile_url') or '', 'id': p.get('profile_url') or dom(p.get('website') or '')})\n    # Coverage: companies per lane and companies only that lane found.\n    per_lane = {l: sum(1 for c in cos if l in c['lanes']) for l in LANES}\n    only = {l: sum(1 for c in cos if c['lanes'] == [l]) for l in LANES}\n    caps = {'salesforce_capped': sf_total > sf_rows, 'salesforce_total_matches': sf_total,\n            'dealroom_capped': bool(g('dealroom_capped')), 'dealroom_total': int(g('dealroom_total') or 0)}\n\n    # Incremental: what we already know about this firm's companies.\n    known_by = {}\n    for k in g('known_companies') or []:\n        if '@' in (k.get('name') or ''): continue\n        for key in filter(None, [dom(k.get('domain')), 'name:' + nkey(k.get('name'))]):\n            known_by.setdefault(key, k)\n    today = (g('today') or '')[:10]\n    def prio(c):\n        recent = max(c['dates']) if c['dates'] else ''\n        independent = [l for l in c['lanes'] if l != 'salesforce']\n        return ((('official_page' in c['lanes']) or ('official_portfolio' in c['lanes'])), len(independent), recent >= since, recent)\n    ranked = sorted(cos, key=prio, reverse=True)\n    rotation_budget = max(1, max_verify // 10)\n    picked, reasons = 0, {'new': 0, 'changed': 0, 'unresolved': 0, 'refresh': 0}\n    verify, held, cached = [], [], []\n    used_known = set()\n    for c in ranked:\n        c['latest_hint'] = max(c['dates']) if c['dates'] else ''\n        k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name']))\n        if k:\n            # A name-only lane hit for a company we already resolved keeps the saved domain, and two lane hits for the\n            # same saved company collapse into one row.\n            kid = k.get('company_id') or dom(k.get('domain')) or nkey(k.get('name'))\n            if kid in used_known: continue\n            used_known.add(kid)\n            if not c['domain']: c['domain'] = dom(k.get('domain'))\n        c['key'] = c['domain'] or 'name:' + nkey(c['name'])\n        why = ''\n        if not k: why = 'new'\n        elif k.get('backing') in ('', 'Unclear'): why = 'unresolved'\n        elif c['latest_hint'] and c['latest_hint'] > (k.get('signal_key') or ''): why = 'changed'\n        elif k.get('verified_at') and today and k['verified_at'][:10] < today and (int(today[:4]) * 12 + int(today[5:7])) - (int(k['verified_at'][:4]) * 12 + int(k['verified_at'][5:7])) >= 6 and rotation_budget > 0:\n            why = 'refresh'; rotation_budget -= 1\n        item = {'key': c['key'], 'name': c['name'] or '', 'domain': c['domain'] or '', 'lanes': c['lanes'], 'evidence': c['evidence'][:5],\n                'latest_hint': c['latest_hint'] or '', 'round_hints': c['round_hints'][:3], 'why': why or 'cached'}\n        if why and picked < max_verify:\n            verify.append(item); picked += 1; reasons[why] += 1\n        elif why:\n            held.append({x: item[x] for x in ('key', 'name', 'domain', 'lanes', 'latest_hint')})\n        else:\n            cached.append(dict({x: item[x] for x in ('key', 'name', 'domain', 'lanes', 'latest_hint')},\n                               **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',\n                                                              'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'verified_at')}))\n    # Known companies no lane found this week stay in the portfolio (a lane missing a company isn't evidence it left).\n    seen = set()\n    for c in ranked:\n        seen.add(c['domain']); seen.add('name:' + nkey(c['name']))\n    for k in g('known_companies') or []:\n        if dom(k.get('domain')) in seen or ('name:' + nkey(k.get('name'))) in seen: continue\n        if k.get('backing') != 'Confirmed' or '@' in (k.get('name') or ''): continue\n        cached.append({'key': dom(k.get('domain')) or 'name:' + nkey(k.get('name')), 'name': k.get('name') or '', 'domain': dom(k.get('domain')),\n                       'lanes': ['previous_run'], 'latest_hint': k.get('signal_key') or '',\n                       **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',\n                                                      'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'verified_at')}})\n    return {'companies_total': len(cos), 'to_verify': verify, 'not_verified_this_run': held[:500], 'not_verified_count': len(held),\n            'not_verified_domains': [h['domain'] for h in held if h['domain']], 'cached': cached, 'verify_reasons': reasons,\n            'lane_counts': per_lane, 'lane_only_counts': only, 'caps': caps, 'announcements_parse_error': ann_bad,\n            'firm': firm}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnu24GrASMbZN8BW"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqkc8zarHnufbSQG6"
+      }
+    ],
+    "id": "wfn_0toqkbhq65PzKiYHMPi"
+  }
+}

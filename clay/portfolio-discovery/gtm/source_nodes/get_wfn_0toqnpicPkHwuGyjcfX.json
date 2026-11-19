@@ -1,0 +1,60 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Identity still fresh?",
+    "description": "Checks whether the identity details gathered by the Decide what this run needs step are still current, so the workflow knows whether it can reuse the saved identity or needs to refresh it before continuing.",
+    "nodeType": "conditional",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "identity_fresh": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.identity_fresh"
+        }
+      }
+    },
+    "conditionalMode": "rules",
+    "rulesConditionalConfig": {
+      "rules": [
+        {
+          "id": "fresh",
+          "name": "Fresh: reuse saved identity",
+          "condition": {
+            "type": "GroupOp",
+            "items": [
+              {
+                "type": "BinOp",
+                "dataPath": [
+                  "identity_fresh"
+                ],
+                "operator": "True"
+              }
+            ],
+            "combinationMode": "And"
+          }
+        }
+      ]
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnp7WurUhapbA5BM"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqjrve3kdH3wMDMrC",
+        "isDefaultRoute": true
+      },
+      {
+        "targetNode": "wfn_0toqjw72jYAJQqNCPXw",
+        "ruleId": "fresh",
+        "ruleName": "Fresh: reuse saved identity"
+      }
+    ],
+    "id": "wfn_0toqnpicPkHwuGyjcfX"
+  }
+}

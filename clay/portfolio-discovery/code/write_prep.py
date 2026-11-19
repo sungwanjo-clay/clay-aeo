@@ -2,7 +2,7 @@ import json, re
 from datetime import datetime, timezone
 
 LANE_SOURCE = {'official_page': 'official_page', 'official_portfolio': 'official_portfolio', 'google': 'google', 'linkedin': 'linkedin',
-               'x': 'x', 'dealroom': 'dealroom', 'pitchbook': 'pitchbook', 'salesforce': 'salesforce'}
+               'x': 'x', 'dealroom': 'dealroom', 'pitchbook': 'pitchbook', 'crunchbase': 'crunchbase', 'salesforce': 'salesforce'}
 
 def _items(x):
     if isinstance(x, list): return x

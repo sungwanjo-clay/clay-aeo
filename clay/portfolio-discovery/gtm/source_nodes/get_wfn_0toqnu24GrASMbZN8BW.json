@@ -1,0 +1,105 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Normalize provider results",
+    "description": "Flattens Dealroom, PitchBook and Salesforce responses into compact rows so the combine step stays well within the 1-second code limit at YC scale.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "google": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqk1dCeRsymUA6zfv",
+          "sourcePath": "$"
+        },
+        "linkedin": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqk16FTamzgSa5DZ2",
+          "sourcePath": "$"
+        },
+        "pitchbook": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqk0zyDeyNCvoCzdx",
+          "sourcePath": "$"
+        },
+        "salesforce": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqk1kDz3eABsEYwit",
+          "sourcePath": "$"
+        },
+        "dealroom_p1": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqjxoSygAnTCH23to",
+          "sourcePath": "$"
+        },
+        "dealroom_more": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqk0cff5JvFwkHV8Z",
+          "sourcePath": "$"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "provider_rows",
+        "salesforce_total",
+        "salesforce_rows",
+        "failed_counts"
+      ],
+      "properties": {
+        "failed_counts": {
+          "type": "object",
+          "required": [
+            "dealroom",
+            "pitchbook",
+            "linkedin",
+            "google"
+          ],
+          "properties": {
+            "google": {
+              "type": "number"
+            },
+            "dealroom": {
+              "type": "number"
+            },
+            "linkedin": {
+              "type": "number"
+            },
+            "pitchbook": {
+              "type": "number"
+            }
+          }
+        },
+        "provider_rows": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "salesforce_rows": {
+          "type": "number"
+        },
+        "salesforce_total": {
+          "type": "number"
+        }
+      }
+    },
+    "code": "def _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef _clean(v):\n    return str(v or '').replace('\\t', ' ').replace('\\n', ' ')\n\ndef row(lane, name, domain, date='', rnd='', url='', rid='', note=''):\n    return '\\t'.join(_clean(x) for x in (lane, name, domain, date, rnd, url, rid, note))\n\ndef handler(context):\n    g = context.get_input\n    rows = []\n    for src in ('dealroom_p1', 'dealroom_more'):\n        for r in _items(g(src)):\n            r = r.get('result', r) if isinstance(r, dict) else {}\n            for x in (r.get('data') or []) if isinstance(r, dict) else []:\n                if (x.get('type') or 'company') == 'company':\n                    rows.append(row('dealroom', x.get('name'), x.get('website_url'), note='Dealroom investor investments'))\n    for r in _items(g('pitchbook')):\n        r = r.get('result', r) if isinstance(r, dict) else r\n        for x in (r if isinstance(r, list) else (r or {}).get('items') or []) if r else []:\n            if isinstance(x, dict):\n                rows.append(row('pitchbook', x.get('companyName'), x.get('website') or x.get('companyWebsite'),\n                                (x.get('investmentDate') or x.get('investorSince') or '')[:10], rid=x.get('investmentDealId') or x.get('companyId'), note='PitchBook active investment'))\n    sf = g('salesforce') or {}\n    sf = sf.get('result', sf) if isinstance(sf, dict) else {}\n    total = 0\n    for x in (sf.get('rows') or []) if isinstance(sf, dict) else []:\n        total = max(total, int(x.get('TOTAL_MATCHES') or 0))\n        rows.append(row('salesforce', x.get('NAME'), x.get('DOMAIN'), x.get('LAST_FUNDING_DATE'), x.get('LAST_FUNDING_TYPE'), x.get('SOURCE_LINK'), x.get('ID'),\n                        'Salesforce investors: ' + _clean(x.get('INVESTORS'))[:200]))\n    sf_rows = sum(1 for r in rows if r.startswith('salesforce\\t'))\n    fails = {k: int((g(k) or {}).get('failedCount') or 0) if isinstance(g(k), dict) else 0 for k in ('dealroom_p1', 'dealroom_more', 'pitchbook', 'linkedin', 'google')}\n    return {'provider_rows': rows, 'salesforce_total': total, 'salesforce_rows': sf_rows,\n            'failed_counts': {'dealroom': fails['dealroom_p1'] + fails['dealroom_more'], 'pitchbook': fails['pitchbook'], 'linkedin': fails['linkedin'], 'google': fails['google']}}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk9vwqh6oSnj2cvb"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqkbhq65PzKiYHMPi"
+      }
+    ],
+    "id": "wfn_0toqnu24GrASMbZN8BW"
+  }
+}

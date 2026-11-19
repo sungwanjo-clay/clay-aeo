@@ -1,0 +1,145 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Pick directory recipe",
+    "description": "Uses the saved recipe when healthy, otherwise the one just discovered; 'agent_only' when neither can be replayed.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "recipe_ok": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.recipe_ok"
+        },
+        "new_method": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.method"
+        },
+        "new_list_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.list_url"
+        },
+        "new_needs_js": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.needs_js"
+        },
+        "cached_recipe": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.recipe"
+        },
+        "new_link_pattern": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.link_pattern"
+        },
+        "new_recipe_notes": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.recipe_notes"
+        },
+        "new_expected_count": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.expected_count"
+        },
+        "new_profile_pattern": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrbvDEPBhqHz4yK",
+          "sourcePath": "$.profile_pattern"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "method",
+        "fetch",
+        "source_url",
+        "link_pattern",
+        "profile_pattern",
+        "expected_count",
+        "last_count",
+        "checkpoint_date",
+        "is_new_recipe",
+        "recipe_notes"
+      ],
+      "properties": {
+        "fetch": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "url",
+              "needs_js",
+              "wait"
+            ],
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "wait": {
+                "type": "number"
+              },
+              "needs_js": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "method": {
+          "type": "string"
+        },
+        "last_count": {
+          "type": "number"
+        },
+        "source_url": {
+          "type": "string"
+        },
+        "link_pattern": {
+          "type": "string"
+        },
+        "recipe_notes": {
+          "type": "string"
+        },
+        "is_new_recipe": {
+          "type": "boolean"
+        },
+        "expected_count": {
+          "type": "number"
+        },
+        "checkpoint_date": {
+          "type": "string"
+        },
+        "profile_pattern": {
+          "type": "string"
+        }
+      }
+    },
+    "code": "def handler(context):\n    g = context.get_input\n    ok = bool(g('recipe_ok'))\n    cached = g('cached_recipe') or {}\n    d = {k: g('new_' + k) for k in ('method', 'list_url', 'needs_js', 'link_pattern', 'profile_pattern', 'expected_count', 'recipe_notes')}\n    use_new = (not ok) and bool(d.get('method'))\n    src = d if use_new else cached\n    method = (src.get('method') or 'agent_only') if (ok or use_new) else 'agent_only'\n    list_url = (src.get('list_url') or '').strip()\n    needs_js = bool(src.get('needs_js')) if not isinstance(src.get('needs_js'), str) else src.get('needs_js').lower() == 'true'\n    fetch = [{'url': list_url, 'needs_js': needs_js, 'wait': 5 if needs_js else 0}] if list_url and method not in ('agent_only',) else []\n    if fetch:\n        root = '/'.join(list_url.split('/')[:3])\n        fetch.append({'url': root + '/robots.txt', 'needs_js': False, 'wait': 0})   # always readable; keeps the step from failing outright\n    def num(x):\n        try: return int(float(x or 0))\n        except (ValueError, TypeError): return 0\n    return {'method': method, 'fetch': fetch, 'source_url': list_url or (cached.get('url') or ''),\n            'link_pattern': src.get('link_pattern') or '', 'profile_pattern': src.get('profile_pattern') or '',\n            'expected_count': num(src.get('expected_count')), 'last_count': num(cached.get('last_count')) if not use_new else 0,\n            'checkpoint_date': cached.get('checkpoint_date') or '', 'is_new_recipe': use_new, 'recipe_notes': d.get('recipe_notes') or ''}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnrbvDEPBhqHz4yK"
+      },
+      {
+        "sourceNode": "wfn_0toqnr5pj3rVhFxte9P",
+        "ruleId": "healthy",
+        "ruleName": "Healthy: replay saved recipe"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnrpQhV98Kp5eMqu"
+      }
+    ],
+    "id": "wfn_0toqnrgRmMbigQZpsuq"
+  }
+}

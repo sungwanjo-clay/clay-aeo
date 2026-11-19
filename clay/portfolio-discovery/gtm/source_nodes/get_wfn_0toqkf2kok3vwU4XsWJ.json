@@ -1,0 +1,86 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Clay status lookup (Snowflake)",
+    "description": "Runs the status query read-only on Snowflake (gtm-ops-prod).",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "snowflake-lookup-row-v2",
+        "actionPackageId": "95e948a2-0e4c-43fb-84e4-06449ae1e077",
+        "appAccountId": "aa_0tdyu9hvui3Kk9fkgmd",
+        "description": "Look up row",
+        "toolId": "tct_0toqkf7t8sE7ErUcUNd",
+        "appAccountName": "gtm-ops-prod",
+        "inputMappingConfig": {
+          "query": {
+            "type": "reference",
+            "expression": "{{query}}"
+          },
+          "authFields|schema": {
+            "type": "static",
+            "value": "PROD"
+          },
+          "authFields|database": {
+            "type": "static",
+            "value": "DBT"
+          },
+          "authFields|warehouse": {
+            "type": "static",
+            "value": "COMPUTE_WH"
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "authFields",
+            "type": "string",
+            "required": false,
+            "description": "The fields to connect to the DB. Once these fields are filled out, you'll be able to run your query."
+          },
+          {
+            "name": "query",
+            "type": "string",
+            "required": true,
+            "description": " "
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "title": "SQL Query",
+          "description": " ",
+          "sourceNodeId": "wfn_0toqkeu6FzfxHrNWwk9",
+          "sourcePath": "$.query"
+        }
+      }
+    },
+    "recentOutputPaths": [
+      "$.result.rows[0].DOMAIN",
+      "$.result.rows[0].SF_JSON",
+      "$.result.rows[0].WS_JSON",
+      "$.success"
+    ],
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqkeu6FzfxHrNWwk9"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqkf9j4QNgzu2D4m6"
+      }
+    ],
+    "id": "wfn_0toqkf2kok3vwU4XsWJ"
+  }
+}

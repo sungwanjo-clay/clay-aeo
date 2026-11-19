@@ -1,0 +1,17 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Manual (1)",
+    "nodeType": "trigger",
+    "incomingEdges": [],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnp0vqe2AzQqgyi4"
+      }
+    ],
+    "id": "wfn_0toqjpsufUzUeSDNvaG"
+  }
+}

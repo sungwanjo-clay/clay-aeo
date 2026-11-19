@@ -1,0 +1,261 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Plan provider calls",
+    "description": "Builds the search plan for finding funding rounds a firm has backed, using its official name, known aliases, and web profiles from the Resolve firm identity step within the lookback window set at the start. It prepares Google, Crunchbase, Dealroom, PitchBook, and LinkedIn searches plus a Salesforce lookup of past investments the firm has made over that period, reusing previously saved identity details when no fresh research was done.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "x_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.x_url"
+        },
+        "aliases": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.aliases"
+        },
+        "firm_name": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.firm_name"
+        },
+        "firm_type": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.firm_type"
+        },
+        "news_urls": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.news_urls"
+        },
+        "max_verify": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.max_verify"
+        },
+        "news_since": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.news_since"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.firm_domain"
+        },
+        "linkedin_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.linkedin_url"
+        },
+        "official_name": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.official_name"
+        },
+        "portfolio_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.portfolio_url"
+        },
+        "crunchbase_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.crunchbase_url"
+        },
+        "identity_fresh": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.identity_fresh"
+        },
+        "cached_identity": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.cached_identity"
+        },
+        "lookback_months": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.lookback_months"
+        },
+        "alias_collisions": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.alias_collisions"
+        },
+        "cached_news_urls": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.cached_news_urls"
+        },
+        "firm_domain_hint": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.firm_domain"
+        },
+        "identity_confidence": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.identity_confidence"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "firm",
+        "firm_domain",
+        "since",
+        "lookback_months",
+        "aliases",
+        "collisions",
+        "crunchbase_urls",
+        "dealroom_domains",
+        "pitchbook_queries",
+        "linkedin_urls",
+        "google_queries",
+        "sf_query",
+        "max_verify",
+        "firm_listed",
+        "news_since",
+        "news_urls",
+        "portfolio_url",
+        "official_name",
+        "firm_type",
+        "x_url",
+        "aliases_text",
+        "collisions_text",
+        "crunchbase_url",
+        "linkedin_url",
+        "identity_confidence",
+        "identity_refreshed"
+      ],
+      "properties": {
+        "firm": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "x_url": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sf_query": {
+          "type": "string"
+        },
+        "firm_type": {
+          "type": "string"
+        },
+        "news_urls": {
+          "type": "string"
+        },
+        "collisions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_verify": {
+          "type": "number"
+        },
+        "news_since": {
+          "type": "string"
+        },
+        "firm_domain": {
+          "type": "string"
+        },
+        "firm_listed": {
+          "type": "string"
+        },
+        "aliases_text": {
+          "type": "string"
+        },
+        "linkedin_url": {
+          "type": "string"
+        },
+        "linkedin_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "official_name": {
+          "type": "string"
+        },
+        "portfolio_url": {
+          "type": "string"
+        },
+        "crunchbase_url": {
+          "type": "string"
+        },
+        "google_queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collisions_text": {
+          "type": "string"
+        },
+        "crunchbase_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lookback_months": {
+          "type": "number"
+        },
+        "dealroom_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pitchbook_queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "identity_refreshed": {
+          "type": "boolean"
+        },
+        "identity_confidence": {
+          "type": "string"
+        }
+      }
+    },
+    "code": "import json, re\nfrom datetime import date, timedelta\n\ndef _split(s):\n    return [x.strip() for x in (s or '').split('|') if x.strip()]\n\ndef _sql_str(s):\n    return \"'\" + s.replace(\"'\", \"''\") + \"'\"\n\ndef handler(context):\n    raw = context.get_input\n    cached = raw('cached_identity') or {}\n    fresh = bool(raw('identity_fresh'))\n    def g(k):\n        # Fresh research (when it ran) wins; otherwise the identity saved by an earlier run.\n        v = raw(k)\n        if (v is None or v == '') and k in cached: return cached.get(k)\n        return v\n    name = (g('official_name') or g('firm_name') or '').strip()\n    listed = (g('firm_name') or '').strip()\n    domain = (g('firm_domain') or g('firm_domain_hint') or '').strip().lower()\n    domain = re.sub(r'^https?://', '', domain); domain = re.sub(r'^www\\.', '', domain).split('/')[0]\n    months = int(g('lookback_months') or 12)\n    since = (date.today() - timedelta(days=round(months * 30.44))).isoformat()\n    aliases = []\n    for a in [name, listed] + _split(g('aliases')):\n        if a and a.lower() not in [x.lower() for x in aliases]:\n            aliases.append(a)\n    collisions = _split(g('alias_collisions'))\n    cb = (g('crunchbase_url') or '').strip()\n    cb = cb if re.match(r'^https://www\\.crunchbase\\.com/organization/[a-z0-9-]+/?$', cb) else ''\n    li = (g('linkedin_url') or '').strip()\n    li = li if re.match(r'^https://(www\\.)?linkedin\\.com/company/[^/?#]+/?$', li) else ''\n    quoted = '\"' + name + '\"'\n    google = [\n        f'{quoted} led seed round {date.today().year}',\n        f'{quoted} leads Series A',\n        f'{quoted} backed startup raises',\n        f'{quoted} invests in',\n        f'{quoted} portfolio company announces funding',\n    ]\n    if (g('firm_type') or '').lower().startswith('accel'):\n        google += [f'{quoted} new cohort startups', f'{quoted} demo day companies', f'{quoted} batch announced']\n    # Salesforce reverse lookup: whole-word alias match on the investor-names field.\n    # Confusable names (e.g. Accel-KKR) are blanked out of the text first, so a row naming both still matches.\n    # Snowflake: REGEXP_LIKE is anchored to the whole string, so use REGEXP_INSTR > 0; and backslashes are\n    # string escapes, so special characters are bracketed ([.]) instead of backslash-escaped.\n    def lit(a):\n        out = ''\n        for ch in a.lower():\n            out += ch if (ch.isalnum() or ch == ' ') else ('[' + ch + ']' if ch not in '^]\\\\' else '')\n        return out\n    x = \"LOWER(a.FUNDING_INVESTOR_NAMES_C)\"\n    for c in collisions:\n        x = f\"REGEXP_REPLACE({x}, {_sql_str(lit(c))}, ' ')\"\n    likes = ' OR '.join(f\"REGEXP_INSTR({x}, {_sql_str('(^|[^a-z0-9])' + lit(a) + '($|[^a-z0-9])')}) > 0\" for a in aliases) or 'FALSE'\n    sf = f\"\"\"WITH hits AS (\n  SELECT a.ID, a.NAME, LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(NULLIF(a.DOMAIN_C, ''), a.WEBSITE, ''), '^https?://', ''), '^www[.]', '')) AS DOMAIN,\n         a.FUNDING_INVESTOR_NAMES_C AS INVESTORS, TO_VARCHAR(a.LAST_FUNDING_DATE_C::DATE) AS LAST_FUNDING_DATE, a.LAST_FUNDING_TYPE_C AS LAST_FUNDING_TYPE,\n         a.LAST_FUNDING_AMOUNT_C AS LAST_FUNDING_AMOUNT, a.FUNDING_SOURCE_LINK_C AS SOURCE_LINK, a.FUNDING_SOURCE_C AS SOURCE,\n         a.COMPANY_SEGMENT_C AS SEGMENT, TO_VARCHAR(a.CREATED_DATE::DATE) AS SF_CREATED\n  FROM FIVETRAN.SALESFORCE.ACCOUNT a\n  WHERE a.IS_DELETED = FALSE AND a.FUNDING_INVESTOR_NAMES_C IS NOT NULL AND ({likes}))\nSELECT COUNT(*) OVER () AS TOTAL_MATCHES, * FROM hits ORDER BY LAST_FUNDING_DATE DESC NULLS LAST LIMIT 1500\"\"\"\n    news_urls = (raw('news_urls') or '') if not fresh else (raw('cached_news_urls') or raw('news_urls') or '')\n    return {\n        'firm': name, 'firm_listed': listed, 'firm_domain': domain, 'since': since, 'lookback_months': months,\n        'news_since': raw('news_since') or since, 'news_urls': news_urls, 'portfolio_url': g('portfolio_url') or '',\n        'identity_refreshed': not fresh, 'official_name': name, 'firm_type': g('firm_type') or '', 'x_url': g('x_url') or '',\n        'aliases_text': ' | '.join(aliases), 'collisions_text': ' | '.join(collisions), 'crunchbase_url': cb, 'linkedin_url': li,\n        'identity_confidence': g('identity_confidence') or '',\n        'aliases': aliases, 'collisions': collisions,\n        'crunchbase_urls': [cb] if cb else [],\n        'dealroom_domains': [domain] if domain else [],\n        'pitchbook_queries': [domain] if domain else [],\n        'linkedin_urls': [li] if li else [],\n        'google_queries': google,\n        'sf_query': sf,\n        'max_verify': int(g('max_verify') or 300),\n    }\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqjrve3kdH3wMDMrC"
+      },
+      {
+        "sourceNode": "wfn_0toqnpicPkHwuGyjcfX",
+        "ruleId": "fresh",
+        "ruleName": "Fresh: reuse saved identity"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqjxoSygAnTCH23to"
+      }
+    ],
+    "id": "wfn_0toqjw72jYAJQqNCPXw"
+  }
+}

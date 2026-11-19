@@ -1,0 +1,60 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Directory recipe healthy?",
+    "description": "Checks whether the recipe chosen in Decide what this run needs is in good shape and ready to replay. Routes the workflow forward only when the saved recipe can be reused for this run.",
+    "nodeType": "conditional",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "recipe_ok": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.recipe_ok"
+        }
+      }
+    },
+    "conditionalMode": "rules",
+    "rulesConditionalConfig": {
+      "rules": [
+        {
+          "id": "healthy",
+          "name": "Healthy: replay saved recipe",
+          "condition": {
+            "type": "GroupOp",
+            "items": [
+              {
+                "type": "BinOp",
+                "dataPath": [
+                  "recipe_ok"
+                ],
+                "operator": "True"
+              }
+            ],
+            "combinationMode": "And"
+          }
+        }
+      ]
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk1kDz3eABsEYwit"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnrbvDEPBhqHz4yK",
+        "isDefaultRoute": true
+      },
+      {
+        "targetNode": "wfn_0toqnrgRmMbigQZpsuq",
+        "ruleId": "healthy",
+        "ruleName": "Healthy: replay saved recipe"
+      }
+    ],
+    "id": "wfn_0toqnr5pj3rVhFxte9P"
+  }
+}

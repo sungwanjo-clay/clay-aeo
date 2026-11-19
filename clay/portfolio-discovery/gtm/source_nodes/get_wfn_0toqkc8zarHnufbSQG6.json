@@ -1,0 +1,121 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Verify each company and its latest round",
+    "description": "Checks each candidate company from the combined list to confirm the investment firm truly backs it through an investment or accelerator cohort, then finds the company's website domain and most recent completed funding round. It also notes whether the firm took part in that round and whether the round was announced within the review window.",
+    "nodeType": "agent",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "aliases": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.aliases"
+        },
+        "collisions": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.collisions"
+        },
+        "since": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.since"
+        }
+      }
+    },
+    "outputSchema": {
+      "notes": {
+        "type": "string",
+        "description": "One sentence on anything uncertain"
+      },
+      "backing": {
+        "type": "select",
+        "options": "[{\"text\": \"Confirmed\"}, {\"text\": \"Not confirmed\"}, {\"text\": \"Different firm\"}, {\"text\": \"Unclear\"}]",
+        "description": "Is the firm a confirmed investor or accelerator of this company"
+      },
+      "is_stealth": {
+        "type": "boolean",
+        "description": "True if the company is in stealth or has no public website"
+      },
+      "company_name": {
+        "type": "string",
+        "description": "Company's canonical name"
+      },
+      "relationship": {
+        "type": "select",
+        "options": "[{\"text\": \"Investor\"}, {\"text\": \"Lead investor\"}, {\"text\": \"Accelerator cohort\"}, {\"text\": \"Unknown\"}]",
+        "description": "How the firm is connected"
+      },
+      "company_domain": {
+        "type": "string",
+        "description": "Company's own bare domain, blank if unconfirmed"
+      },
+      "round_in_window": {
+        "type": "select",
+        "options": "[{\"text\": \"Yes\"}, {\"text\": \"No\"}, {\"text\": \"Unknown\"}]",
+        "description": "Is the latest round on or after the window start"
+      },
+      "latest_round_date": {
+        "type": "string",
+        "description": "YYYY-MM-DD or YYYY-MM, blank if unknown"
+      },
+      "latest_round_type": {
+        "type": "string",
+        "description": "Latest completed round type, blank if unknown"
+      },
+      "backing_source_url": {
+        "type": "string",
+        "description": "Best source URL confirming the relationship"
+      },
+      "latest_round_leads": {
+        "type": "string",
+        "description": "Lead investors, comma separated"
+      },
+      "firm_in_latest_round": {
+        "type": "select",
+        "options": "[{\"text\": \"Yes\"}, {\"text\": \"No\"}, {\"text\": \"Unknown\"}]",
+        "description": "Did the firm take part in the latest round"
+      },
+      "latest_round_amount_usd": {
+        "type": "number",
+        "description": "Amount in USD, 0 if unknown"
+      },
+      "latest_round_source_url": {
+        "type": "string",
+        "description": "Source URL for the latest round"
+      }
+    },
+    "listMode": true,
+    "listFailureMode": "ignore_errors",
+    "listEntriesRef": {
+      "path": "$.to_verify",
+      "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi"
+    },
+    "agentClaygentId": "c_0toqkc8777mnDYFzSjG",
+    "agentName": "Portfolio discovery: verify company",
+    "agentVersion": "current",
+    "agentPrompt": "Verify one possible portfolio company of {{firm}} (also written as: {{aliases}}; NOT the same as: {{collisions}}).\n\nCompany: {{__item.name}}. Domain on file: {{__item.domain}}. Found by: {{__item.lanes}}. Evidence so far: {{__item.evidence}}. Latest date hint: {{__item.latest_hint}}. Round hints: {{__item.round_hints}}.\n\nWork efficiently. Start from the evidence links above (if the only source is salesforce, open that funding link first); search further only when they don't settle a question.\n\n1. backing: is {{firm}} a confirmed investor in, or accelerator of, this company? \"Confirmed\" needs a primary or reputable source: the firm's own site or posts, the company's own announcement, or a reputable news article or database page naming the firm as investor or cohort. A name match to a different firm doesn't count. Give the best source URL.\n2. domain: the company's own website domain (bare, e.g. acme.com). Blank if you can't confirm it. Note if it's stealth.\n3. Latest completed funding round for the company (any investor): type (Pre-Seed, Seed, Series A, ...), announced date (YYYY-MM-DD, or YYYY-MM if only the month is known), amount in USD, lead investors, and a source URL. Only completed equity or venture rounds count: exclude fund closes, plans or rumors, pure debt, grants, IPOs, acquisitions and secondary sales. Joining a cohort is not a round.\n4. firm_in_latest_round: did {{firm}} take part in that latest round?\n5. round_in_window: is that latest round announced on or after {{since}}?\nLeave any field blank (or Unknown) rather than guess.",
+    "agentModel": "clay-auto",
+    "agentInternetSearchEnabled": true,
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqkbhq65PzKiYHMPi"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqkeu6FzfxHrNWwk9"
+      }
+    ],
+    "id": "wfn_0toqkc8zarHnufbSQG6"
+  }
+}

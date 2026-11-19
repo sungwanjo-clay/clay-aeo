@@ -1,0 +1,92 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Pick the PitchBook investor record",
+    "description": "Keeps only an investor record whose website matches the firm's domain (or an exact-name investor as fallback).",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "search": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqk0jb6YFneA4vVuE",
+          "sourcePath": "$"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_domain"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "pb_ids",
+        "pb_candidates",
+        "pb_match"
+      ],
+      "properties": {
+        "pb_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pb_match": {
+          "type": "string"
+        },
+        "pb_candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "pb_id",
+              "name",
+              "website",
+              "types"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "pb_id": {
+                "type": "string"
+              },
+              "types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "website": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "code": "import re\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef _dom(u):\n    u = (u or '').lower().strip()\n    u = re.sub(r'^https?://', '', u); u = re.sub(r'^www\\.', '', u)\n    return u.split('/')[0]\n\ndef handler(context):\n    want = _dom(context.get_input('firm_domain'))\n    name = (context.get_input('firm') or '').lower()\n    picks, candidates = [], []\n    for it in _items(context.get_input('search')):\n        r = (it.get('result', it) if isinstance(it, dict) else None)\n        for c in ((r or {}).get('items') or []) if isinstance(r, dict) else []:\n            types = [((c.get('primaryFirmType') or {}).get('type') or '')] + [(t or {}).get('type') or '' for t in (c.get('otherFirmTypes') or [])]\n            is_inv = any(re.search(r'invest|venture|accelerat|fund', t or '', re.I) for t in types)\n            cand = {'pb_id': str(c.get('pbId') or ''), 'name': c.get('name') or '', 'website': _dom(c.get('website')), 'types': [t for t in types if t]}\n            candidates.append(cand)\n            if c.get('pbId') and is_inv and want and cand['website'] == want:\n                picks.append(c['pbId'])\n    if not picks:   # fall back to an exact name match on an investor record\n        for c in candidates:\n            if c['pb_id'] and (c['name'] or '').lower() == name and any(re.search(r'invest|venture|accelerat|fund', t, re.I) for t in c['types']):\n                picks.append(c['pb_id'])\n    picks = list(dict.fromkeys(picks))[:2]\n    return {'pb_ids': picks, 'pb_candidates': candidates[:10], 'pb_match': 'domain' if picks and any(c['website'] == want for c in candidates) else ('name' if picks else 'none')}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk0jb6YFneA4vVuE"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk0zyDeyNCvoCzdx"
+      }
+    ],
+    "id": "wfn_0toqk0qNyrU7QFup5zR"
+  }
+}

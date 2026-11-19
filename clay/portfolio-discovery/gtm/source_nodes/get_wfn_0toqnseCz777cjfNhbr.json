@@ -1,0 +1,132 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Directory health check",
+    "description": "Turns pages into companies and checks the recipe still works: nothing found, a drop of more than half vs last time, or failing profile pages marks the source broken (it's rediscovered next run, and research covers this run).",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "found": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnrwwHJctjom4QKt",
+          "sourcePath": "$.found"
+        },
+        "method": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.method"
+        },
+        "companies": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqnrwwHJctjom4QKt",
+          "sourcePath": "$.companies"
+        },
+        "last_count": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.last_count"
+        },
+        "pages_read": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnrwwHJctjom4QKt",
+          "sourcePath": "$.pages_read"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_domain"
+        },
+        "expected_count": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.expected_count"
+        },
+        "profile_scrape": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqns5WygyHfzRAVcq",
+          "sourcePath": "$"
+        },
+        "profiles_to_open": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqnrwwHJctjom4QKt",
+          "sourcePath": "$.profiles_to_open"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "directory_companies",
+        "directory_status",
+        "directory_found",
+        "profiles_read",
+        "health_reason",
+        "needs_fallback"
+      ],
+      "properties": {
+        "health_reason": {
+          "type": "string"
+        },
+        "profiles_read": {
+          "type": "number"
+        },
+        "needs_fallback": {
+          "type": "boolean"
+        },
+        "directory_found": {
+          "type": "number"
+        },
+        "directory_status": {
+          "type": "string"
+        },
+        "directory_companies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "company",
+              "website",
+              "fund_or_batch",
+              "status",
+              "profile_url"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "company": {
+                "type": "string"
+              },
+              "website": {
+                "type": "string"
+              },
+              "profile_url": {
+                "type": "string"
+              },
+              "fund_or_batch": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "code": "import re\n\nSOCIAL = ('linkedin.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'youtube.com', 'medium.com', 'github.com', 'tiktok.com',\n          'crunchbase.com', 'angel.co', 'wellfound.com', 'google.com', 'apple.com', 'startupschool.org', 'amazon.com', 'bit.ly', 'calendly.com')\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef host(u):\n    u = re.sub(r'^[a-z]+://', '', (u or '').strip().lower()); u = re.sub(r'^www\\d?\\.', '', u)\n    return u.split('/')[0].split('?')[0].split('#')[0]\n\nSEASON = re.compile(r'(Winter|Summer|Spring|Fall|Autumn)\\s*(20\\d\\d)(?!\\d)')\nFUND = re.compile(r'\\bFund\\s+([IVX]+|\\d+)\\b')\nSTATUS = re.compile(r'(Active|Acquired|Inactive|Public|Exited|Closed)(?=[A-Z]|\\s|$)')\n\ndef handler(context):\n    g = context.get_input\n    firm_dom = host(g('firm_domain'))\n    urls = g('profiles_to_open') or []\n    listed = g('companies') or []\n    found = int(g('found') or 0); pages_read = int(g('pages_read') or 0)\n    last = int(g('last_count') or 0); expected = int(g('expected_count') or 0)\n    recipe_known = bool(g('method'))\n    out, failed_profiles = [], 0\n    blocked = bool(g('blocked_by_robots'))\n    for i, r in enumerate(_items(g('profile_scrape'))[:len(urls)]):\n        r = r.get('result', r) if isinstance(r, dict) else {}\n        url = urls[i] if i < len(urls) else ''\n        if not isinstance(r, dict) or not (r.get('bodyText') or r.get('links')):\n            failed_profiles += 1; continue\n        title = re.split(r'\\s[:|–-]\\s|:', r.get('title') or '')[0].strip()\n        site = ''\n        for l in r.get('links') or []:\n            h = host(l.get('href'))\n            if h and h != firm_dom and not h.endswith('.' + firm_dom) and not any(s in h for s in SOCIAL):\n                site = h; break\n        body = r.get('bodyText') or ''\n        m = SEASON.search(body) or FUND.search(body); s = STATUS.search(body)\n        batch = (m.group(1) + ' ' + m.group(2)) if m and m.re is SEASON else (m.group(0) if m else '')\n        out.append({'company': title, 'website': site, 'fund_or_batch': batch, 'status': s.group(1) if s else '', 'profile_url': url})\n    for c in listed:\n        out.append({'company': c.get('company') or c.get('website') or '', 'website': c.get('website') or '', 'fund_or_batch': '', 'status': '', 'profile_url': ''})\n    # Health: is the recipe still reading this site?\n    reasons = []\n    if pages_read == 0: reasons.append('the directory fetch returned nothing')\n    if found == 0: reasons.append('no company links matched the recipe')\n    if last and found < 0.5 * last: reasons.append(f'found {found} vs {last} last time')\n    if urls and failed_profiles > 0.5 * len(urls): reasons.append(f'{failed_profiles} of {len(urls)} profile pages failed')\n    if not recipe_known: status = 'no_recipe'\n    elif reasons: status = 'broken'\n    elif expected and found < 0.8 * expected: status = 'partial'\n    else: status = 'ok'\n    return {'directory_companies': out, 'directory_status': status, 'directory_found': found, 'profiles_read': len(urls) - failed_profiles,\n            'health_reason': '; '.join(reasons) or ('below the site\\'s stated total' if status == 'partial' else ''), 'needs_fallback': status in ('broken', 'no_recipe')}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqns5WygyHfzRAVcq"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnsnoAuPqU5eXvRm"
+      }
+    ],
+    "id": "wfn_0toqnseCz777cjfNhbr"
+  }
+}

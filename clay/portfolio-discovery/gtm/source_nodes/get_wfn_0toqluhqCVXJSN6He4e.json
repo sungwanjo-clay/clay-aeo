@@ -1,0 +1,74 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Research fallback: read the portfolio directory",
+    "description": "Reads the firm's own portfolio directory across every page, tab, fund, and batch to build the full roster of companies, including past and exited ones. Captures each company's name, website, fund or batch, and status so the rest of the workflow can pick up from there.",
+    "nodeType": "agent",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_domain"
+        },
+        "portfolio_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.portfolio_url"
+        },
+        "news_urls": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.news_urls"
+        }
+      }
+    },
+    "outputSchema": {
+      "portfolio_json": {
+        "type": "string",
+        "description": "JSON array of portfolio companies as specified; [] if none could be read"
+      },
+      "portfolio_count": {
+        "type": "number",
+        "description": "Number of companies returned"
+      },
+      "portfolio_coverage": {
+        "type": "string",
+        "description": "Pages and filters read, total listed, and what was skipped or unreadable"
+      },
+      "portfolio_page_status": {
+        "type": "select",
+        "options": "[{\"text\": \"Complete\"}, {\"text\": \"Partial\"}, {\"text\": \"Truncated\"}, {\"text\": \"No directory found\"}, {\"text\": \"Fetch failed\"}]",
+        "description": "How reading the directory went"
+      }
+    },
+    "agentClaygentId": "c_0toqluh5ZJptUbU984G",
+    "agentName": "Portfolio discovery: official portfolio directory",
+    "agentVersion": "current",
+    "agentPrompt": "List the portfolio of {{firm}} ({{firm_domain}}) from the firm's own website. Portfolio or company directory page: {{portfolio_url}}. Other official pages that may list companies or cohorts: {{news_urls}}.\n\nRead every company the firm lists as a portfolio company or cohort member, across all pages, tabs, filters (funds, sectors, years, batches) and \"load more\". Include current and past companies; mark status when shown (active, exited, acquired, IPO, closed). Dates are not required here: this is the full roster, not recent news.\n\nFor each company give: company, website (the company's own site, as linked from the directory; blank if not linked), fund_or_batch (e.g. Fund II, W25, Spring 2026; blank if not shown), status, profile_url (the firm's page for that company, if any).\n\nIf the directory has more than 400 companies, return the 400 most recent you can identify (newest fund or batch first), set portfolio_page_status to \"Truncated\", and say in portfolio_coverage how many exist and which part you covered. Never invent companies.\n\nAlways return a result, even when the directory is incomplete, hidden behind scripts, or missing: return the companies you could read, set portfolio_page_status to \"Partial\" (or \"No directory found\" / \"Fetch failed\"), and explain exactly what was and wasn't readable in portfolio_coverage. Other steps cover the rest of the portfolio, so a partial list is useful; failing is not.\n\nReturn portfolio_json as a JSON array (no prose) of those objects.",
+    "agentModel": "clay-auto",
+    "agentInternetSearchEnabled": true,
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnsnoAuPqU5eXvRm",
+        "ruleId": "fallback",
+        "ruleName": "Broken or no recipe: research this week"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk9vwqh6oSnj2cvb"
+      }
+    ],
+    "id": "wfn_0toqluhqCVXJSN6He4e"
+  }
+}

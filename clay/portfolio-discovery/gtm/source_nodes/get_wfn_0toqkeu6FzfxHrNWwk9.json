@@ -1,0 +1,76 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Build Clay status lookup",
+    "description": "Collects verified (and not-yet-verified) company domains and builds one Snowflake query: workspaces by creator and attribution domain (deduplicated), paid status from CUSTOMERS, and the Salesforce account's tier, owner and open pipeline.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "held": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.not_verified_this_run"
+        },
+        "cached": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.cached"
+        },
+        "verified": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkc8zarHnufbSQG6",
+          "sourcePath": "$"
+        },
+        "to_verify": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.to_verify"
+        },
+        "held_domains": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.not_verified_domains"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "query",
+        "domains",
+        "domain_count"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "domain_count": {
+          "type": "number"
+        }
+      }
+    },
+    "code": "import re\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef dom(u):\n    u = (u or '').strip().lower()\n    u = re.sub(r'^[a-z]+://', '', u); u = re.sub(r'^www\\d?\\.', '', u)\n    u = u.split('/')[0].strip('.')\n    return u if re.fullmatch(r'[a-z0-9][a-z0-9.-]*\\.[a-z]{2,63}', u) and '..' not in u else ''\n\ndef handler(context):\n    tv = context.get_input('to_verify') or []\n    held = context.get_input('held') or []\n    ver = _items(context.get_input('verified'))\n    doms = []\n    for i, c in enumerate(tv):\n        v = ver[i] if i < len(ver) else {}\n        v = v.get('output', v) if isinstance(v, dict) else {}\n        d = dom((v or {}).get('company_domain')) or dom(c.get('domain'))\n        if d: doms.append(d)\n    doms += [dom(c.get('domain')) for c in held if dom(c.get('domain'))]\n    doms += [dom(x) for x in (context.get_input('held_domains') or []) if dom(x)]\n    doms += [dom(c.get('domain')) for c in (context.get_input('cached') or []) if dom(c.get('domain'))]\n    doms = sorted(set(doms))[:4000]\n    if not doms:\n        return {'query': \"SELECT NULL AS DOMAIN, '[]' AS WS_JSON, '[]' AS SF_JSON WHERE FALSE\", 'domains': [], 'domain_count': 0}\n    vals = ', '.join(\"('\" + d + \"')\" for d in doms)\n    q = f\"\"\"WITH roster AS (SELECT COLUMN1 AS DOMAIN FROM VALUES {vals}),\nm AS (\n  SELECT DISTINCT r.DOMAIN, TO_VARCHAR(w.WORKSPACE_ID) AS WORKSPACE_ID, 'creator_domain' AS METHOD\n  FROM roster r JOIN DBT.PROD.IDENTITY_RESOLUTION_WORKSPACE_BASE w\n    ON REGEXP_REPLACE(LOWER(TRIM(w.WORKSPACE_CREATED_BY_USER_DOMAIN)), '^www[.]', '') = r.DOMAIN WHERE w.WORKSPACE_ID IS NOT NULL\n  UNION ALL\n  SELECT DISTINCT r.DOMAIN, TO_VARCHAR(w.WORKSPACE_ID), 'attribution_domain'\n  FROM roster r JOIN DBT.PROD.FCT_PLG_WORKSPACE_ATTRIBUTION_MAP w\n    ON REGEXP_REPLACE(LOWER(TRIM(w.CUSTOMER_DOMAIN)), '^www[.]', '') = r.DOMAIN WHERE w.WORKSPACE_ID IS NOT NULL),\np AS (\n  SELECT TO_VARCHAR(WORKSPACE_ID) AS WORKSPACE_ID, MAX(IFF(FIRST_INVOICE_UTC IS NOT NULL, 1, 0)) AS EVER_PAID,\n         MAX(IFF(BINARY_CURRENT_CUSTOMER = 1, 1, 0)) AS PAYING_NOW, TO_VARCHAR(MIN(CREATED_AT_UTC)::DATE) AS WS_CREATED,\n         TO_VARCHAR(MIN(FIRST_INVOICE_UTC)::DATE) AS FIRST_PAID\n  FROM DBT.PROD.CUSTOMERS WHERE TO_VARCHAR(WORKSPACE_ID) IN (SELECT WORKSPACE_ID FROM m) GROUP BY 1),\nshared AS (SELECT WORKSPACE_ID, COUNT(DISTINCT DOMAIN) AS N_DOMAINS FROM m GROUP BY 1),\nwsj AS (\n  SELECT m.DOMAIN, ARRAY_AGG(OBJECT_CONSTRUCT('workspace_id', m.WORKSPACE_ID, 'method', m.METHOD, 'ever_paid', p.EVER_PAID,\n         'paying_now', p.PAYING_NOW, 'created', p.WS_CREATED, 'first_paid', p.FIRST_PAID, 'shared_domains', s.N_DOMAINS)) AS WS\n  FROM m LEFT JOIN p USING (WORKSPACE_ID) LEFT JOIN shared s USING (WORKSPACE_ID) GROUP BY m.DOMAIN),\nsf AS (\n  SELECT LOWER(REGEXP_REPLACE(REGEXP_REPLACE(a.DOMAIN_C, '^https?://', ''), '^www[.]', '')) AS DOMAIN,\n         ARRAY_AGG(OBJECT_CONSTRUCT('account_id', a.ID, 'owner_id', a.OWNER_ID, 'sales_tier', a.SALES_TIER_C, 'open_pipeline', a.OPEN_PIPELINE_C,\n                   'account_stage', a.ACCOUNT_STAGE_C, 'gtme', a.GTME_C, 'segment', a.COMPANY_SEGMENT_C)) AS SF\n  FROM FIVETRAN.SALESFORCE.ACCOUNT a\n  WHERE a.IS_DELETED = FALSE AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(a.DOMAIN_C, '^https?://', ''), '^www[.]', '')) IN (SELECT DOMAIN FROM roster)\n  GROUP BY 1)\nSELECT r.DOMAIN, TO_JSON(COALESCE(wsj.WS, ARRAY_CONSTRUCT())) AS WS_JSON, TO_JSON(COALESCE(sf.SF, ARRAY_CONSTRUCT())) AS SF_JSON\nFROM roster r LEFT JOIN wsj USING (DOMAIN) LEFT JOIN sf USING (DOMAIN) ORDER BY r.DOMAIN\"\"\"\n    return {'query': q, 'domains': doms, 'domain_count': len(doms)}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqkc8zarHnufbSQG6"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqkf2kok3vwU4XsWJ"
+      }
+    ],
+    "id": "wfn_0toqkeu6FzfxHrNWwk9"
+  }
+}

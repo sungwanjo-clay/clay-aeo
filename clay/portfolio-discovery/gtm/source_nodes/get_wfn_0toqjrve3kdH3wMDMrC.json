@@ -1,0 +1,100 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Resolve firm identity",
+    "description": "Confirms the official identity of the venture investor or accelerator named in the manual trigger, including its website, announcement pages, and portfolio location, so later steps track the right firm's investments. It keeps the firm separate from similarly named funds, programs, and unrelated companies.",
+    "nodeType": "agent",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "firm_name": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.firm_name"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.firm_domain"
+        }
+      }
+    },
+    "outputSchema": {
+      "notes": {
+        "type": "string",
+        "description": "Ambiguities, one or two sentences"
+      },
+      "x_url": {
+        "type": "string",
+        "description": "Official X account URL, blank if unsure"
+      },
+      "aliases": {
+        "type": "string",
+        "description": "Other names for the same firm, separated by ' | '"
+      },
+      "feed_url": {
+        "type": "string",
+        "description": "RSS/Atom feed URL for announcements, blank if none"
+      },
+      "firm_type": {
+        "type": "select",
+        "options": "[{\"text\": \"VC fund\"}, {\"text\": \"Accelerator\"}]",
+        "description": "VC fund or accelerator"
+      },
+      "news_urls": {
+        "type": "string",
+        "description": "Official announcement pages on the firm's own site, separated by ' | '"
+      },
+      "firm_domain": {
+        "type": "string",
+        "description": "Bare official domain, e.g. accel.com"
+      },
+      "linkedin_url": {
+        "type": "string",
+        "description": "LinkedIn company page URL, blank if unsure"
+      },
+      "official_name": {
+        "type": "string",
+        "description": "Official firm name"
+      },
+      "portfolio_url": {
+        "type": "string",
+        "description": "Official portfolio directory URL, blank if none"
+      },
+      "crunchbase_url": {
+        "type": "string",
+        "description": "Crunchbase organization URL, blank if unsure"
+      },
+      "alias_collisions": {
+        "type": "string",
+        "description": "Similar names that must not be matched, separated by ' | '"
+      },
+      "identity_confidence": {
+        "type": "select",
+        "options": "[{\"text\": \"High\"}, {\"text\": \"Medium\"}, {\"text\": \"Low\"}]",
+        "description": "How sure the identity is"
+      }
+    },
+    "agentClaygentId": "c_0toqjqehmA3wqCqFf8X",
+    "agentName": "Portfolio discovery: resolve firm identity",
+    "agentVersion": "current",
+    "agentPrompt": "You resolve the identity of one venture investor or startup accelerator so later steps can find its portfolio. Firm as listed: {{firm_name}}. Domain hint (may be blank): {{firm_domain}}.\n\nFind the firm's official website and confirm it is the investor itself, not a portfolio company, a fund-of-funds, a person, or a similarly named company. Do not conflate the firm with one of its funds, a partner at the firm, or a separate program (e.g. Accel vs Accel-KKR, Sequoia Capital vs Peak XV / HongShan, Techstars vs one Techstars city program). If two firms share the name, pick the one that is a VC or accelerator matching the hint, and say so in notes.\n\nReturn:\n- official_name, firm_domain (bare, e.g. accel.com), firm_type (VC fund or Accelerator).\n- aliases: other names the firm is written as in funding announcements and CRM data (short names, former names, regional arms that are the same firm), separated by \" | \". Never include a different firm (Accel-KKR is not Accel). Include names that are ambiguous only if they're commonly used, and list risky ones in alias_collisions instead.\n- alias_collisions: other organizations whose names contain or resemble this firm's name and must NOT be matched (e.g. for Accel: Accel-KKR | Accelerator | Accelerate). Separate with \" | \".\n- crunchbase_url: the firm's Crunchbase organization page (https://www.crunchbase.com/organization/...). Blank if not certain.\n- linkedin_url: the firm's LinkedIn company page. Blank if not certain.\n- x_url: the firm's official X account. Blank if not certain.\n- news_urls: every official page on the firm's own website(s) where it announces investments, new portfolio companies or cohorts (news, blog, press, portfolio news, cohort or batch pages, demo day pages). Separate with \" | \". Open each to confirm it lists dated posts or companies. Only the firm's own domains.\n- feed_url: an RSS or Atom feed for those announcements if one exists, else blank.\n- portfolio_url: the firm's official portfolio or company directory page, if any.\n- identity_confidence: High when the website, LinkedIn and Crunchbase agree; Medium when one is missing; Low when unclear.\n- notes: one or two sentences on anything ambiguous.\nLeave a field blank rather than guess.",
+    "agentModel": "clay-auto",
+    "agentInternetSearchEnabled": true,
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnpicPkHwuGyjcfX",
+        "isDefaultRoute": true
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqjw72jYAJQqNCPXw"
+      }
+    ],
+    "id": "wfn_0toqjrve3kdH3wMDMrC"
+  }
+}

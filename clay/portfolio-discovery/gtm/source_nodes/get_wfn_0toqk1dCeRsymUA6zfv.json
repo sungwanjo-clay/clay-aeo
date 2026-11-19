@@ -1,0 +1,123 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Google: recent investments and cohorts",
+    "description": "Required every run: several Google searches for the firm's recent investments and cohort announcements. Hits are leads, verified later.",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "search-google",
+        "actionPackageId": "3282a1c7-6bb0-497e-a34b-32268e104e55",
+        "description": "Perform search",
+        "toolId": "tct_0toqk1hQ2NZuESYeaZx",
+        "inputMappingConfig": {
+          "query": {
+            "type": "item",
+            "path": "$"
+          },
+          "numberOfResults": {
+            "type": "static",
+            "value": 10
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "query",
+            "type": "string",
+            "required": true,
+            "description": "e.g. '{{\"Company Domain\"}} mentions in the news'"
+          },
+          {
+            "name": "numberOfResults",
+            "type": "number",
+            "required": false,
+            "description": "Number of results to pull. Defaults to 5. Maximum is 10."
+          },
+          {
+            "name": "language",
+            "type": "string",
+            "required": false,
+            "description": "Language to use for search (defaults to English)"
+          },
+          {
+            "name": "country",
+            "type": "string",
+            "required": false,
+            "description": "Country to use for search (defaults to United States)"
+          },
+          {
+            "name": "includeResultCount",
+            "type": "boolean",
+            "required": false,
+            "description": "If switched on, the approximate result count from Google will be added to the returned data. This number is an approximation. Using operators like \"site:\" in your query help make this number more accurate."
+          },
+          {
+            "name": "includeAds",
+            "type": "boolean",
+            "required": false,
+            "description": "If switched on, Ad results will be included in the returned data."
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "title": "Google search query",
+          "description": "e.g. '{{\"Company Domain\"}} mentions in the news'"
+        },
+        "country": {
+          "type": "string",
+          "title": "Country",
+          "description": "Country to use for search (defaults to United States)"
+        },
+        "language": {
+          "type": "string",
+          "title": "Language",
+          "description": "Language to use for search (defaults to English)"
+        },
+        "includeAds": {
+          "type": "boolean",
+          "title": "Include Ads?",
+          "description": "If switched on, Ad results will be included in the returned data."
+        },
+        "numberOfResults": {
+          "type": "number",
+          "title": "Number of results",
+          "description": "Number of results to pull. Defaults to 5. Maximum is 10."
+        },
+        "includeResultCount": {
+          "type": "boolean",
+          "title": "Include Result Count?",
+          "description": "If switched on, the approximate result count from Google will be added to the returned data. This number is an approximation. Using operators like \"site:\" in your query help make this number more accurate."
+        }
+      }
+    },
+    "listMode": true,
+    "listFailureMode": "ignore_errors",
+    "listEntriesRef": {
+      "path": "$.google_queries",
+      "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw"
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk16FTamzgSa5DZ2"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk1kDz3eABsEYwit"
+      }
+    ],
+    "id": "wfn_0toqk1dCeRsymUA6zfv"
+  }
+}

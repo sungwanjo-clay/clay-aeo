@@ -1,0 +1,81 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "LinkedIn: firm's recent posts",
+    "description": "Up to 50 recent posts from the firm's LinkedIn page (Trigify), where investments and cohorts are often announced first.",
+    "nodeType": "tool",
+    "tools": [
+      {
+        "toolType": "clay_action",
+        "actionKey": "trigify-get-company-posts",
+        "actionPackageId": "812333ce-918d-41e0-8418-2a13d0d59695",
+        "appAccountId": "aa_GjdYMYJEA9oi",
+        "description": "Get company professional posts",
+        "toolId": "tct_0toqk19sENtfKC7JqjS",
+        "appAccountName": "Clay-managed Trigify account",
+        "inputMappingConfig": {
+          "limit": {
+            "type": "static",
+            "value": 50
+          },
+          "companyUrl": {
+            "type": "item",
+            "path": "$"
+          }
+        },
+        "inputParameters": [
+          {
+            "name": "companyUrl",
+            "type": "string",
+            "required": true,
+            "description": "The company professional URL to get posts from, e.g. https://www.linkedin.com/company/grow-with-clay. Returns up to 50 most recent posts."
+          },
+          {
+            "name": "limit",
+            "type": "number",
+            "required": false,
+            "description": "The number of posts to fetch. Minimum is 1, maximum is 50. Defaults to 50."
+          }
+        ]
+      }
+    ],
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "companyUrl"
+      ],
+      "properties": {
+        "limit": {
+          "type": "number",
+          "title": "Limit",
+          "description": "The number of posts to fetch. Minimum is 1, maximum is 50. Defaults to 50."
+        },
+        "companyUrl": {
+          "type": "string",
+          "title": "Company Professional URL",
+          "description": "The company professional URL to get posts from, e.g. https://www.linkedin.com/company/grow-with-clay. Returns up to 50 most recent posts."
+        }
+      }
+    },
+    "listMode": true,
+    "listFailureMode": "ignore_errors",
+    "listEntriesRef": {
+      "path": "$.linkedin_urls",
+      "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw"
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqk0zyDeyNCvoCzdx"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk1dCeRsymUA6zfv"
+      }
+    ],
+    "id": "wfn_0toqk16FTamzgSa5DZ2"
+  }
+}

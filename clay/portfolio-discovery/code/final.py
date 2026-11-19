@@ -17,7 +17,7 @@ def dom(u):
 def tri(x):
     return 'unknown' if x is None else ('yes' if x else 'no')
 
-LANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'salesforce']
+LANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'crunchbase', 'salesforce']
 
 def handler(context):
     g = context.get_input

@@ -1,0 +1,552 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Portfolio and target list",
+    "description": "One row per company: confirmed backing (the denominator), latest round and the recently-funded flag, Clay status (workspace, paying, ever paid), open pipeline, and the target flag. Plus a run summary with coverage per lane, caps, review cases and how reading the firm's own pages went.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "caps": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.caps"
+        },
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "held": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.not_verified_this_run"
+        },
+        "since": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.since"
+        },
+        "cached": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.cached"
+        },
+        "status": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqkf2kok3vwU4XsWJ",
+          "sourcePath": "$"
+        },
+        "verified": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkc8zarHnufbSQG6",
+          "sourcePath": "$"
+        },
+        "to_verify": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.to_verify"
+        },
+        "held_count": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.not_verified_count"
+        },
+        "lane_counts": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqkbhq65PzKiYHMPi",
+          "sourcePath": "$.lane_counts"
+        },
+        "archive_status": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqk9vwqh6oSnj2cvb",
+          "sourcePath": "$.archive_status"
+        },
+        "archive_coverage": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqk9vwqh6oSnj2cvb",
+          "sourcePath": "$.archive_coverage"
+        },
+        "identity_confidence": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjrve3kdH3wMDMrC",
+          "sourcePath": "$.identity_confidence"
+        },
+        "portfolio_page_status": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnseCz777cjfNhbr",
+          "sourcePath": "$.directory_status"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "summary",
+        "portfolio",
+        "not_verified",
+        "review"
+      ],
+      "properties": {
+        "review": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "company",
+              "domain",
+              "why"
+            ],
+            "properties": {
+              "why": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "company": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "firm",
+            "identity_confidence",
+            "window_start",
+            "archive_status",
+            "archive_coverage",
+            "portfolio_page_status",
+            "candidates",
+            "verified_this_run",
+            "not_verified_this_run",
+            "portfolio_confirmed",
+            "with_workspace",
+            "paying_now",
+            "ever_paid",
+            "clay_status_unknown",
+            "targets",
+            "recently_funded_targets",
+            "funded_in_window",
+            "review_count",
+            "backing",
+            "confirmed_by_lane",
+            "confirmed_only_this_lane",
+            "candidates_by_lane",
+            "caps",
+            "status_lookup_ok",
+            "carried_forward"
+          ],
+          "properties": {
+            "caps": {
+              "type": "object",
+              "required": [
+                "salesforce_capped",
+                "salesforce_total_matches",
+                "dealroom_capped",
+                "dealroom_total"
+              ],
+              "properties": {
+                "dealroom_total": {
+                  "type": "number"
+                },
+                "dealroom_capped": {
+                  "type": "boolean"
+                },
+                "salesforce_capped": {
+                  "type": "boolean"
+                },
+                "salesforce_total_matches": {
+                  "type": "number"
+                }
+              }
+            },
+            "firm": {
+              "type": "string"
+            },
+            "backing": {
+              "type": "object",
+              "required": [
+                "confirmed",
+                "not_confirmed",
+                "different_firm",
+                "unclear",
+                "not_checked"
+              ],
+              "properties": {
+                "unclear": {
+                  "type": "number"
+                },
+                "confirmed": {
+                  "type": "number"
+                },
+                "not_checked": {
+                  "type": "number"
+                },
+                "not_confirmed": {
+                  "type": "number"
+                },
+                "different_firm": {
+                  "type": "number"
+                }
+              }
+            },
+            "targets": {
+              "type": "number"
+            },
+            "ever_paid": {
+              "type": "number"
+            },
+            "candidates": {
+              "type": "number"
+            },
+            "paying_now": {
+              "type": "number"
+            },
+            "review_count": {
+              "type": "number"
+            },
+            "window_start": {
+              "type": "string"
+            },
+            "archive_status": {
+              "type": "string"
+            },
+            "with_workspace": {
+              "type": "number"
+            },
+            "carried_forward": {
+              "type": "number"
+            },
+            "archive_coverage": {
+              "type": "string"
+            },
+            "funded_in_window": {
+              "type": "number"
+            },
+            "status_lookup_ok": {
+              "type": "boolean"
+            },
+            "confirmed_by_lane": {
+              "type": "object",
+              "required": [
+                "official_page",
+                "official_portfolio",
+                "google",
+                "linkedin",
+                "x",
+                "dealroom",
+                "pitchbook",
+                "salesforce"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "google": {
+                  "type": "number"
+                },
+                "dealroom": {
+                  "type": "number"
+                },
+                "linkedin": {
+                  "type": "number"
+                },
+                "pitchbook": {
+                  "type": "number"
+                },
+                "salesforce": {
+                  "type": "number"
+                },
+                "official_page": {
+                  "type": "number"
+                },
+                "official_portfolio": {
+                  "type": "number"
+                }
+              }
+            },
+            "verified_this_run": {
+              "type": "number"
+            },
+            "candidates_by_lane": {
+              "type": "object",
+              "required": [
+                "official_page",
+                "official_portfolio",
+                "google",
+                "linkedin",
+                "x",
+                "dealroom",
+                "pitchbook",
+                "salesforce"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "google": {
+                  "type": "number"
+                },
+                "dealroom": {
+                  "type": "number"
+                },
+                "linkedin": {
+                  "type": "number"
+                },
+                "pitchbook": {
+                  "type": "number"
+                },
+                "salesforce": {
+                  "type": "number"
+                },
+                "official_page": {
+                  "type": "number"
+                },
+                "official_portfolio": {
+                  "type": "number"
+                }
+              }
+            },
+            "clay_status_unknown": {
+              "type": "number"
+            },
+            "identity_confidence": {
+              "type": "string"
+            },
+            "portfolio_confirmed": {
+              "type": "number"
+            },
+            "not_verified_this_run": {
+              "type": "number"
+            },
+            "portfolio_page_status": {
+              "type": "string"
+            },
+            "recently_funded_targets": {
+              "type": "number"
+            },
+            "confirmed_only_this_lane": {
+              "type": "object",
+              "required": [
+                "official_page",
+                "official_portfolio",
+                "google",
+                "linkedin",
+                "x",
+                "dealroom",
+                "pitchbook",
+                "salesforce"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "google": {
+                  "type": "number"
+                },
+                "dealroom": {
+                  "type": "number"
+                },
+                "linkedin": {
+                  "type": "number"
+                },
+                "pitchbook": {
+                  "type": "number"
+                },
+                "salesforce": {
+                  "type": "number"
+                },
+                "official_page": {
+                  "type": "number"
+                },
+                "official_portfolio": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "portfolio": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "firm",
+              "company",
+              "domain",
+              "backing",
+              "relationship",
+              "backing_source_url",
+              "latest_round_type",
+              "latest_round_date",
+              "latest_round_leads",
+              "latest_round_source_url",
+              "firm_in_latest_round",
+              "funded_in_window",
+              "clay_status",
+              "ever_paid",
+              "paying_now",
+              "sales_tier",
+              "notes",
+              "found_by",
+              "in_portfolio_denominator",
+              "is_stealth",
+              "latest_round_amount_usd",
+              "workspaces",
+              "salesforce_accounts",
+              "open_pipeline",
+              "target",
+              "recently_funded_target"
+            ],
+            "properties": {
+              "firm": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "target": {
+                "type": "boolean"
+              },
+              "backing": {
+                "type": "string"
+              },
+              "company": {
+                "type": "string"
+              },
+              "found_by": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ever_paid": {
+                "type": "string"
+              },
+              "is_stealth": {
+                "type": "boolean"
+              },
+              "paying_now": {
+                "type": "string"
+              },
+              "sales_tier": {
+                "type": "string"
+              },
+              "workspaces": {
+                "type": "number"
+              },
+              "clay_status": {
+                "type": "string"
+              },
+              "relationship": {
+                "type": "string"
+              },
+              "open_pipeline": {
+                "type": "boolean"
+              },
+              "funded_in_window": {
+                "type": "string"
+              },
+              "latest_round_date": {
+                "type": "string"
+              },
+              "latest_round_type": {
+                "type": "string"
+              },
+              "backing_source_url": {
+                "type": "string"
+              },
+              "latest_round_leads": {
+                "type": "string"
+              },
+              "salesforce_accounts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "firm_in_latest_round": {
+                "type": "string"
+              },
+              "recently_funded_target": {
+                "type": "boolean"
+              },
+              "latest_round_amount_usd": {
+                "type": "number"
+              },
+              "latest_round_source_url": {
+                "type": "string"
+              },
+              "in_portfolio_denominator": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "not_verified": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "firm",
+              "company",
+              "domain",
+              "latest_hint",
+              "clay_status",
+              "found_by",
+              "workspaces"
+            ],
+            "properties": {
+              "firm": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "company": {
+                "type": "string"
+              },
+              "found_by": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "workspaces": {
+                "type": "number"
+              },
+              "clay_status": {
+                "type": "string"
+              },
+              "latest_hint": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "code": "import json, re\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef dom(u):\n    u = (u or '').strip().lower()\n    u = re.sub(r'^[a-z]+://', '', u); u = re.sub(r'^www\\d?\\.', '', u)\n    u = u.split('/')[0].strip('.')\n    return u if re.fullmatch(r'[a-z0-9][a-z0-9.-]*\\.[a-z]{2,63}', u) else ''\n\ndef tri(x):\n    return 'unknown' if x is None else ('yes' if x else 'no')\n\nLANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'salesforce']\n\ndef handler(context):\n    g = context.get_input\n    firm = g('firm') or ''\n    tv = g('to_verify') or []; held = g('held') or []\n    ver = _items(g('verified'))\n    snow = g('status') or {}\n    snow = snow.get('result', snow) if isinstance(snow, dict) else {}\n    lookup_ok = isinstance(snow, dict) and isinstance(snow.get('rows'), list)\n    st = {}\n    for r in (snow.get('rows') or []) if lookup_ok else []:\n        try: ws = json.loads(r.get('WS_JSON') or '[]'); sf = json.loads(r.get('SF_JSON') or '[]')\n        except (ValueError, TypeError): ws, sf = None, []\n        st[r.get('DOMAIN')] = (ws, sf)\n\n    def clay_status(d):\n        if not d: return 'unknown: no domain', 0, None, None, []\n        if not lookup_ok or d not in st: return 'unknown: lookup failed', 0, None, None, []\n        ws, sf = st[d]\n        if ws is None: return 'unknown: lookup failed', 0, None, None, sf\n        ids = {w.get('workspace_id') for w in ws if w.get('workspace_id')}\n        if any((w.get('shared_domains') or 1) > 1 for w in ws): return 'needs review: workspace shared across domains', len(ids), None, None, sf\n        if not ids: return 'not on Clay (no exact domain match)', 0, False, False, sf\n        paying = any(w.get('paying_now') == 1 for w in ws); ever = any(w.get('ever_paid') == 1 for w in ws)\n        return ('paying' if paying else 'paid before, not now' if ever else 'free workspace'), len(ids), ever, paying, sf\n\n    rows, review = [], []\n    for i, c in enumerate(tv):\n        v = ver[i] if i < len(ver) else {}\n        v = v.get('output', v) if isinstance(v, dict) else {}\n        v = v or {}\n        d = dom(v.get('company_domain')) or dom(c.get('domain'))\n        status, nws, ever, paying, sf = clay_status(d)\n        backing = v.get('backing') or 'Not checked (verification failed)'\n        open_pipe = any((a.get('open_pipeline') or 0) > 0 for a in sf)\n        confirmed = backing == 'Confirmed'\n        target = confirmed and status.startswith('not on Clay') and not open_pipe\n        recent = (v.get('round_in_window') == 'Yes')\n        row = {'firm': firm, 'company': v.get('company_name') or c.get('name') or '', 'domain': d, 'found_by': c.get('lanes') or [],\n               'backing': backing, 'relationship': v.get('relationship') or '', 'backing_source_url': v.get('backing_source_url') or '',\n               'in_portfolio_denominator': confirmed, 'is_stealth': bool(v.get('is_stealth')),\n               'latest_round_type': v.get('latest_round_type') or '', 'latest_round_date': v.get('latest_round_date') or '',\n               'latest_round_amount_usd': float(v.get('latest_round_amount_usd') or 0), 'latest_round_leads': v.get('latest_round_leads') or '',\n               'latest_round_source_url': v.get('latest_round_source_url') or '', 'firm_in_latest_round': v.get('firm_in_latest_round') or 'Unknown',\n               'funded_in_window': v.get('round_in_window') or 'Unknown',\n               'clay_status': status, 'workspaces': nws, 'ever_paid': tri(ever), 'paying_now': tri(paying),\n               'salesforce_accounts': [str(a.get('account_id')) for a in sf if a.get('account_id')], 'sales_tier': next((str(a.get('sales_tier')) for a in sf if a.get('sales_tier')), ''),\n               'open_pipeline': open_pipe, 'target': target, 'recently_funded_target': target and recent,\n               'notes': v.get('notes') or ''}\n        rows.append(row)\n        if backing in ('Unclear', 'Not checked (verification failed)') or status.startswith('needs review'):\n            review.append({'company': row['company'], 'domain': d, 'why': backing if not status.startswith('needs review') else status})\n    # Companies carried forward from earlier verification (no new signal this week): same row shape, Clay status refreshed.\n    for c in g('cached') or []:\n        d = dom(c.get('domain'))\n        status, nws, ever, paying, sf = clay_status(d)\n        backing = c.get('backing') or 'Unclear'\n        open_pipe = any((a.get('open_pipeline') or 0) > 0 for a in sf)\n        confirmed = backing == 'Confirmed'\n        target = confirmed and status.startswith('not on Clay') and not open_pipe\n        def inwin(x):\n            x = (x or '')[:10]\n            return 'Yes' if x and x >= (g('since') or '') else ('No' if x else 'Unknown')\n        rows.append({'firm': firm, 'company': c.get('name') or '', 'domain': d, 'found_by': c.get('lanes') or [],\n                     'backing': backing, 'relationship': c.get('relationship') or '', 'backing_source_url': c.get('backing_source_url') or '',\n                     'in_portfolio_denominator': confirmed, 'is_stealth': False,\n                     'latest_round_type': c.get('latest_round_type') or '', 'latest_round_date': c.get('latest_round_date') or '',\n                     'latest_round_amount_usd': float(c.get('latest_round_amount_usd') or 0), 'latest_round_leads': c.get('latest_round_leads') or '',\n                     'latest_round_source_url': c.get('latest_round_source_url') or '', 'firm_in_latest_round': c.get('firm_in_latest_round') or 'Unknown',\n                     'funded_in_window': inwin(c.get('latest_round_date')),\n                     'clay_status': status, 'workspaces': nws, 'ever_paid': tri(ever), 'paying_now': tri(paying),\n                     'salesforce_accounts': [str(a.get('account_id')) for a in sf if a.get('account_id')],\n                     'sales_tier': next((str(a.get('sales_tier')) for a in sf if a.get('sales_tier')), ''),\n                     'open_pipeline': open_pipe, 'target': target, 'recently_funded_target': target and inwin(c.get('latest_round_date')) == 'Yes',\n                     'notes': 'Carried forward: verified ' + (c.get('verified_at') or '')[:10]})\n    # Merge rows that verification resolved to the same company domain (e.g. a PitchBook name with no website).\n    order = {'Confirmed': 0, 'Unclear': 1, 'Not confirmed': 2, 'Different firm': 3}\n    merged, by_d = [], {}\n    for r in rows:\n        k = r['domain'] or ''\n        if k and k in by_d:\n            m = by_d[k]\n            m['found_by'] = sorted(set(m['found_by']) | set(r['found_by']))\n            if order.get(r['backing'], 9) < order.get(m['backing'], 9):\n                for f in ('backing', 'relationship', 'backing_source_url', 'in_portfolio_denominator'): m[f] = r[f]\n            if (r['latest_round_date'] or '') > (m['latest_round_date'] or ''):\n                for f in ('latest_round_type', 'latest_round_date', 'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'funded_in_window'): m[f] = r[f]\n            m['target'] = m['in_portfolio_denominator'] and m['clay_status'].startswith('not on Clay') and not m['open_pipeline']\n            m['recently_funded_target'] = m['target'] and m['funded_in_window'] == 'Yes'\n            continue\n        if k: by_d[k] = r\n        merged.append(r)\n    rows = merged\n    review = [x for x in review if not x['domain'] or by_d.get(x['domain']) is None or not by_d[x['domain']]['in_portfolio_denominator']]\n    unverified = []\n    for c in held:\n        d = dom(c.get('domain')); status, nws, ever, paying, sf = clay_status(d)\n        unverified.append({'firm': firm, 'company': c.get('name') or '', 'domain': d, 'found_by': c.get('lanes') or [], 'latest_hint': c.get('latest_hint') or '',\n                           'clay_status': status, 'workspaces': nws})\n\n    conf = [r for r in rows if r['in_portfolio_denominator']]\n    lanes = sorted({l for r in rows for l in (r['found_by'] or [])})\n    summary = {\n        'firm': firm, 'identity_confidence': g('identity_confidence') or '', 'window_start': g('since') or '',\n        'candidates': len(tv) + len(held) + len(g('cached') or []), 'verified_this_run': len(tv), 'not_verified_this_run': int(g('held_count') or len(held)), 'carried_forward': len(g('cached') or []),\n        'backing': {'confirmed': sum(r['backing'] == 'Confirmed' for r in rows), 'not_confirmed': sum(r['backing'] == 'Not confirmed' for r in rows),\n                    'different_firm': sum(r['backing'] == 'Different firm' for r in rows), 'unclear': sum(r['backing'] == 'Unclear' for r in rows),\n                    'not_checked': sum(r['backing'].startswith('Not checked') for r in rows)},\n        'portfolio_confirmed': len(conf),\n        'with_workspace': sum(1 for r in conf if r['workspaces'] > 0 and not r['clay_status'].startswith(('unknown', 'needs'))),\n        'paying_now': sum(1 for r in conf if r['paying_now'] == 'yes'), 'ever_paid': sum(1 for r in conf if r['ever_paid'] == 'yes'),\n        'clay_status_unknown': sum(1 for r in conf if r['clay_status'].startswith(('unknown', 'needs'))),\n        'targets': sum(1 for r in conf if r['target']), 'recently_funded_targets': sum(1 for r in conf if r['recently_funded_target']),\n        'funded_in_window': sum(1 for r in conf if r['funded_in_window'] == 'Yes'),\n        'confirmed_by_lane': {l: sum(1 for r in conf if l in r['found_by']) for l in LANES},\n        'confirmed_only_this_lane': {l: sum(1 for r in conf if r['found_by'] == [l]) for l in LANES},\n        'candidates_by_lane': {l: int((g('lane_counts') or {}).get(l) or 0) for l in LANES},\n        'caps': {'salesforce_capped': bool((g('caps') or {}).get('salesforce_capped')), 'salesforce_total_matches': int((g('caps') or {}).get('salesforce_total_matches') or 0),\n                 'dealroom_capped': bool((g('caps') or {}).get('dealroom_capped')), 'dealroom_total': int((g('caps') or {}).get('dealroom_total') or 0)},\n        'portfolio_page_status': g('portfolio_page_status') or '',\n        'archive_status': g('archive_status') or '', 'archive_coverage': g('archive_coverage') or '',\n        'status_lookup_ok': lookup_ok, 'review_count': len(review),\n    }\n    return {'summary': summary, 'portfolio': rows, 'not_verified': unverified, 'review': review}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqkf2kok3vwU4XsWJ"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnviDwNFS4UmcMFy"
+      }
+    ],
+    "id": "wfn_0toqkf9j4QNgzu2D4m6"
+  }
+}

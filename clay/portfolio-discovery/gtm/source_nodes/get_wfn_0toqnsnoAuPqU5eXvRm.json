@@ -1,0 +1,60 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Directory needs research fallback?",
+    "description": "Checks the directory health check's result to decide which directories need a fallback research step. Directories with a broken or missing recipe are sent down the research path this week so their details can be filled in.",
+    "nodeType": "conditional",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "needs_fallback": {
+          "type": "boolean",
+          "sourceNodeId": "wfn_0toqnseCz777cjfNhbr",
+          "sourcePath": "$.needs_fallback"
+        }
+      }
+    },
+    "conditionalMode": "rules",
+    "rulesConditionalConfig": {
+      "rules": [
+        {
+          "id": "fallback",
+          "name": "Broken or no recipe: research this week",
+          "condition": {
+            "type": "GroupOp",
+            "items": [
+              {
+                "type": "BinOp",
+                "dataPath": [
+                  "needs_fallback"
+                ],
+                "operator": "True"
+              }
+            ],
+            "combinationMode": "And"
+          }
+        }
+      ]
+    },
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnseCz777cjfNhbr"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqluhqCVXJSN6He4e",
+        "ruleId": "fallback",
+        "ruleName": "Broken or no recipe: research this week"
+      },
+      {
+        "targetNode": "wfn_0toqk9vwqh6oSnj2cvb",
+        "isDefaultRoute": true
+      }
+    ],
+    "id": "wfn_0toqnsnoAuPqU5eXvRm"
+  }
+}

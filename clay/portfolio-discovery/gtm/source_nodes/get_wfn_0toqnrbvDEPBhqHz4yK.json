@@ -1,0 +1,93 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Discover directory recipe",
+    "description": "Works out the most reliable way to read the current portfolio of companies from the firm's website, checking its sitemap, feeds, and portfolio page in turn and falling back to company profile pages if needed. The result is a repeatable method so the weekly job can pull the latest list without repeating the research.",
+    "nodeType": "agent",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "firm": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_domain"
+        },
+        "portfolio_url": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.portfolio_url"
+        },
+        "news_urls": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.news_urls"
+        }
+      }
+    },
+    "outputSchema": {
+      "method": {
+        "type": "select",
+        "options": "[{\"text\": \"sitemap\"}, {\"text\": \"feed\"}, {\"text\": \"static_html\"}, {\"text\": \"js_html\"}, {\"text\": \"profile_pages\"}, {\"text\": \"agent_only\"}]",
+        "description": "How to read the directory"
+      },
+      "list_url": {
+        "type": "string",
+        "description": "Exact URL to fetch"
+      },
+      "needs_js": {
+        "type": "boolean",
+        "description": "True if JavaScript rendering is required"
+      },
+      "link_pattern": {
+        "type": "string",
+        "description": "'external' or a regex for company links"
+      },
+      "recipe_notes": {
+        "type": "string",
+        "description": "What was checked and why this recipe"
+      },
+      "portfolio_url": {
+        "type": "string",
+        "description": "Current portfolio page URL"
+      },
+      "expected_count": {
+        "type": "number",
+        "description": "Total the site states, 0 if none"
+      },
+      "companies_found": {
+        "type": "number",
+        "description": "Companies the recipe found when checked"
+      },
+      "profile_pattern": {
+        "type": "string",
+        "description": "Regex for company profile URLs, if any"
+      }
+    },
+    "agentClaygentId": "c_0toqnraCQ2fNmXD7jtP",
+    "agentName": "Portfolio discovery: directory recipe",
+    "agentVersion": "current",
+    "agentPrompt": "Work out how to read the official portfolio of {{firm}} ({{firm_domain}}) reliably with a plain web scraper, so a weekly job can replay it without research. Known portfolio page (may be outdated or blank): {{portfolio_url}}. Other official pages: {{news_urls}}.\n\nCheck, in this order, and use the first that works:\n1. sitemap: fetch https://{{firm_domain}}/robots.txt for \"Sitemap:\" lines, then /sitemap.xml and /sitemap_index.xml. If a sitemap lists one URL per portfolio company (e.g. /companies/<slug>, /portfolio/<slug>), use it. link_pattern = a regex matching those company URLs only (not /companies alone, not team or news pages).\n2. feed: an RSS/Atom feed that lists portfolio companies (rare).\n3. static_html: the portfolio page lists companies in its raw HTML (visible without JavaScript). link_pattern = \"external\" if each company links to its own website, or a regex for the firm's own company profile URLs.\n4. js_html: the page only shows companies after JavaScript runs. Same link_pattern rules; needs_js = true.\n5. profile_pages: the directory itself can't be listed but each company has a readable profile page on the firm's site; profile_pattern = regex for those URLs; list_url = the page or sitemap that links to them, if any.\n6. agent_only: none of the above works.\n\nThe portfolio page may have moved: if the known page is gone or empty, find the current one from the site's navigation or a site search.\nCount how many companies your recipe finds and, if the site states a total, record it as expected_count. Prefer the option that returns the most complete list.\nReturn method, list_url (exactly what to fetch), needs_js, link_pattern, profile_pattern, expected_count (0 if not stated), companies_found, portfolio_url (the current page), and recipe_notes (one or two sentences: what you checked and why this recipe).",
+    "agentModel": "clay-auto",
+    "agentInternetSearchEnabled": true,
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnr5pj3rVhFxte9P",
+        "isDefaultRoute": true
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnrgRmMbigQZpsuq"
+      }
+    ],
+    "id": "wfn_0toqnrbvDEPBhqHz4yK"
+  }
+}

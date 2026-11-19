@@ -1,0 +1,129 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Extract directory companies",
+    "description": "Applies the recipe: company websites linked from the directory, or profile URLs from a sitemap/page. Only profile pages never read before are opened (up to 300 per run).",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "method": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.method"
+        },
+        "scrape": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqnrpQhV98Kp5eMqu",
+          "sourcePath": "$"
+        },
+        "firm_domain": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.firm_domain"
+        },
+        "link_pattern": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.link_pattern"
+        },
+        "checkpoint_date": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.checkpoint_date"
+        },
+        "profile_pattern": {
+          "type": "string",
+          "sourceNodeId": "wfn_0toqnrgRmMbigQZpsuq",
+          "sourcePath": "$.profile_pattern"
+        },
+        "known_profile_urls": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqnp7WurUhapbA5BM",
+          "sourcePath": "$.known_profile_urls"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "companies",
+        "profile_urls_found",
+        "profiles_to_open",
+        "profiles_deferred",
+        "pages_read",
+        "found",
+        "newest_lastmod",
+        "profiles_already_seen",
+        "blocked_by_robots",
+        "robots_url"
+      ],
+      "properties": {
+        "found": {
+          "type": "number"
+        },
+        "companies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "company",
+              "website"
+            ],
+            "properties": {
+              "company": {
+                "type": "string"
+              },
+              "website": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "pages_read": {
+          "type": "number"
+        },
+        "robots_url": {
+          "type": "string"
+        },
+        "newest_lastmod": {
+          "type": "string"
+        },
+        "profiles_to_open": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocked_by_robots": {
+          "type": "boolean"
+        },
+        "profiles_deferred": {
+          "type": "number"
+        },
+        "profile_urls_found": {
+          "type": "number"
+        },
+        "profiles_already_seen": {
+          "type": "number"
+        }
+      }
+    },
+    "code": "import re\n\nSOCIAL = ('linkedin.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'youtube.com', 'medium.com', 'github.com', 'tiktok.com',\n          'crunchbase.com', 'angel.co', 'wellfound.com', 'cookieyes.com', 'google.com', 'apple.com', 'techcrunch.com', 'reuters.com', 'bloomberg.com',\n          'forbes.com', 'businessinsider.com', 'wsj.com', 'ft.com', 'substack.com', 'notion.site', 'calendly.com', 'typeform.com', 'hubspot.com',\n          'vimeo.com', 'spotify.com', 'apple.co', 'bit.ly', 'airtable.com', 'webflow.io', 'airops.com', 'privacy', 'jobs.')\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef host(u):\n    u = re.sub(r'^[a-z]+://', '', (u or '').strip().lower()); u = re.sub(r'^www\\d?\\.', '', u)\n    return u.split('/')[0].split('?')[0].split('#')[0]\n\ndef handler(context):\n    g = context.get_input\n    method = g('method') or ''\n    firm_dom = host(g('firm_domain'))\n    link_pat = g('link_pattern') or ''\n    prof_pat = g('profile_pattern') or link_pat\n    checkpoint = (g('checkpoint_date') or '')[:10]\n    seen = set(g('known_profile_urls') or [])\n    pages = _items(g('scrape'))\n    robots_text = ''\n    if len(pages) >= 2:\n        rb = pages[-1]; rb = rb.get('result', rb) if isinstance(rb, dict) else {}\n        robots_text = (rb.get('bodyText') or '') if isinstance(rb, dict) else ''\n        pages = pages[:-1]\n    ok_pages = 0\n    companies, profiles = {}, {}\n    newest = ''\n    for r in pages:\n        r = r.get('result', r) if isinstance(r, dict) else {}\n        if not isinstance(r, dict): continue\n        body = r.get('bodyText') or ''\n        links = r.get('links') or []\n        if body or links: ok_pages += 1\n        if method == 'sitemap':\n            for block in re.findall(r'<url>(.*?)</url>', body, flags=re.S) or []:\n                loc = re.search(r'<loc>\\s*([^<\\s]+)\\s*</loc>', block); mod = re.search(r'<lastmod>\\s*([^<\\s]+)\\s*</lastmod>', block)\n                if loc and (not prof_pat or re.search(prof_pat, loc.group(1))):\n                    lm = (mod.group(1)[:10] if mod else '')\n                    profiles[loc.group(1)] = lm; newest = max(newest, lm)\n            if not profiles:   # sitemap without <url> blocks: plain locs\n                for loc in re.findall(r'<loc>\\s*([^<\\s]+)\\s*</loc>', body):\n                    if not prof_pat or re.search(prof_pat, loc): profiles[loc] = ''\n        else:\n            for l in links:\n                href = (l.get('href') or '').strip(); text = re.sub(r'\\s+', ' ', (l.get('text') or '')).strip()\n                h = host(href)\n                if not h: continue\n                if method == 'profile_pages' or (link_pat and link_pat != 'external'):\n                    if re.search(prof_pat, href) and (h == firm_dom or h.endswith('.' + firm_dom)): profiles.setdefault(href, '')\n                else:   # 'external': off-site company websites linked from the directory\n                    if h == firm_dom or h.endswith('.' + firm_dom) or any(s in h for s in SOCIAL): continue\n                    name = text if text and text.lower() not in ('visit website', 'website', 'visit', 'learn more', 'read more', '→') else ''\n                    companies.setdefault(h, {'company': name, 'website': h})\n                    if name and not companies[h]['company']: companies[h]['company'] = name\n    found = len(companies) + len(profiles)\n    # Profiles to open this run: ones never read before (sitemaps often stamp every URL with the same lastmod), capped.\n    todo = sorted((u for u in profiles if u not in seen), key=lambda u: (profiles[u], u), reverse=True)\n    # Informational only: whether robots.txt disallows the directory path (the scraper does not obey it).\n    path = '/' + '/'.join((g('list_url') or '').split('/')[3:])\n    blocked = False\n    agent_rules = re.split(r'(?im)^user-agent:', robots_text)\n    for blk in agent_rules[1:]:\n        head = blk.split('\\n', 1)[0].strip()\n        if head == '*':\n            for rule in re.findall(r'(?im)^disallow:\\s*(\\S*)', blk):\n                if rule and path.startswith(rule): blocked = True\n    \n    root = '/'.join((g('list_url') or '').split('/')[:3])\n    return {'blocked_by_robots': blocked, 'robots_url': (root + '/robots.txt') if root else '',\n            'companies': [{'company': v['company'], 'website': v['website']} for v in companies.values()],\n            'profile_urls_found': len(profiles), 'profiles_to_open': todo[:300], 'profiles_deferred': max(0, len(todo) - 300),\n            'pages_read': ok_pages, 'found': found, 'newest_lastmod': newest, 'profiles_already_seen': len([u for u in profiles if u in seen])}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnrpQhV98Kp5eMqu"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqns5WygyHfzRAVcq"
+      }
+    ],
+    "id": "wfn_0toqnrwwHJctjom4QKt"
+  }
+}

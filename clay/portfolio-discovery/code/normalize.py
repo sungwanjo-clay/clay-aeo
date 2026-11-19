@@ -27,6 +27,14 @@ def handler(context):
             if isinstance(x, dict):
                 rows.append(row('pitchbook', x.get('companyName'), x.get('website') or x.get('companyWebsite'),
                                 (x.get('investmentDate') or x.get('investorSince') or '')[:10], rid=x.get('investmentDealId') or x.get('companyId'), note='PitchBook active investment'))
+    for r in _items(g('crunchbase')):
+        r = r.get('result', r) if isinstance(r, dict) else {}
+        for x in (r.get('investments') or []) if isinstance(r, dict) else []:
+            org = x.get('organization') or {}; fr = x.get('funding_round') or {}
+            rnd = (fr.get('value') or '').split(' - ')[0]
+            link = ('https://www.crunchbase.com/organization/' + org['permalink']) if org.get('permalink') else ''
+            rows.append(row('crunchbase', org.get('value'), '', (x.get('announced_on') or '')[:10], rnd, link, fr.get('uuid') or org.get('uuid'),
+                            'Crunchbase investment: ' + _clean(x.get('name'))[:160]))
     sf = g('salesforce') or {}
     sf = sf.get('result', sf) if isinstance(sf, dict) else {}
     total = 0
@@ -35,6 +43,6 @@ def handler(context):
         rows.append(row('salesforce', x.get('NAME'), x.get('DOMAIN'), x.get('LAST_FUNDING_DATE'), x.get('LAST_FUNDING_TYPE'), x.get('SOURCE_LINK'), x.get('ID'),
                         'Salesforce investors: ' + _clean(x.get('INVESTORS'))[:200]))
     sf_rows = sum(1 for r in rows if r.startswith('salesforce\t'))
-    fails = {k: int((g(k) or {}).get('failedCount') or 0) if isinstance(g(k), dict) else 0 for k in ('dealroom_p1', 'dealroom_more', 'pitchbook', 'linkedin', 'google')}
+    fails = {k: int((g(k) or {}).get('failedCount') or 0) if isinstance(g(k), dict) else 0 for k in ('dealroom_p1', 'dealroom_more', 'pitchbook', 'crunchbase', 'linkedin', 'google')}
     return {'provider_rows': rows, 'salesforce_total': total, 'salesforce_rows': sf_rows,
-            'failed_counts': {'dealroom': fails['dealroom_p1'] + fails['dealroom_more'], 'pitchbook': fails['pitchbook'], 'linkedin': fails['linkedin'], 'google': fails['google']}}
+            'failed_counts': {'dealroom': fails['dealroom_p1'] + fails['dealroom_more'], 'pitchbook': fails['pitchbook'], 'crunchbase': fails['crunchbase'], 'linkedin': fails['linkedin'], 'google': fails['google']}}

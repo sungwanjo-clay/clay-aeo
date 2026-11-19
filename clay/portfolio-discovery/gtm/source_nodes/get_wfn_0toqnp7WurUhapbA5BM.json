@@ -1,0 +1,256 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Decide what this run needs",
+    "description": "From saved state: is the identity fresh, where to start reading news (checkpoint minus 14 days), is the directory recipe healthy, and which companies are already known.",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "state": {
+          "type": "object",
+          "sourceNodeId": "wfn_0toqnp0vqe2AzQqgyi4",
+          "sourcePath": "$.result"
+        },
+        "lookback_months": {
+          "type": "number",
+          "sourceNodeId": "wfn_0toqjpsufUzUeSDNvaG",
+          "sourcePath": "$.lookback_months"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "state_loaded",
+        "first_run",
+        "identity_fresh",
+        "cached_identity",
+        "cached_news_urls",
+        "news_since",
+        "window_start",
+        "recipe_ok",
+        "recipe",
+        "known_companies",
+        "known_count",
+        "today",
+        "known_profile_urls"
+      ],
+      "properties": {
+        "today": {
+          "type": "string"
+        },
+        "recipe": {
+          "type": "object",
+          "required": [
+            "url",
+            "method",
+            "list_url",
+            "link_pattern",
+            "profile_pattern",
+            "expected_count",
+            "last_count",
+            "checkpoint_date",
+            "recipe_version",
+            "needs_js"
+          ],
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string"
+            },
+            "list_url": {
+              "type": "string"
+            },
+            "needs_js": {
+              "type": "boolean"
+            },
+            "last_count": {
+              "type": "string"
+            },
+            "link_pattern": {
+              "type": "string"
+            },
+            "expected_count": {
+              "type": "string"
+            },
+            "recipe_version": {
+              "type": "string"
+            },
+            "checkpoint_date": {
+              "type": "string"
+            },
+            "profile_pattern": {
+              "type": "string"
+            }
+          }
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "first_run": {
+          "type": "boolean"
+        },
+        "recipe_ok": {
+          "type": "boolean"
+        },
+        "news_since": {
+          "type": "string"
+        },
+        "known_count": {
+          "type": "number"
+        },
+        "state_loaded": {
+          "type": "boolean"
+        },
+        "window_start": {
+          "type": "string"
+        },
+        "identity_fresh": {
+          "type": "boolean"
+        },
+        "cached_identity": {
+          "type": "object",
+          "required": [
+            "official_name",
+            "firm_domain",
+            "firm_type",
+            "aliases",
+            "alias_collisions",
+            "crunchbase_url",
+            "linkedin_url",
+            "x_url",
+            "portfolio_url",
+            "identity_confidence"
+          ],
+          "properties": {
+            "x_url": {
+              "type": "string"
+            },
+            "aliases": {
+              "type": "string"
+            },
+            "firm_type": {
+              "type": "string"
+            },
+            "firm_domain": {
+              "type": "string"
+            },
+            "linkedin_url": {
+              "type": "string"
+            },
+            "official_name": {
+              "type": "string"
+            },
+            "portfolio_url": {
+              "type": "string"
+            },
+            "crunchbase_url": {
+              "type": "string"
+            },
+            "alias_collisions": {
+              "type": "string"
+            },
+            "identity_confidence": {
+              "type": "string"
+            }
+          }
+        },
+        "known_companies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "domain",
+              "verification_status",
+              "verified_at",
+              "backing",
+              "relationship",
+              "backing_source_url",
+              "latest_round_type",
+              "latest_round_date",
+              "latest_round_amount_usd",
+              "latest_round_leads",
+              "latest_round_source_url",
+              "firm_in_latest_round",
+              "signal_key"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "backing": {
+                "type": "string"
+              },
+              "signal_key": {
+                "type": "string"
+              },
+              "verified_at": {
+                "type": "string"
+              },
+              "relationship": {
+                "type": "string"
+              },
+              "latest_round_date": {
+                "type": "string"
+              },
+              "latest_round_type": {
+                "type": "string"
+              },
+              "backing_source_url": {
+                "type": "string"
+              },
+              "latest_round_leads": {
+                "type": "string"
+              },
+              "verification_status": {
+                "type": "string"
+              },
+              "firm_in_latest_round": {
+                "type": "string"
+              },
+              "latest_round_amount_usd": {
+                "type": "string"
+              },
+              "latest_round_source_url": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "cached_news_urls": {
+          "type": "string"
+        },
+        "known_profile_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "code": "import json, uuid\nfrom datetime import date, datetime, timedelta\n\ndef _d(s):\n    try: return datetime.fromisoformat(str(s)[:19].replace('Z', '')).date()\n    except (ValueError, TypeError): return None\n\ndef handler(context):\n    g = context.get_input\n    raw = g('state')\n    st = raw.get('result', raw) if isinstance(raw, dict) else {}\n    if not isinstance(st, dict) or 'firm_known' not in st: st = {}\n    ok_state = bool(st)\n    today = date.today()\n    months = int(g('lookback_months') or 12)\n    window_start = today - timedelta(days=round(months * 30.44))\n    ident = st.get('identity') or {}\n    checked = _d(ident.get('identity_checked_at'))\n    sources = st.get('sources') or []\n    news = [s for s in sources if s.get('source_type') in ('news', 'blog', 'press', 'portfolio_news', 'cohort', 'feed') and s.get('status') != 'retired']\n    any_news_broken = any(s.get('status') == 'broken' for s in news)\n    identity_fresh = bool(checked and (today - checked).days <= 90 and ident.get('identity_confidence') in ('High', 'Medium') and not any_news_broken)\n    news_ok = [s for s in news if s.get('status') != 'broken']\n    cps = [_d(s.get('checkpoint_date')) for s in news_ok if s.get('checkpoint_date')]\n    news_since = max(window_start, (min(cps) - timedelta(days=14))) if cps else window_start\n    # A saved recipe marks a directory even when the URL was first stored under another type (e.g. as a news page).\n    dirs = [s for s in sources if (s.get('source_type') == 'portfolio_directory' or s.get('method')) and s.get('status') in ('verified', 'candidate')]\n    dirs.sort(key=lambda s: (s.get('status') == 'verified', s.get('updated_at') or ''), reverse=True)\n    rec = dirs[0] if dirs else {}\n    recipe_ok = bool(rec.get('method') and rec.get('method') != 'agent_only' and rec.get('list_url') and int(rec.get('consecutive_failures') or 0) == 0)\n    known = []\n    for k in st.get('known_companies') or []:\n        known.append({f: ('' if k.get(f) is None else str(k.get(f))) for f in\n                      ('name', 'domain', 'verification_status', 'verified_at', 'backing', 'relationship', 'backing_source_url', 'latest_round_type',\n                       'latest_round_date', 'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'signal_key')})\n    return {\n        'run_id': str(uuid.uuid4()), 'state_loaded': ok_state, 'first_run': not known,\n        'identity_fresh': identity_fresh,\n        'cached_identity': {f: ('' if ident.get(f) is None else (' | '.join(ident.get(f)) if isinstance(ident.get(f), list) else str(ident.get(f))))\n                            for f in ('official_name', 'firm_domain', 'firm_type', 'aliases', 'alias_collisions', 'crunchbase_url', 'linkedin_url', 'x_url', 'portfolio_url', 'identity_confidence')},\n        'cached_news_urls': ' | '.join(s.get('url') for s in news_ok if s.get('url')),\n        'news_since': news_since.isoformat(), 'window_start': window_start.isoformat(),\n        'recipe_ok': recipe_ok,\n        'recipe': {f: ('' if rec.get(f) is None else str(rec.get(f))) for f in ('url', 'method', 'list_url', 'link_pattern', 'profile_pattern', 'expected_count', 'last_count', 'checkpoint_date', 'recipe_version')}\n                  | {'needs_js': bool(rec.get('needs_js'))},\n        'known_companies': known, 'known_count': len(known), 'today': today.isoformat(),\n        'known_profile_urls': [u for u in (st.get('known_profile_urls') or []) if isinstance(u, str)][:20000],\n    }\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqnp0vqe2AzQqgyi4"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqnpicPkHwuGyjcfX"
+      }
+    ],
+    "id": "wfn_0toqnp7WurUhapbA5BM"
+  }
+}

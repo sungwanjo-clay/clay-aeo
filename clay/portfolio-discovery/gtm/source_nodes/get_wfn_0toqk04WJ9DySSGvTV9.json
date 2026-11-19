@@ -1,0 +1,69 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "node": {
+    "name": "Plan more Dealroom pages",
+    "description": "Uses Dealroom's reported total to list pages 2..N (100 per page, capped at 30 pages).",
+    "nodeType": "code",
+    "inputSchema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "page1": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqjxoSygAnTCH23to",
+          "sourcePath": "$"
+        },
+        "domains": {
+          "type": "array",
+          "sourceNodeId": "wfn_0toqjw72jYAJQqNCPXw",
+          "sourcePath": "$.dealroom_domains"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "dealroom_pages",
+        "dealroom_total",
+        "dealroom_capped"
+      ],
+      "properties": {
+        "dealroom_pages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "number"
+              },
+              "domain": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "dealroom_total": {
+          "type": "number"
+        },
+        "dealroom_capped": {
+          "type": "boolean"
+        }
+      }
+    },
+    "code": "import math\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef handler(context):\n    first = _items(context.get_input('page1'))\n    domains = context.get_input('domains') or []\n    pages, total, page_size, seen = [], 0, 100, 0\n    for i, it in enumerate(first):\n        r = (it.get('result', it) if isinstance(it, dict) else None)\n        if not isinstance(r, dict): continue\n        total = int(r.get('total') or 0)\n        seen = len(r.get('data') or [])\n        page_size = max(seen, 1) if total > seen else 100\n        dom = domains[i] if i < len(domains) else ''\n        last = min(math.ceil(total / 100), 30)          # hard cap: 30 pages = 3,000 companies\n        pages += [{'domain': dom, 'page': p} for p in range(2, last + 1)]\n    capped = total > 3000\n    return {'dealroom_pages': pages, 'dealroom_total': total, 'dealroom_capped': capped}\n",
+    "incomingEdges": [
+      {
+        "sourceNode": "wfn_0toqjxoSygAnTCH23to"
+      }
+    ],
+    "outgoingEdges": [
+      {
+        "targetNode": "wfn_0toqk0cff5JvFwkHV8Z"
+      }
+    ],
+    "id": "wfn_0toqk04WJ9DySSGvTV9"
+  }
+}
