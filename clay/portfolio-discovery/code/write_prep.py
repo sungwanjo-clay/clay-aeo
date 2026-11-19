@@ -46,6 +46,8 @@ def handler(context):
     except (ValueError, TypeError): news = []
     for n in news if isinstance(news, list) else []:
         if not isinstance(n, dict) or not n.get('url'): continue
+        # The directory page is often also read for news; its directory health owns the record.
+        if n['url'].rstrip('/') == (g('directory_source_url') or '').rstrip('/'): continue
         ok = n.get('status') == 'ok'
         r = {'firm': firm, 'url': n['url'], 'source_type': n.get('source_type') or 'news', 'outcome': 'ok' if ok else 'failed'}
         r['last_success_at' if ok else 'last_failure_at'] = now

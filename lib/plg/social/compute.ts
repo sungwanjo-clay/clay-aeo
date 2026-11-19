@@ -157,7 +157,9 @@ export function buildSocial(o: {
     }).sort((a, b) => b.published.localeCompare(a.published))
     const keys = new Set([...doc.videos.map(v => v.id), `ch:${ch.id}`])
     const imprState: 'live' | 'pending' | 'none' = doc.impressionsDaily == null ? 'none' : doc.impressionsDaily.length ? 'live' : 'pending'
-    return { ch, doc, analytics, videos, keys, imprState }
+    // Days Google has delivered a reach report for. Impressions are only compared with views over days that are all in.
+    const imprDays = new Set((doc.impressionsDaily ?? []).map(r => r[0]))
+    return { ch, doc, analytics, videos, keys, imprState, imprDays }
   })
   type Ch = Extract<(typeof channels)[number], { videos: unknown }>
   const connected = channels.filter((c): c is Ch => !!c.doc)
@@ -168,6 +170,12 @@ export function buildSocial(o: {
   const ytDays = ytCurEnd >= o.cur[0] ? daysBetween(o.cur[0], ytCurEnd) : 0
   const ytPrevEnd = addDays(o.prev[0], Math.max(0, ytDays - 1))
 
+  /** Days a..b (inclusive) and how many of them have a delivered reach report. */
+  const coverage = (c: Ch, a: ISODate, e: ISODate) => {
+    let days = 0, have = 0
+    for (let d = a; d <= e; d = addDays(d, 1)) { days++; if (c.imprDays.has(d)) have++ }
+    return { days, have }
+  }
   /** Totals for one channel, one period. */
   function totals(c: Ch, b: 'cur' | 'prev') {
     const range = b === 'cur' ? o.cur : o.prev
@@ -176,9 +184,11 @@ export function buildSocial(o: {
       const reported = vs.filter(v => v.views)
       const views = !c.analytics ? null : reported.length ? sum(reported.map(v => v.views!)) : (vs.length ? null : 0)
       const tagged = vs.filter(v => v.tagged)
-      const impressions = c.imprState === 'live' ? sum(vs.map(v => v.impressions ?? 0)) : null
+      const cov = vs.map(v => coverage(c, v.published, cohortEnd(v.published, o.dataEnd)))
+      const imprDays = sum(cov.map(x => x.days)), imprHave = sum(cov.map(x => x.have))
+      const impressions = c.imprState === 'live' && imprHave === imprDays ? sum(vs.map(v => v.impressions ?? 0)) : null
       return {
-        videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions,
+        videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions, imprDays, imprHave,
         views, minutes: sum(vs.map(v => v.minutes)), subs: sum(vs.map(v => v.subsGained)),
         avgPct: views ? sum(reported.map(v => v.views! * (v.avgViewPct ?? 0))) / views : null,
         visits: sum(tagged.map(v => v.visits ?? 0)), captures: sum(tagged.map(v => v.captures ?? 0)),
@@ -194,9 +204,10 @@ export function buildSocial(o: {
     const views = yt ? sum(yt.map(r => r[1])) : null
     const kr = (k: string) => rows.filter(r => r.k === k && r.b === b && c.keys.has(r.key))
     const ws = kr('ws'); const ex = kr('ex')
-    const impressions = c.imprState === 'live' ? sum(c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end).map(r => r[1])) : null
+    const cov = end >= range[0] ? coverage(c, range[0], end) : { days: 0, have: 0 }
+    const impressions = c.imprState === 'live' && cov.have === cov.days ? sum(c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end).map(r => r[1])) : null
     return {
-      videos: null as number | null, pending: 0, impressions,
+      videos: null as number | null, pending: 0, impressions, imprDays: cov.days, imprHave: cov.have,
       views, minutes: yt ? sum(yt.map(r => r[2])) : 0, subs: yt ? sum(yt.map(r => r[3] - r[4])) : 0,
       avgPct: yt && views ? sum(yt.map(r => r[1] * r[5])) / views / 100 : null,
       visits: sum(kr('vis').map(r => r.n)), captures: sum(kr('form').map(r => r.n)),
@@ -212,7 +223,7 @@ export function buildSocial(o: {
   type Tot = ReturnType<typeof totals>
   const combine = (ts: Tot[]): Tot => ({
     videos: ts.every(t => t.videos == null) ? null : sum(ts.map(t => t.videos ?? 0)), pending: sum(ts.map(t => t.pending)),
-    impressions: nsum(ts.map(t => t.impressions)),
+    impressions: nsum(ts.map(t => t.impressions)), imprDays: sum(ts.map(t => t.imprDays)), imprHave: sum(ts.map(t => t.imprHave)),
     views: nsum(ts.map(t => t.views)), minutes: sum(ts.map(t => t.minutes)), subs: sum(ts.map(t => t.subs)), avgPct: ts.length === 1 ? ts[0].avgPct : null,
     visits: sum(ts.map(t => t.visits)), captures: sum(ts.map(t => t.captures)), newWs: sum(ts.map(t => t.newWs)),
     activated: sum(ts.map(t => t.activated)), paid: sum(ts.map(t => t.paid)), expanded: sum(ts.map(t => t.expanded)), churned: sum(ts.map(t => t.churned)),
@@ -254,17 +265,22 @@ export function buildSocial(o: {
   const showEmailSteps = periodVideos.some(v => v.offerPage && v.tagged)
   const wsBase = showEmailSteps ? pc.captures : pc.visits
   const wsRate = rate(pc.newWs, wsBase)
-  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; goal: number | null; notConnected?: boolean; why?: string; impact: number | null; goalNote?: string }
+  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; goal: number | null; notConnected?: boolean; ncLabel?: string; why?: string; impact: number | null; goalNote?: string }
   const nc = (id: string, stage: string, label: string, lever: string, source: string, goal: number | null, why: string): Step =>
     ({ id, stage, label, lever, source, cur: null, prev: null, rate: null, prevRate: null, goal, notConnected: true, impact: null, why })
   const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
-  const imprKnown = inScope.length > 0 && inScope.every(c => c.imprState === 'live')
+  const imprLive = inScope.length > 0 && inScope.every(c => c.imprState === 'live')
+  const imprPartial = imprLive && pc.imprHave < pc.imprDays
+  const imprKnown = imprLive && !imprPartial
+  const firstReport = inScope.flatMap(c => [...c.imprDays]).sort()[0]
   const imprWhy = inScope.some(c => c.imprState === 'none')
     ? 'Needs the channel owner’s one-time sign-in (YouTube Reporting API, channel_reach_basic_a1)'
-    : 'Report job is set up; Google delivers the first daily files about 48 hours after setup'
+    : imprPartial
+      ? `Google has delivered impressions for ${pc.imprHave} of ${pc.imprDays} days in this period so far (reports start ${firstReport}, about 30 days before the report job was set up). Impressions and view rate show once every day is in, so they're never compared with views from other days.`
+      : 'Report job is set up; Google delivers the first daily files about 48 hours after setup'
   const steps: Step[] = [
     { id: 'impr', stage: 'Reach', label: 'Impressions', lever: 'Thumbnail, title, topic, cadence', source: 'YouTube Reporting API', cur: pc.impressions, prev: pp.impressions, rate: null, prevRate: null, goal: null,
-      notConnected: !imprKnown, why: imprWhy, impact: null },
+      notConnected: !imprKnown, ncLabel: imprPartial ? 'Partial data' : undefined, why: imprWhy, impact: null },
     { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail & title', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views,
       rate: imprKnown ? rate(pc.views, pc.impressions) : null, prevRate: imprKnown ? rate(pp.views, pp.impressions) : null, goal: null,
       notConnected: !viewsKnown, why: NO_ANALYTICS, impact: null },

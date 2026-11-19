@@ -14,8 +14,8 @@ const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, bord
 const num = 'px-3 py-3 text-right whitespace-nowrap'
 const mono = { fontFamily: T.mono } as const
 
-function NC({ inline, why }: { inline?: boolean; why?: string }) {
-  return <span title={why ?? NOT_CONNECTED.why} className={inline ? '' : 'text-[13px]'} style={{ color: T.faint, fontStyle: 'italic' }}>{NOT_CONNECTED.label}</span>
+function NC({ inline, why, label }: { inline?: boolean; why?: string; label?: string }) {
+  return <span title={why ?? NOT_CONNECTED.why} className={inline ? '' : 'text-[13px]'} style={{ color: T.faint, fontStyle: 'italic' }}>{label ?? NOT_CONNECTED.label}</span>
 }
 /** Horizontal bar list (mock .blist): label · bar · value. */
 function BarList({ items, max }: { items: { label: string; value: number; text: string; muted?: boolean }[]; max: number }) {
@@ -251,9 +251,9 @@ function Funnel({ s }: { s: SV }) {
                   <p className="font-semibold">{st.label}</p>
                   <p className="text-[13px]" style={{ color: T.muted }}>{st.source}</p>
                 </td>
-                <td className={num} style={mono}>{blank ? <NC why={st.why} /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
+                <td className={num} style={mono}>{blank ? <NC why={st.why} label={st.ncLabel} /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
                 <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{blank ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
-                <td className={num} style={mono}>{first ? '' : blank ? <NC why={st.why} /> : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : st.rate == null && st.id === 'views' ? <NC why={s.steps[0]?.why} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={mono}>{first ? '' : blank ? <NC why={st.why} /> : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : st.rate == null && st.id === 'views' ? <NC why={s.steps[0]?.why} label={s.steps[0]?.ncLabel} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
               </tr>,
             ]
           })}</tbody>

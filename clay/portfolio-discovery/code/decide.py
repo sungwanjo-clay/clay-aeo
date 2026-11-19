@@ -17,7 +17,8 @@ def handler(context):
     ident = st.get('identity') or {}
     checked = _d(ident.get('identity_checked_at'))
     sources = st.get('sources') or []
-    news = [s for s in sources if s.get('source_type') in ('news', 'blog', 'press', 'portfolio_news', 'cohort', 'feed') and s.get('status') != 'retired']
+    # A source with a saved recipe is the directory; its health is tracked by the directory steps, not as news.
+    news = [s for s in sources if s.get('source_type') in ('news', 'blog', 'press', 'portfolio_news', 'cohort', 'feed') and s.get('status') != 'retired' and not s.get('method')]
     any_news_broken = any(s.get('status') == 'broken' for s in news)
     identity_fresh = bool(checked and (today - checked).days <= 90 and ident.get('identity_confidence') in ('High', 'Medium') and not any_news_broken)
     news_ok = [s for s in news if s.get('status') != 'broken']
