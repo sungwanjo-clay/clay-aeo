@@ -105,6 +105,17 @@ def handler(context):
         if '@' in (k.get('name') or ''): continue
         for key in filter(None, [dom(k.get('domain')), 'name:' + nkey(k.get('name'))]):
             known_by.setdefault(key, k)
+    # Verified names are often longer than lane names ("Opus Training" vs "Opus", "The Climate Choice" vs
+    # "ClimateChoice"). Fall back to containment on normalized names, accepted only when exactly one known fits.
+    def loose(n):
+        n = _PAREN.sub('', n or '')
+        return re.sub(r'^the', '', nkey(n))
+    known_loose = [(loose(k.get('name')), k) for k in g('known_companies') or [] if '@' not in (k.get('name') or '') and len(loose(k.get('name'))) >= 3]
+    def fuzzy_known(name):
+        q = loose(name)
+        if len(q) < 3: return None
+        hits = {id(k): k for kn, k in known_loose if kn.startswith(q) or q.startswith(kn) or (len(q) >= 6 and q in kn)}
+        return next(iter(hits.values())) if len(hits) == 1 else None
     today = (g('today') or '')[:10]
     def prio(c):
         recent = max(c['dates']) if c['dates'] else ''
@@ -117,7 +128,7 @@ def handler(context):
     used_known = set()
     for c in ranked:
         c['latest_hint'] = max(c['dates']) if c['dates'] else ''
-        k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name']))
+        k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name'])) or fuzzy_known(c['name'])
         if k:
             # A name-only lane hit for a company we already resolved keeps the saved domain, and two lane hits for the
             # same saved company collapse into one row.
