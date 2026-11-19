@@ -30,7 +30,7 @@ def handler(context):
     st = st.get('result', st) if isinstance(st, dict) else {}
     rows = st.get('rows') if isinstance(st, dict) else None
     lookup_ok = isinstance(rows, list) and len(rows) > 0
-    by_dom, arr_by, churn_by = {}, {}, {}
+    by_dom, arr_by, churn_by, first_by = {}, {}, {}, {}
     for r in rows or []:
         d = (r.get('DOMAIN') or '').lower()
         if d:
@@ -39,6 +39,7 @@ def handler(context):
             except (TypeError, ValueError): arr_by[d] = None
             try: churn_by[d] = (round(float(r['WS_CHURN_ARR']), 2), (r.get('WS_CHURNED_AT') or '')[:10] or None) if r.get('WS_CHURN_ARR') not in (None, '') else None
             except (TypeError, ValueError, KeyError): churn_by[d] = None
+            first_by[d] = ((r.get('WS_FIRST_WS') or '')[:10] or None, (r.get('WS_FIRST_PAID') or '')[:10] or None)
 
     lookups, elig = [], []
     seen = set()
@@ -62,7 +63,9 @@ def handler(context):
                             'workspaces': ws, 'run_id': run_id, 'paying_arr_usd': arr_by.get(d) if ws else 0,
                             # ARR at churn over workspaces that paid and stopped (null when the query predates it).
                             'churned_arr_usd': (churn_by[d][0] if churn_by.get(d) else None) if ws else 0,
-                            'churned_at': churn_by[d][1] if ws and churn_by.get(d) else None})
+                            'churned_at': churn_by[d][1] if ws and churn_by.get(d) else None,
+                            'first_workspace_at': first_by.get(d, (None, None))[0] if ws else None,
+                            'first_paid_at': first_by.get(d, (None, None))[1] if ws else None})
         lr = (c.get('latest_round_date') or '')[:10]
         last = lookups[-1]
         acct = ('unknown' if last['lookup_status'] == 'failed' else 'none' if last['lookup_status'] == 'no_exact_match'

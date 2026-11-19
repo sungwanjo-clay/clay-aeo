@@ -65,6 +65,8 @@ export type CompanyRow = {
   payingArr?: number | null          // current paying ARR over the company's workspaces, USD
   churnedArr?: number | null         // ARR at churn (last invoice, annualized) when it paid and stopped
   churnedAt?: string | null          // latest cancellation over those workspaces
+  firstWsAt?: string | null          // first Clay workspace created (any of its workspaces)
+  firstPaidAt?: string | null        // first invoice over its workspaces
 }
 
 export type PortfolioMeta = {

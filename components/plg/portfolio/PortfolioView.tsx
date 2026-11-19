@@ -9,6 +9,8 @@
  * as of the last complete weekly snapshot. Clay does the Snowflake lookup; this tab doesn't query Sigma.
  */
 import { useMemo, useState } from 'react'
+import ProgressChart, { type ProgressMetric } from '../ProgressChart'
+import { addDays, fmtShort, mondayOf } from '@/lib/plg/dates'
 import { Card, Eyebrow, H2, InfoTip, Pill, Segmented, T, fmtInt, fmtPct, fmtPp } from '../ui'
 import {
   CUT_LABEL, STATUS_FILTERS, countsFor, csvOf, filterCompanies, rate,
@@ -30,10 +32,9 @@ const fmtUsd = (n: number | null | undefined): string => {
   if (n < 0) return `−${fmtUsd(-n)}`
   return n >= 1e6 ? `$${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${Math.round(n)}`
 }
-/** Net paying ARR: current paying ARR minus ARR at churn (last invoice, annualized) of companies that paid and stopped. */
-const netArr = (c: Counts) => (c.paying_arr_usd ?? 0) - (c.churned_arr_usd ?? 0)
-const coNet = (r: CompanyRow) => (r.payingArr ?? 0) - (r.payingNow ? 0 : (r.churnedArr ?? 0))
-const usdStyle = (n: number) => ({ fontFamily: T.mono, color: n < 0 ? T.neg : undefined })
+/** ARR at churn (last invoice, annualized) for a company that paid and has nothing paying now; 0 otherwise. */
+const coChurn = (r: CompanyRow) => (r.payingNow ? 0 : (r.churnedArr ?? 0))
+const CUT_RANK: Record<string, number> = { partnered: 0, pending: 1, not_partnered: 2 }
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d.length === 10 ? `${d}T00:00:00Z` : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '–'
 
@@ -80,7 +81,7 @@ const STEP_FILTER: Record<StepId, StatusFilter> = { portfolio: 'All', workspace:
 const STEP_TIP: Record<StepId, string> = {
   portfolio: 'Companies verified as backed by the selected firms, from firm-first sources (official rosters, Harmonic, PitchBook, Crunchbase, Dealroom, portfolio pages, partner lists, announcements), frozen when the week closed. Companies found only by matching our own workspaces don’t count.',
   workspace: 'Companies Clay matched to at least one Clay workspace in Snowflake, free or paid, on an exact domain. Lookups that failed or need review are shown as unknown, never as zero.',
-  paying: 'Companies with a workspace that is paying now, as Clay read it from Snowflake. “Ever paid” counts any first invoice. Net paying ARR = current paying ARR minus the ARR lost to churn: a company that paid before and pays nothing now counts its last invoice, annualized, as negative (that estimate is within 20% of real ARR for 98% of current customers). Filter the companies by Churned for the re-engagement list.',
+  paying: 'Companies with a workspace that is paying now, as Clay read it from Snowflake. “Ever paid” counts any first invoice. Churned ARR = what companies that paid before and pay nothing now were paying: their last invoice, annualized (within 20% of real ARR for 98% of current customers). Sort the firms or companies by Churned ARR, or filter companies by Churned, for the re-engagement list.',
   eligible: 'Companies ever confirmed eligible in a weekly snapshot (Seed or Series A, VC-backed, net-new workspace). They stay counted after they pay or raise again. The redemption denominator.',
   redeemed: 'Eligible companies that redeemed the startup offer. Needs promo-code redemptions, which aren’t connected yet.',
 }
@@ -115,7 +116,8 @@ function Strip({ c, p, eligibilityConnected, arrConnected, churnConnected, selec
           {c.workspace_unknown > 0 && <><br />{fmtInt(c.workspace_unknown)} unknown (lookup failed or in review)</>}</>} />
       <Step id="paying" label="Paying now" value={fmtInt(c.paying_now)} on={selected === 'paying'} onClick={pick('paying')}
         sub={<><b style={mono}>{fmtPct(pay)}</b> of portfolio · {fmtInt(c.ever_paid)} ever paid
-          {arrConnected ? <><br /><b style={usdStyle(churnConnected ? netArr(c) : c.paying_arr_usd ?? 0)}>{fmtUsd(churnConnected ? netArr(c) : c.paying_arr_usd)}</b> {churnConnected ? 'net paying ARR' : 'current paying ARR'}</> : null}
+          {arrConnected ? <><br /><b style={mono}>{fmtUsd(c.paying_arr_usd)}</b> current paying ARR</> : null}
+          {churnConnected ? <><br /><b style={mono}>{fmtUsd(c.churned_arr_usd ?? 0)}</b> churned ARR · {fmtInt(c.churned ?? 0)} churned</> : null}
           {c.paying_unknown > 0 && <><br />{fmtInt(c.paying_unknown)} with a workspace, paid status unknown</>}</>} />
       <Step id="eligible" label="Eligible" nc={!eligibilityConnected} value={eligibilityConnected ? fmtInt(c.eligible_to_date) : <NC why="The weekly eligibility check isn’t writing snapshots yet" />}
         on={selected === 'eligible'} onClick={pick('eligible')} sub="confirmed since tracking began" />
@@ -130,7 +132,8 @@ function Strip({ c, p, eligibilityConnected, arrConnected, churnConnected, selec
 const FIRM_COLS: Col[] = [
   { h: 'Firm', sort: 'name' }, { h: 'Type', sort: 'type' },
   { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven is shown as a separate tag and doesn’t make a firm partnered.' },
-  { h: 'Net paying ARR', num: true, sort: 'net_arr', tip: 'Net paying ARR: current paying ARR (Snowflake CUSTOMERS.ARR for workspaces paying now) across the firm’s portfolio companies. minus ARR at churn (last invoice, annualized) for portfolio companies that paid and stopped, so a firm whose portfolio mostly churned goes negative. Ranks which funds’ portfolios bring the most revenue. A company backed by two firms counts in both rows.' },
+  { h: 'Paying ARR', num: true, sort: 'paying_arr_usd', tip: 'Current paying ARR (Snowflake CUSTOMERS.ARR for workspaces paying now) across the firm’s portfolio companies. Ranks which funds’ portfolios bring the most revenue. A company backed by two firms counts in both rows.' },
+  { h: 'Churned ARR', num: true, sort: 'churned_arr_usd', tip: 'ARR lost from portfolio companies that paid before and pay nothing now: each one’s last invoice, annualized. Sort by it to find the portfolios to re-engage. A company backed by two firms counts in both rows.' },
   { h: 'Portfolio', num: true, sort: 'portfolio', tip: 'Verified portfolio companies in the latest week: the denominator.' },
   { h: 'With a workspace', num: true, sort: 'with_workspace' }, { h: 'Penetration', num: true, sort: 'penetration', tip: 'With a workspace ÷ portfolio.' },
   { h: 'Unknown', num: true, sort: 'workspace_unknown', tip: 'Companies whose workspace lookup failed or needs review. Not counted as zero.' },
@@ -146,8 +149,11 @@ const FIRM_COLS: Col[] = [
 const COMPANY_COLS: Col[] = [
   { h: 'Company', sort: 'name', tip: 'Name and current domain.' },
   { h: 'Firm(s)', sort: 'firms', tip: 'Firms in the list that back it. Sorting puts companies with the most backers first.' },
+  { h: 'Type', sort: 'type', tip: 'Type of the backing firm(s): VC fund or accelerator.' },
+  { h: 'Partner', sort: 'cut', tip: 'The closest partnership among its backing firms: Partnered, then Pending, then Not partnered. Proven when any backer is on the Proven tab.' },
+  { h: 'Paying ARR', sort: 'arr', num: true, tip: 'Current paying ARR across the company’s Clay workspaces.' },
+  { h: 'Churned ARR', sort: 'churn', num: true, tip: 'For a company that paid before and pays nothing now: its last invoice, annualized. Hover for the churn date. Sort by it for the re-engagement list.' },
   { h: 'Clay workspace', sort: 'workspaces', tip: 'From Clay’s Snowflake lookup: matched (with the number of workspaces), no exact match, or unknown when the lookup failed or needs review.' },
-  { h: 'Net paying ARR', sort: 'arr', num: true, tip: 'Current paying ARR across the company’s Clay workspaces. A company that paid before and pays nothing now shows its ARR at churn (last invoice, annualized) as a negative number; hover it for the churn date.' },
   { h: 'Paid', sort: 'paid', tip: 'Paying now, ever paid, or not. Unknown when Clay didn’t read paid status.' },
   { h: 'Offer', tip: 'Eligible since tracking began, and redemption. Redemption shows Not connected until promo-code events are in.' },
   { h: 'Stage', sort: 'stage' }, { h: 'Last round', sort: 'lastRoundAt' },
@@ -239,7 +245,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const [firmId, setFirmId] = useState<string | null>(null)
   const [step, setStep] = useState<StepId | null>(null)
   const [status, setStatus] = useState<StatusFilter>('All')
-  const [firmSort, setFirmSort] = useState<Sort>({ key: 'net_arr', dir: -1 })
+  const [firmSort, setFirmSort] = useState<Sort>({ key: 'paying_arr_usd', dir: -1 })
   const [coSort, setCoSort] = useState<Sort>({ key: 'name', dir: 1 })
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
@@ -252,6 +258,16 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
     return (id: string) => m.get(id) ?? 'Unknown firm'
   }, [meta])
   const firmsById = useMemo(() => new Map((meta?.firms ?? []).map(f => [f.firm_id, f])), [meta])
+  // A company's Type and Partner come from its backing firms (closest partnership wins).
+  const coType = (r: CompanyRow) => {
+    const t = new Set(r.firms.map(f => firmsById.get(f)?.firm_type).filter(Boolean))
+    return t.size === 0 ? null : t.size > 1 ? 'VC fund + accelerator' : t.has('accelerator') ? 'Accelerator' : 'VC fund'
+  }
+  const coCut = (r: CompanyRow) => {
+    const fs = r.firms.map(f => firmsById.get(f)).filter(Boolean)
+    const best = fs.map(f => f!.partnership_cut).sort((a, b) => CUT_RANK[a] - CUT_RANK[b])[0]
+    return { rank: best ? CUT_RANK[best] : 9, label: best ? CUT_LABEL[best] : '–', proven: fs.some(f => f!.on_proven_tab) }
+  }
 
   const firmRows = useMemo(() => (meta && latest
     ? meta.firmRows.filter(r => r.snapshot_date === latest && (cut === 'all' || r.partnership_cut === cut)).sort((a, b) => b.portfolio - a.portfolio)
@@ -265,7 +281,6 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         case 'cut': return CUT_LABEL[r.partnership_cut] + (f?.on_proven_tab ? ' ·' : '')
         case 'penetration': return rate(r.with_workspace, r.portfolio)
         case 'refreshed': return f?.roster_refreshed_at ?? null
-        case 'net_arr': return netArr(r)
         default: return (r as unknown as Record<string, number | undefined>)[firmSort.key] ?? null
       }
     }
@@ -296,7 +311,11 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         case 'firms': return r.firms.length
         case 'workspaces': return r.hasWorkspace === true ? (r.workspaces ?? 1) : r.hasWorkspace === false ? 0 : null
         case 'paid': return r.payingNow ? 2 : r.everPaid ? 1 : r.everPaid === false ? 0 : null
-        case 'arr': return r.inDenominator && meta?.arrConnected ? coNet(r) : null   // exactly the number shown
+        // Exactly the numbers shown: blank only when the column shows a dash.
+        case 'arr': return r.inDenominator && meta?.arrConnected ? (r.payingArr ?? 0) : null
+        case 'churn': return r.inDenominator && meta?.churnConnected ? coChurn(r) : null
+        case 'type': return coType(r)
+        case 'cut': return coCut(r).rank
         case 'stage': return r.stage
         case 'lastRoundAt': return r.lastRoundAt
         default: return null
@@ -309,8 +328,55 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   // the same rule as the tiles and the Firms table total, each company once.
   const listArr = useMemo(() => {
     const counted = list.filter(r => r.inDenominator)
-    return { n: counted.length, paying: counted.filter(r => r.payingNow).length, arr: counted.reduce((n, r) => n + coNet(r), 0) }
+    return { n: counted.length, paying: counted.filter(r => r.payingNow).length, arr: counted.reduce((n, r) => n + (r.payingArr ?? 0), 0),
+             churned: counted.filter(r => r.everPaid && r.payingNow === false).length, churnArr: counted.reduce((n, r) => n + coChurn(r), 0) }
   }, [list])
+
+  const progress = useMemo((): ProgressMetric[] => {
+    if (!data || !meta || !latest) return []
+    const cos = filterCompanies(data.companies, { cut, firmId, status: 'All', q: '', asOf: latest })
+    const dated = cos.filter(r => r.firstWsAt)
+    const end = latest
+    const first = dated.map(r => r.firstWsAt!).sort()[0]
+    const start = mondayOf(first && first > addDays(end, -7 * 104) ? first : addDays(end, -7 * 104))
+    const weeks: string[] = []
+    for (let d = start; d <= end; d = addDays(d, 7)) weeks.push(d)
+    const at = (d: string) => {
+      const e = addDays(d, 6)
+      let ws = 0, paid = 0, paying = 0
+      for (const r of dated) {
+        if (r.firstWsAt! <= e) ws++
+        if (r.firstPaidAt && r.firstPaidAt <= e) {
+          paid++
+          if (r.payingNow || (r.churnedAt && r.churnedAt > e)) paying++
+        }
+      }
+      return { ws, paid, paying }
+    }
+    const pts = weeks.map(d => ({ d, label: fmtShort(d), ...at(d) }))
+    const n = cos.length
+    const empty = 'Workspace history arrives with the next Clay status refresh (it adds when each company first got a workspace and first paid).'
+    const note = <>Built from this week’s verified portfolio{firmId ? ` for ${firmName(firmId)}` : ''}: when each company first got a workspace, first paid, and churned.</>
+    const last = pts.at(-1); const yearAgo = pts.at(-53)
+    const sum = (k: 'ws' | 'paid' | 'paying', f = fmtInt) => last && dated.length ? <><span style={{ ...mono, color: T.ink }}>{f(last[k])}</span>{yearAgo ? <> now · {f(yearAgo[k])} a year ago</> : null}</> : null
+    // Paying ARR is only known week by week, from closed weekly snapshots.
+    const snaps = firmId
+      ? meta.firmRows.filter(r => r.firm_id === firmId)
+      : meta.totals.filter(t => t.cut === cut)
+    const arrPts = [...snaps].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))
+      .map(t => ({ label: fmtShort(t.snapshot_date), v: meta.arrConnected ? t.paying_arr_usd ?? null : null }))
+    const has = dated.length > 0
+    return [
+      { id: 'ws', label: 'Companies with a workspace', fmt: fmtInt, points: pts.map(p => ({ label: p.label, v: has ? p.ws : null })), summary: sum('ws'), empty, note },
+      { id: 'pen', label: 'Penetration', fmt: (v: number) => fmtPct(v, 0), points: pts.map(p => ({ label: p.label, v: has && n ? p.ws / n : null })),
+        summary: last && n && dated.length ? <><span style={{ ...mono, color: T.ink }}>{fmtPct(last.ws / n)}</span> of {fmtInt(n)} portfolio companies{yearAgo ? <> · {fmtPct(yearAgo.ws / n)} a year ago</> : null}</> : null, empty, note },
+      { id: 'paying', label: 'Paying companies', fmt: fmtInt, points: pts.map(p => ({ label: p.label, v: has ? p.paying : null })), summary: sum('paying'), empty, note },
+      { id: 'paid', label: 'Ever paid', fmt: fmtInt, points: pts.map(p => ({ label: p.label, v: has ? p.paid : null })), summary: sum('paid'), empty, note },
+      { id: 'arr', label: 'Paying ARR (weekly snapshots)', fmt: (v: number) => fmtUsd(v), points: arrPts,
+        summary: arrPts.length ? <><span style={{ ...mono, color: T.ink }}>{fmtUsd(arrPts.at(-1)!.v)}</span> in the latest closed week · {fmtInt(arrPts.length)} {arrPts.length === 1 ? 'week' : 'weeks'} so far</> : null,
+        empty: 'Paying ARR appears once a weekly snapshot closes with ARR.', note: <>One point per closed weekly snapshot; it fills in week by week.</> },
+    ]
+  }, [data, meta, latest, cut, firmId, firmName])
 
   const setCutAndReset = (v: CutFilter) => { setCut(v); setFirmId(null); setShown(PAGE) }
   const pickStep = (s: StepId | null) => { setStep(s); setStatus(s ? STEP_FILTER[s] : 'All'); setShown(PAGE) }
@@ -364,6 +430,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           </p>
         </section>
 
+        {progress.length > 0 && <ProgressChart title="Progress" metrics={progress} />}
+
         <Card className="p-5 sm:p-8 flex flex-col gap-4">
           <H2>Firms</H2>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -381,7 +449,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                     <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(r.firm_id)}</td>
                     <td className="px-3 py-3 whitespace-nowrap">{f?.firm_type === 'accelerator' ? 'Accelerator' : 'VC fund'}</td>
                     <td className="px-3 py-3 whitespace-nowrap">{CUT_LABEL[r.partnership_cut]}{f?.on_proven_tab ? <span className="ml-2 text-[12px] rounded-full px-2 py-0.5" style={{ background: '#EFEEEA' }}>Proven</span> : null}</td>
-                    <td className={`${num} font-semibold`} style={usdStyle(netArr(r))}>{meta.arrConnected ? fmtUsd(netArr(r)) : <NC why="Current paying ARR arrives with the next Clay status refresh" />}</td>
+                    <td className={`${num} font-semibold`} style={mono}>{meta.arrConnected ? fmtUsd(r.paying_arr_usd) : <NC why="Current paying ARR arrives with the next Clay status refresh" />}</td>
+                    <td className={num} style={mono}>{meta.churnConnected ? (r.churned_arr_usd ? fmtUsd(r.churned_arr_usd) : <span style={{ color: T.faint }}>$0</span>) : <NC why="Churned ARR arrives with the next Clay status refresh" />}</td>
                     <td className={num} style={mono}>{fmtInt(r.portfolio)}</td>
                     <td className={num} style={mono}>{fmtInt(r.with_workspace)}</td>
                     <td className={num} style={mono}>{fmtPct(rate(r.with_workspace, r.portfolio))}</td>
@@ -398,15 +467,16 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
             </tbody>
             {sortedFirmRows.length > 1 && !firmId && c && (() => {
               const t = c
-              const rowSum = sortedFirmRows.reduce((n, r) => n + netArr(r), 0)
+              const rowSum = sortedFirmRows.reduce((n, r) => n + (r.paying_arr_usd ?? 0), 0)
               return (
                 <tfoot><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2' }}>
                   <td className="px-3 py-3 font-semibold whitespace-nowrap" colSpan={3}>
                     Total · each company once
-                    {meta.arrConnected && Math.round(rowSum) !== Math.round(netArr(t)) &&
+                    {meta.arrConnected && Math.round(rowSum) !== Math.round(t.paying_arr_usd ?? 0) &&
                       <p className="text-[12px] font-normal" style={{ color: T.muted }}>Firm rows add up to {fmtUsd(rowSum)}: companies backed by several firms count in each.</p>}
                   </td>
-                  <td className={`${num} font-semibold`} style={usdStyle(netArr(t))}>{meta.arrConnected ? fmtUsd(netArr(t)) : <NC />}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{meta.arrConnected ? fmtUsd(t.paying_arr_usd) : <NC />}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{meta.churnConnected ? fmtUsd(t.churned_arr_usd ?? 0) : <NC />}</td>
                   <td className={`${num} font-semibold`} style={mono}>{fmtInt(t.portfolio)}</td>
                   <td className={`${num} font-semibold`} style={mono}>{fmtInt(t.with_workspace)}</td>
                   <td className={`${num} font-semibold`} style={mono}>{fmtPct(rate(t.with_workspace, t.portfolio))}</td>
@@ -426,7 +496,6 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         </Card>
       </>)}
 
-      <Sources meta={meta} firmIds={latest ? firmRows.map(r => r.firm_id) : null} firmName={firmName} pick={pickFirm} selected={firmId} />
 
       {latest && (
         <Card className="p-5 sm:p-8 flex flex-col gap-4">
@@ -447,7 +516,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               className="rounded-full px-4 py-2 text-[14px] min-w-[240px]" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }} />
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
               {STATUS_FILTERS.map(f => (
-                <button key={f} type="button" onClick={() => { setStatus(f); setStep(null); setShown(PAGE); if (f === 'Churned') setCoSort({ key: 'arr', dir: 1 }) }} aria-pressed={status === f}
+                <button key={f} type="button" onClick={() => { setStatus(f); setStep(null); setShown(PAGE); if (f === 'Churned') setCoSort({ key: 'churn', dir: -1 }) }} aria-pressed={status === f}
                   className="rounded-full px-3 py-1.5 text-[13px]"
                   style={{ background: status === f ? T.ink : '#fff', color: status === f ? '#fff' : T.ink, border: `1px solid ${status === f ? T.ink : T.border}` }}>{f}</button>
               ))}
@@ -455,7 +524,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           </div>
           <p className="text-[14px]" style={{ color: T.muted, ...mono }}>
             {fmtInt(list.length)} {list.length === 1 ? 'company' : 'companies'}
-            {meta.arrConnected && listArr.n > 0 && <> · {fmtInt(listArr.paying)} paying · <b style={usdStyle(listArr.arr)}>{fmtUsd(listArr.arr)}</b> net paying ARR</>}
+            {meta.arrConnected && listArr.n > 0 && <> · {fmtInt(listArr.paying)} paying · <b style={{ color: T.ink }}>{fmtUsd(listArr.arr)}</b> paying ARR</>}
+            {meta.churnConnected && listArr.churned > 0 && <> · {fmtInt(listArr.churned)} churned · <b style={{ color: T.ink }}>{fmtUsd(listArr.churnArr)}</b> churned ARR</>}
           </p>
           {exportMsg && <p className="text-[13px]" style={{ color: T.neg }}>{exportMsg}</p>}
           <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-[15px]" style={{ color: T.ink }}>
@@ -465,9 +535,12 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                 <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                   <td className="px-3 py-3"><p className="font-semibold">{r.name}</p><p className="text-[13px]" style={{ ...mono, color: T.muted }}>{r.domain ?? 'stealth · no domain'}</p></td>
                   <td className="px-3 py-3 text-[14px]">{r.firms.map(firmName).join(', ')}</td>
+                  <td className="px-3 py-3 text-[14px] whitespace-nowrap">{coType(r) ?? <span style={{ color: T.faint }}>–</span>}</td>
+                  <td className="px-3 py-3 text-[14px] whitespace-nowrap">{coCut(r).label}{coCut(r).proven ? <span className="ml-2 text-[12px] rounded-full px-2 py-0.5" style={{ background: '#EFEEEA' }}>Proven</span> : null}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{!meta.arrConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : r.payingArr ? fmtUsd(r.payingArr) : <span style={{ color: T.faint }}>$0</span>}</td>
+                  <td className={num} style={mono} title={coChurn(r) ? `Churned${r.churnedAt ? ' ' + fmtDate(r.churnedAt) : ''}: last invoice, annualized` : undefined}>
+                    {!meta.churnConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : coChurn(r) ? fmtUsd(coChurn(r)) : <span style={{ color: T.faint }}>$0</span>}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{wsCell(r)}</td>
-                  <td className={num} style={usdStyle(coNet(r))} title={r.churnedArr && !r.payingNow ? `Churned${r.churnedAt ? ' ' + fmtDate(r.churnedAt) : ''}: last invoice, annualized` : undefined}>
-                    {!meta.arrConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : coNet(r) ? fmtUsd(coNet(r)) : <span style={{ color: T.faint }}>$0</span>}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{paidCell(r)}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">
                     {!r.inDenominator ? <span style={{ color: T.faint }}>–</span>
@@ -487,10 +560,11 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
             </tbody>
             {meta.arrConnected && listArr.n > 0 && (
               <tfoot><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2' }}>
-                <td className="px-3 py-3 font-semibold" colSpan={3}>Total · {fmtInt(listArr.n)} {listArr.n === 1 ? 'company' : 'companies'}{list.length > shown ? ' (all pages)' : ''}</td>
-                <td className={`${num} font-semibold`} style={usdStyle(listArr.arr)}>{fmtUsd(listArr.arr)}</td>
-                <td className="px-3 py-3 text-[14px] whitespace-nowrap">{fmtInt(listArr.paying)} paying now</td>
-                <td className="px-3 py-3" colSpan={COMPANY_COLS.length - 5} />
+                <td className="px-3 py-3 font-semibold" colSpan={4}>Total · {fmtInt(listArr.n)} {listArr.n === 1 ? 'company' : 'companies'}{list.length > shown ? ' (all pages)' : ''}</td>
+                <td className={`${num} font-semibold`} style={mono}>{fmtUsd(listArr.arr)}</td>
+                <td className={`${num} font-semibold`} style={mono}>{meta.churnConnected ? fmtUsd(listArr.churnArr) : '–'}</td>
+                <td className="px-3 py-3 text-[14px] whitespace-nowrap">{fmtInt(listArr.paying)} paying now{listArr.churned ? <> · {fmtInt(listArr.churned)} churned</> : null}</td>
+                <td className="px-3 py-3" colSpan={COMPANY_COLS.length - 7} />
               </tr></tfoot>
             )}
           </table></div>
@@ -501,6 +575,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <ColDefs cols={COMPANY_COLS} />
         </Card>
       )}
+
+      <Sources meta={meta} firmIds={latest ? firmRows.map(r => r.firm_id) : null} firmName={firmName} pick={pickFirm} selected={firmId} />
 
       <p className="text-[13px]" style={{ color: T.muted }}>
         Source: the Clay portfolio workflow → Supabase weekly snapshots (roster frozen at the week’s close; workspace and paid status from Clay’s Snowflake lookup).

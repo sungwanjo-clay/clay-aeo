@@ -29,7 +29,7 @@ def handler(context):
     doms += [dom(c.get('domain')) for c in (context.get_input('cached') or []) if dom(c.get('domain'))]
     doms = sorted(set(doms))[:4000]
     if not doms:
-        return {'query': "SELECT NULL AS DOMAIN, '[]' AS WS_JSON, 0 AS WS_TOTAL, 0 AS WS_PAYING, 0 AS WS_EVER, 1 AS WS_SHARED, 0 AS WS_ARR, 0 AS WS_CHURN_ARR, NULL AS WS_CHURNED_AT, '[]' AS SF_JSON WHERE FALSE", 'domains': [], 'domain_count': 0}
+        return {'query': "SELECT NULL AS DOMAIN, '[]' AS WS_JSON, 0 AS WS_TOTAL, 0 AS WS_PAYING, 0 AS WS_EVER, 1 AS WS_SHARED, 0 AS WS_ARR, 0 AS WS_CHURN_ARR, NULL AS WS_CHURNED_AT, NULL AS WS_FIRST_WS, NULL AS WS_FIRST_PAID, '[]' AS SF_JSON WHERE FALSE", 'domains': [], 'domain_count': 0}
     vals = ', '.join("('" + d + "')" for d in doms)
     q = f"""WITH roster AS (SELECT COLUMN1 AS DOMAIN FROM VALUES {vals}),
 m AS (
@@ -55,7 +55,9 @@ wa AS (
   -- Churned ARR: workspaces that paid and stopped (the dashboard counts it only for companies with nothing paying now).
   SELECT d.DOMAIN, SUM(p.ARR_NOW) AS WS_ARR,
          SUM(IFF(p.EVER_PAID = 1 AND p.PAYING_NOW = 0, COALESCE(p.LAST_ARR, 0), 0)) AS WS_CHURN_ARR,
-         TO_VARCHAR(MAX(IFF(p.EVER_PAID = 1 AND p.PAYING_NOW = 0, p.LAST_PAID_END, NULL))) AS WS_CHURNED_AT
+         TO_VARCHAR(MAX(IFF(p.EVER_PAID = 1 AND p.PAYING_NOW = 0, p.LAST_PAID_END, NULL))) AS WS_CHURNED_AT,
+         -- For the progress chart: when the company first had a workspace and first paid (over all its workspaces).
+         MIN(p.WS_CREATED) AS WS_FIRST_WS, MIN(p.FIRST_PAID) AS WS_FIRST_PAID
   FROM (SELECT DISTINCT DOMAIN, WORKSPACE_ID FROM m) d JOIN p USING (WORKSPACE_ID) GROUP BY d.DOMAIN),
 shared AS (SELECT WORKSPACE_ID, COUNT(DISTINCT DOMAIN) AS N_DOMAINS FROM m GROUP BY 1),
 wr AS (
@@ -77,6 +79,6 @@ sf AS (
   WHERE a.IS_DELETED = FALSE AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(a.DOMAIN_C, '^https?://', ''), '^www[.]', '')) IN (SELECT DOMAIN FROM roster)
   GROUP BY 1)
 SELECT r.DOMAIN, TO_JSON(COALESCE(wsj.WS, ARRAY_CONSTRUCT())) AS WS_JSON, COALESCE(wsj.WS_TOTAL, 0) AS WS_TOTAL,
-       COALESCE(wsj.WS_PAYING, 0) AS WS_PAYING, COALESCE(wsj.WS_EVER, 0) AS WS_EVER, COALESCE(wsj.WS_SHARED, 1) AS WS_SHARED, COALESCE(wa.WS_ARR, 0) AS WS_ARR, COALESCE(wa.WS_CHURN_ARR, 0) AS WS_CHURN_ARR, wa.WS_CHURNED_AT, TO_JSON(COALESCE(sf.SF, ARRAY_CONSTRUCT())) AS SF_JSON
+       COALESCE(wsj.WS_PAYING, 0) AS WS_PAYING, COALESCE(wsj.WS_EVER, 0) AS WS_EVER, COALESCE(wsj.WS_SHARED, 1) AS WS_SHARED, COALESCE(wa.WS_ARR, 0) AS WS_ARR, COALESCE(wa.WS_CHURN_ARR, 0) AS WS_CHURN_ARR, wa.WS_CHURNED_AT, wa.WS_FIRST_WS, wa.WS_FIRST_PAID, TO_JSON(COALESCE(sf.SF, ARRAY_CONSTRUCT())) AS SF_JSON
 FROM roster r LEFT JOIN wsj USING (DOMAIN) LEFT JOIN wa USING (DOMAIN) LEFT JOIN sf USING (DOMAIN) ORDER BY r.DOMAIN"""
     return {'query': q, 'domains': doms, 'domain_count': len(doms)}

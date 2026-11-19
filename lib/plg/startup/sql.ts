@@ -115,7 +115,14 @@ FROM lw WHERE "is_new" = 1 AND "cls" IN ('Tier 1', 'Tier 2', 'Tier 3') GROUP BY 
 UNION ALL
 SELECT 'cmp', pc."b", pc."platform" || '|' || pc."camp", COUNT(DISTINCT pc."aid"), COUNT(DISTINCT mq."dom"), COUNT(DISTINCT CASE WHEN lw."is_new" = 1 THEN lw."wid" END), 0, 0
 FROM pc LEFT JOIN mq ON mq."aid" = pc."aid" AND mq."b" = pc."b" LEFT JOIN lw ON lw."aid" = pc."aid" AND lw."b" = pc."b"
-GROUP BY pc."b", pc."platform", pc."camp"`
+GROUP BY pc."b", pc."platform", pc."camp"
+UNION ALL
+SELECT 'dv', ${bucket('pv."day"')}, CAST(pv."day" AS string), COUNT(DISTINCT pv."aid"), 0, 0, 0, 0
+FROM pv WHERE ${bucket('pv."day"')} IS NOT NULL GROUP BY ${bucket('pv."day"')}, CAST(pv."day" AS string)
+UNION ALL
+SELECT 'dw', "b", CAST("d0" AS string), COUNT(DISTINCT "wid"), COUNT(DISTINCT CASE WHEN "act" = 1 THEN "wid" END),
+       COUNT(DISTINCT CASE WHEN "cls" IN ('Tier 1', 'Tier 2', 'Tier 3') THEN "dom" END), 0, 0
+FROM lw WHERE "is_new" = 1 GROUP BY "b", CAST("d0" AS string)`
 }
 
 /** Last day new-workspace counting can be complete for (visits within the window still accrue). */

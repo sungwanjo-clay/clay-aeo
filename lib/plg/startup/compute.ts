@@ -2,7 +2,7 @@
  * Startup program view model. Pure: Sigma rows (sql.ts) in, render-ready numbers out.
  * Steps with no source are null and render "Not connected"; nothing substitutes a value.
  */
-import type { ISODate } from '../dates'
+import { addDays, daysBetween, type ISODate } from '../dates'
 import { STARTUP } from './sql'
 
 type Row = { k: string; b: string; d: string; n: number; a: number; p: number; x: number; c: number }
@@ -69,9 +69,24 @@ export const STEPS: FunnelStep[] = [
   { k: null, rl: 'Paid rate', name: 'Paid (discounted price)', lever: 'Stripe · first discounted invoice paid', nc: 'No offer sent yet' },
 ]
 
+/** Daily series for one range: visits (by visit day), and new workspaces, MQAL domains and activated (by first visit day). */
+function daily(rows: Row[], b: 'cur' | 'prev', range: [ISODate, ISODate]) {
+  const v = new Map(rows.filter(r => r.k === 'dv' && r.b === b).map(r => [r.d.slice(0, 10), r.n]))
+  const w = new Map(rows.filter(r => r.k === 'dw' && r.b === b).map(r => [r.d.slice(0, 10), r]))
+  const n = daysBetween(range[0], range[1]) + 1
+  return Array.from({ length: Math.max(0, n) }, (_, i) => {
+    const d = addDays(range[0], i); const x = w.get(d)
+    return { d, visits: v.get(d) ?? 0, newWs: x?.n ?? 0, activated: x?.a ?? 0, mqal: x?.p ?? 0 }
+  })
+}
+export type StartupDay = ReturnType<typeof daily>[number]
+
 export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate]; dataEnd: ISODate; rows: Row[] }) {
   const T = period(o.rows, 'cur')
   const P = period(o.rows, 'prev')
+  // Daily rows arrived with the progress chart; an older cached result has none (the chart then says so).
+  const hasDaily = o.rows.some(r => r.k === 'dv')
+  const days = { cur: hasDaily ? daily(o.rows, 'cur', o.cur) : [], prev: hasDaily ? daily(o.rows, 'prev', o.prev) : [] }
   const rate = (t: StartupPeriod, k: keyof StartupPeriod, p: keyof StartupPeriod) => {
     const den = t[p] as number
     return den >= 1 ? (t[k] as number) / den : null
@@ -86,7 +101,7 @@ export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODa
     if (!move || rel < move.rel) move = { name: s.name, rl: s.rl!, r, pr, rel }
   }
   return {
-    cur: o.cur, prev: o.prev, T, P, move,
+    cur: o.cur, prev: o.prev, T, P, move, days,
     beforeLaunch: o.cur[1] < STARTUP.launch,
     rate,
   }

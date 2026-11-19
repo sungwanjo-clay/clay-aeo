@@ -3,6 +3,8 @@
 import type { FunnelStep, StartupPeriod, StartupViewModel as SV } from '@/lib/plg/startup/compute'
 import { STEPS } from '@/lib/plg/startup/compute'
 import { STARTUP } from '@/lib/plg/startup/sql'
+import { fmtShort } from '@/lib/plg/dates'
+import ProgressChart, { type ProgressMetric } from '../ProgressChart'
 import { Card, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
@@ -221,6 +223,27 @@ function Campaigns({ s }: { s: SV }) {
   )
 }
 
+/** Progress over the selected range, day by day, against the previous period (dashed). */
+function Progress({ s }: { s: SV }) {
+  if (s.beforeLaunch || s.T.visits < 1) return null
+  const { cur, prev } = s.days
+  const empty = 'Daily numbers arrive with the next refresh of this view.'
+  const m = (id: 'visits' | 'newWs' | 'mqal' | 'activated', label: string, total: number, prevTotal: number, note?: string): ProgressMetric => ({
+    id, label, fmt: fmtInt, empty,
+    points: cur.map(p => ({ label: fmtShort(p.d), v: p[id] })),
+    prev: prev.map(p => ({ label: fmtShort(p.d), v: p[id] })),
+    summary: <><span style={{ ...mono, color: T.ink }}>{fmtInt(total)}</span> in this range · {dl(total, prevTotal)}</>,
+    note,
+  })
+  const metrics = [
+    m('visits', 'Visits', s.T.visits, s.P.visits, 'Unique visitors to the startup page each day.'),
+    m('newWs', 'New workspaces', s.T.newWs, s.P.newWs, `By the visitor’s first visit day; a workspace counts if created within ${STARTUP.newWindowDays} days of it.`),
+    m('mqal', 'MQALs (Tier 1–3 domains)', s.T.mqal, s.P.mqal, 'Tier 1–3 company domains with a new workspace, by first visit day.'),
+    m('activated', 'Activated workspaces', s.T.activated, s.P.activated, 'New workspaces that ran a first table within 7 days, by first visit day.'),
+  ]
+  return <ProgressChart title="Progress" metrics={cur.length ? metrics : metrics.map(x => ({ ...x, points: [] }))} />
+}
+
 const DISCUSS = [
   'Where is the biggest leak between visit and new workspace, and who owns it?',
   'Is the MQAL rate low because of who applies or because the criteria are too strict?',
@@ -231,6 +254,7 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
   return (
     <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
       <Kpis s={s} />
+      <Progress s={s} />
       <RateCards s={s} />
       <Funnel s={s} />
       <TiersAndReasons s={s} />

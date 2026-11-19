@@ -92,6 +92,8 @@ if (latest) {
       everPaid: s.ever_paid, payingNow: s.paying_now, redemption: s.redemption_status, eligibleToDate: !!s.eligible_to_date,
       payingArr: s.paying_arr_usd == null ? null : Number(s.paying_arr_usd),
       ...(s.churned_arr_usd != null ? { churnedArr: Number(s.churned_arr_usd) } : {}), ...(s.churned_at ? { churnedAt: String(s.churned_at).slice(0, 10) } : {}),
+      // For the progress chart: when the company first had a Clay workspace and first paid.
+      ...(s.first_workspace_at ? { firstWsAt: String(s.first_workspace_at).slice(0, 10) } : {}), ...(s.first_paid_at ? { firstPaidAt: String(s.first_paid_at).slice(0, 10) } : {}),
       stage: st.funding_stage ?? null, lastRoundAt: st.last_round_at ?? null,
     })
   }
@@ -124,7 +126,8 @@ const meta = {
   latest: latest ? { snapshot_date: latest.snapshot_date, completed_at: latest.completed_at } : null,
   previous,
   snapshots: complete.map(s => ({ snapshot_date: s.snapshot_date, completed_at: s.completed_at })),
-  totals: totals.filter(t => keep.has(t.snapshot_date)).map(t => ({ snapshot_date: t.snapshot_date, cut: t.cut, ...counts(t) })),
+  // Every complete week's cut totals (small): the progress chart's weekly line. Firm rows stay latest + previous.
+  totals: totals.filter(t => complete.some(c => c.snapshot_date === t.snapshot_date)).map(t => ({ snapshot_date: t.snapshot_date, cut: t.cut, ...counts(t) })),
   firmRows: firmPen.filter(t => keep.has(t.snapshot_date)).map(t => ({ snapshot_date: t.snapshot_date, firm_id: t.firm_id, partnership_cut: t.partnership_cut, ...counts(t) })),
   firms: firms.map(f => ({ firm_id: f.firm_id, name: f.name, firm_type: f.firm_type, partnership_cut: f.partnership_cut,
     on_proven_tab: !!f.on_proven_tab, stage_focus: f.stage_focus, region: f.region, roster_refreshed_at: f.roster_refreshed_at })),
