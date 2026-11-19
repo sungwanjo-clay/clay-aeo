@@ -12,16 +12,18 @@ import { DomainQuality, McpByPlatform } from './McpAndQuality'
 import { Commentary, DataQualityStrip, Discuss, RestatementBanner } from './Narrative'
 import { Eyebrow, Pill, Segmented, T } from './ui'
 
-export type DashboardTab = 'workspaces' | 'social' | 'startup'
+export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'social', label: 'Media properties' },
   { id: 'startup', label: 'Startup program' },
+  { id: 'portfolio', label: 'Portfolio' },
 ] as const
 const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces &amp; pacing</>, sub: 'Blended attribution, cut by channel and tier' },
   social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Video → offer → workspace</>, sub: '' },
   startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer: visit → workspace → paid</>, sub: 'Offer page www.clay.com/clay-for-startups · no offer sent yet' },
+  portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>Portfolio penetration and redemption</>, sub: 'Verified portfolio companies → with a workspace → paying · eligible → redeemed' },
 } as const
 
 /** Next query params after a filter change (shared by the Next page and the artifact). */
@@ -48,7 +50,7 @@ function freshness(v: DashboardPayload, refreshedAt?: number | string | null) {
   return `${through} · refreshed ${t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
 }
 
-export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup }: {
+export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
   v: DashboardPayload
   loading: boolean
   error: string | null
@@ -65,6 +67,8 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
   socialSubtitle?: string
   /** Rendered when tab === 'startup'. */
   startup?: React.ReactNode
+  /** Rendered when tab === 'portfolio'. */
+  portfolio?: React.ReactNode
 }) {
   const update = onChange
   const presetLabel = v.params.preset ? PRESETS.find(p => p.id === v.params.preset)?.label : 'Custom dates'
@@ -105,7 +109,7 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         onChange={update}
       />
 
-      {active === 'social' ? social : active === 'startup' ? startup : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <KpiTiles v={v} />
 

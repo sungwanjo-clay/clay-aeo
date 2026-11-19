@@ -55,9 +55,9 @@
 
 **Eligible workspaces (from Nov 18):** eligibility follows the Startup Offer Eligibility workflow in Clay: verified Seed or Series A, VC-backed, and a net-new workspace. Pre-Seed doesn't qualify. Backing from a partner firm can change the offer tier but doesn't make a company eligible on its own. The data will come from the workflow's weekly eligibility snapshot in Snowflake, which isn't hooked up yet, so the tile and funnel step show "Not connected". The Salesforce funding-round field is not used for this.
 
-## Portfolio penetration (from Nov 18)
+## Portfolio penetration (from Nov 18; own Portfolio tab from Nov 19)
 
-The partner section measures company adoption across firm portfolios. It's a different population from the inbound funnel (startup-page visitors), and it counts companies, not workspaces. It uses the same eligibility rule as the funnel.
+The Portfolio tab (`#portfolio`) measures company adoption across firm portfolios. It's a different population from the inbound funnel (startup-page visitors), and it counts companies, not workspaces. It uses the same eligibility rule as the funnel.
 
 | Metric | Definition |
 |---|---|
@@ -73,6 +73,7 @@ The partner section measures company adoption across firm portfolios. It's a dif
 - **Cuts:** Partnered (the Partner box is checked in the firm list; To approve shows as pending) and Not partnered.
 - A company backed by two firms counts in both firm rows and once in the total.
 - **Portfolio companies drill-down:** one row per company, with firms backing it, stage, last round, six-month headcount growth, a provisional opportunity score, Clay account (Not on Clay / Free workspace / Paid) and Offer (Eligible / Needs check / Not eligible / Redeemed / Unknown) as separate fields. A company can be paid and redeemed. The outreach queue is Not on Clay + Eligible.
-- **Next action** (Portfolio companies): one per company from the Supabase `dashboard_targets` view: route to sales, lifecycle nudge, outreach, ad audience, research, wait (contacted in 30 days), hold out, or none.
-- **Audiences card:** per audience: channel, members, holdout, new-workspace rate for targeted vs holdout, lift (pp), redeemed, last synced. Audiences pool firms, since one firm's portfolio is usually under platform minimum match sizes. Contacts never reach the dashboard.
+- **Nov 19:** partner penetration and the company list moved from the Startup tab to a new Portfolio tab: a clickable strip (verified portfolio → with a workspace → paying; eligible → redeemed), a firm table, and a company explorer (search, status filters, CSV export). The Audiences card and the Next action column were removed. Data lands in Supabase (`supabase/migrations/001_portfolio.sql`) and is synced into the dashboard; workspace and paid status are joined live from Snowflake.
+- **Next action** (removed Nov 19; kept here for reference): one per company from the Supabase `dashboard_targets` view: route to sales, lifecycle nudge, outreach, ad audience, research, wait (contacted in 30 days), hold out, or none.
+- **Audiences card (removed Nov 19):** per audience: channel, members, holdout, new-workspace rate for targeted vs holdout, lift (pp), redeemed, last synced. Audiences pool firms, since one firm's portfolio is usually under platform minimum match sizes. Contacts never reach the dashboard.
 - **Sources:** a current company × firm roster and a dated weekly eligibility history, both landed in Snowflake by Data Engineering from the Clay workflow, plus offer redemption events. Everything shows "Not connected" until these exist.
