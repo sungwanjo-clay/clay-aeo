@@ -19,6 +19,8 @@ export type Counts = {
   redeemed: number
   redemption_connected: boolean | null
   shared_by_partner?: number
+  paying_arr_usd?: number | null      // current paying ARR, USD (null before ARR was connected)
+  paying_arr_unknown?: number         // paying companies whose ARR wasn't read
 }
 export type TotalsRow = Counts & { snapshot_date: string; cut: CutFilter }
 export type FirmRow = Counts & { snapshot_date: string; firm_id: string; partnership_cut: Cut }
@@ -54,6 +56,7 @@ export type CompanyRow = {
   eligibleToDate: boolean
   stage: string | null
   lastRoundAt: string | null
+  payingArr?: number | null          // current paying ARR over the company's workspaces, USD
 }
 
 export type PortfolioMeta = {
@@ -66,6 +69,7 @@ export type PortfolioMeta = {
   firmRows: FirmRow[]               // latest + previous
   firms: Firm[]                     // every firm in the list, with or without a roster
   eligibilityConnected: boolean     // any eligibility row in the latest snapshot
+  arrConnected?: boolean            // paying ARR written for the latest snapshot
   companyChunks: number
   openWeek?: { snapshot_date: string; lookups: number } | null   // the week being built, before it closes
   sources?: SourceCoverage[]        // verified companies per firm × source
@@ -132,8 +136,8 @@ export function csvOf(rows: CompanyRow[], firmName: (id: string) => string): str
     const s = v == null ? '' : String(v)
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
-  const head = ['company', 'domain', 'firms', 'in_denominator', 'lookup_status', 'has_workspace', 'workspaces', 'ever_paid', 'paying_now', 'eligible_to_date', 'redemption', 'stage', 'last_round_at']
+  const head = ['company', 'domain', 'firms', 'in_denominator', 'lookup_status', 'has_workspace', 'workspaces', 'ever_paid', 'paying_now', 'paying_arr_usd', 'eligible_to_date', 'redemption', 'stage', 'last_round_at']
   const lines = rows.map(r => [r.name, r.domain, r.firms.map(firmName).join('; '), r.inDenominator ? 'yes' : (r.notCountedReason ?? 'no'),
-    r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
+    r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.payingArr ?? '', r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
   return [head.join(','), ...lines].join('\n') + '\n'
 }

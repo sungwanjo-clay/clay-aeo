@@ -52,5 +52,10 @@
   "node": "wfn_0torh9pj5BF6e6YH3qe",
   "reopen_node": "wfn_0torfb4PZdAtSVuECtf"
  },
- "merge": "wfn_0torgn8yNbXtypknGXF"
+ "merge": "wfn_0torgn8yNbXtypknGXF",
+ "refresh_workflow": {
+  "workflow": "wf_0torm87ruzTzETUGfjw",
+  "trigger": "271638d5-b16f-4db3-9cbb-25ceddf596ab",
+  "trigger_node": "wfn_0torm894Ye5WBaKmJKa"
+ }
 }

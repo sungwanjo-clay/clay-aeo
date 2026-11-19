@@ -21,3 +21,6 @@ $P -f "$W/003_test.sql" > "$W/003.out" 2>&1 && echo "003 test ran (output in $W/
 $P -v ON_ERROR_STOP=1 -f "$W/004_incremental_state.sql"
 echo "004 applied"
 $P -f "$W/004_test.sql" 2>&1
+$P -v ON_ERROR_STOP=1 -f "$W/005_week_end_membership.sql" && echo "005 applied"
+$P -v ON_ERROR_STOP=1 -f "$W/006_paying_arr.sql" && echo "006 applied"
+$P -f "$W/006_test.sql" 2>&1

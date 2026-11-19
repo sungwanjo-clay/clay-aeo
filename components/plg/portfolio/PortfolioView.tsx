@@ -24,6 +24,8 @@ const PAGE = 200
 function NC({ why }: { why?: string }) {
   return <span title={why} style={{ color: T.faint, fontStyle: 'italic' }}>Not connected</span>
 }
+/** $1.2M / $340K / $900 */
+const fmtUsd = (n: number | null | undefined) => n == null ? '–' : n >= 1e6 ? `$${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${Math.round(n)}`
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d.length === 10 ? `${d}T00:00:00Z` : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '–'
 
@@ -87,8 +89,8 @@ function Step({ id, label, value, sub, on, onClick, nc }: { id: StepId; label: s
   )
 }
 
-function Strip({ c, p, eligibilityConnected, selected, onSelect }: {
-  c: Counts | null; p: Counts | null; eligibilityConnected: boolean; selected: StepId | null; onSelect: (s: StepId | null) => void
+function Strip({ c, p, eligibilityConnected, arrConnected, selected, onSelect }: {
+  c: Counts | null; p: Counts | null; eligibilityConnected: boolean; arrConnected?: boolean; selected: StepId | null; onSelect: (s: StepId | null) => void
 }) {
   const pick = (s: StepId) => () => onSelect(selected === s ? null : s)
   if (!c) return null
@@ -104,7 +106,9 @@ function Strip({ c, p, eligibilityConnected, selected, onSelect }: {
         sub={<><b style={mono}>{fmtPct(pen)}</b> penetration{pen != null && prevPen != null ? <> · {fmtPp((pen - prevPen) * 100)}</> : null}
           {c.workspace_unknown > 0 && <><br />{fmtInt(c.workspace_unknown)} unknown (lookup failed or in review)</>}</>} />
       <Step id="paying" label="Paying now" value={fmtInt(c.paying_now)} on={selected === 'paying'} onClick={pick('paying')}
-        sub={<><b style={mono}>{fmtPct(pay)}</b> of portfolio · {fmtInt(c.ever_paid)} ever paid{c.paying_unknown > 0 && <><br />{fmtInt(c.paying_unknown)} with a workspace, paid status unknown</>}</>} />
+        sub={<><b style={mono}>{fmtPct(pay)}</b> of portfolio · {fmtInt(c.ever_paid)} ever paid
+          {arrConnected ? <><br /><b style={mono}>{fmtUsd(c.paying_arr_usd)}</b> current paying ARR</> : null}
+          {c.paying_unknown > 0 && <><br />{fmtInt(c.paying_unknown)} with a workspace, paid status unknown</>}</>} />
       <Step id="eligible" label="Eligible" nc={!eligibilityConnected} value={eligibilityConnected ? fmtInt(c.eligible_to_date) : <NC why="The weekly eligibility check isn’t writing snapshots yet" />}
         on={selected === 'eligible'} onClick={pick('eligible')} sub="confirmed since tracking began" />
       <Step id="redeemed" label="Redeemed" nc={!redemptionOn} value={redemptionOn ? fmtInt(c.redeemed) : <NC why="Promo-code redemptions aren’t connected" />}
@@ -118,10 +122,12 @@ function Strip({ c, p, eligibilityConnected, selected, onSelect }: {
 const FIRM_COLS: Col[] = [
   { h: 'Firm', sort: 'name' }, { h: 'Type', sort: 'type' },
   { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven is shown as a separate tag and doesn’t make a firm partnered.' },
+  { h: 'Paying ARR', num: true, sort: 'paying_arr_usd', tip: 'Current paying ARR (Snowflake CUSTOMERS.ARR for workspaces paying now) across the firm’s portfolio companies. Ranks which funds’ portfolios bring the most revenue. A company backed by two firms counts in both rows.' },
   { h: 'Portfolio', num: true, sort: 'portfolio', tip: 'Verified portfolio companies in the latest week: the denominator.' },
   { h: 'With a workspace', num: true, sort: 'with_workspace' }, { h: 'Penetration', num: true, sort: 'penetration', tip: 'With a workspace ÷ portfolio.' },
   { h: 'Unknown', num: true, sort: 'workspace_unknown', tip: 'Companies whose workspace lookup failed or needs review. Not counted as zero.' },
-  { h: 'Paying now', num: true, sort: 'paying_now' }, { h: 'Ever paid', num: true, sort: 'ever_paid' },
+  { h: 'Paying now', num: true, sort: 'paying_now' },
+  { h: 'Ever paid', num: true, sort: 'ever_paid' },
   { h: 'Eligible', num: true, tip: 'Confirmed eligible since tracking began.' },
   { h: 'Redeemed', num: true },
   { h: 'Shared by partner', num: true, sort: 'shared_by_partner', tip: 'Companies that were on a list the firm shared with us. A coverage check.' },
@@ -133,6 +139,7 @@ const COMPANY_COLS: Col[] = [
   { h: 'Company', sort: 'name', tip: 'Name and current domain.' },
   { h: 'Firm(s)', sort: 'firms', tip: 'Firms in the list that back it. Sorting puts companies with the most backers first.' },
   { h: 'Clay workspace', sort: 'workspaces', tip: 'From Clay’s Snowflake lookup: matched (with the number of workspaces), no exact match, or unknown when the lookup failed or needs review.' },
+  { h: 'Paying ARR', sort: 'arr', num: true, tip: 'Current paying ARR across the company’s Clay workspaces.' },
   { h: 'Paid', sort: 'paid', tip: 'Paying now, ever paid, or not. Unknown when Clay didn’t read paid status.' },
   { h: 'Offer', tip: 'Eligible since tracking began, and redemption. Redemption shows Not connected until promo-code events are in.' },
   { h: 'Stage', sort: 'stage' }, { h: 'Last round', sort: 'lastRoundAt' },
@@ -224,7 +231,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const [firmId, setFirmId] = useState<string | null>(null)
   const [step, setStep] = useState<StepId | null>(null)
   const [status, setStatus] = useState<StatusFilter>('All')
-  const [firmSort, setFirmSort] = useState<Sort>({ key: 'portfolio', dir: -1 })
+  const [firmSort, setFirmSort] = useState<Sort>({ key: 'paying_arr_usd', dir: -1 })
   const [coSort, setCoSort] = useState<Sort>({ key: 'name', dir: 1 })
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
@@ -280,6 +287,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         case 'firms': return r.firms.length
         case 'workspaces': return r.hasWorkspace === true ? (r.workspaces ?? 1) : r.hasWorkspace === false ? 0 : null
         case 'paid': return r.payingNow ? 2 : r.everPaid ? 1 : r.everPaid === false ? 0 : null
+        case 'arr': return r.payingArr ?? null
         case 'stage': return r.stage
         case 'lastRoundAt': return r.lastRoundAt
         default: return null
@@ -332,7 +340,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         </Card>
       ) : (<>
         <section className="flex flex-col gap-3">
-          {c ? <Strip c={c} p={p} eligibilityConnected={meta.eligibilityConnected} selected={step} onSelect={pickStep} />
+          {c ? <Strip c={c} p={p} eligibilityConnected={meta.eligibilityConnected} arrConnected={meta.arrConnected} selected={step} onSelect={pickStep} />
             : <p className="text-[15px]" style={{ color: T.muted }}>No verified portfolio companies for {firmId ? firmName(firmId) : CUT_LABEL[cut].toLowerCase()} in this week.</p>}
           <p className="text-[14px]" style={{ color: T.muted }}>
             {firmId ? <>Showing {firmName(firmId)}. <button type="button" className="underline" onClick={() => pickFirm(null)}>Show the whole cut</button>. </> : null}
@@ -355,6 +363,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                     <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(r.firm_id)}</td>
                     <td className="px-3 py-3 whitespace-nowrap">{f?.firm_type === 'accelerator' ? 'Accelerator' : 'VC fund'}</td>
                     <td className="px-3 py-3 whitespace-nowrap">{CUT_LABEL[r.partnership_cut]}{f?.on_proven_tab ? <span className="ml-2 text-[12px] rounded-full px-2 py-0.5" style={{ background: '#EFEEEA' }}>Proven</span> : null}</td>
+                    <td className={`${num} font-semibold`} style={mono}>{meta.arrConnected ? fmtUsd(r.paying_arr_usd) : <NC why="Current paying ARR arrives with the next Clay status refresh" />}</td>
                     <td className={num} style={mono}>{fmtInt(r.portfolio)}</td>
                     <td className={num} style={mono}>{fmtInt(r.with_workspace)}</td>
                     <td className={num} style={mono}>{fmtPct(rate(r.with_workspace, r.portfolio))}</td>
@@ -412,6 +421,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                   <td className="px-3 py-3"><p className="font-semibold">{r.name}</p><p className="text-[13px]" style={{ ...mono, color: T.muted }}>{r.domain ?? 'stealth · no domain'}</p></td>
                   <td className="px-3 py-3 text-[14px]">{r.firms.map(firmName).join(', ')}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{wsCell(r)}</td>
+                  <td className={num} style={mono}>{!meta.arrConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : r.payingArr ? fmtUsd(r.payingArr) : <span style={{ color: T.faint }}>$0</span>}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{paidCell(r)}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">
                     {!r.inDenominator ? <span style={{ color: T.faint }}>–</span>

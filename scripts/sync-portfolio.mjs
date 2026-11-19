@@ -61,6 +61,8 @@ const counts = r => ({
   portfolio: num(r.portfolio), with_workspace: num(r.with_workspace), no_exact_match: num(r.no_exact_match),
   workspace_unknown: num(r.workspace_unknown), ever_paid: num(r.ever_paid), paying_now: num(r.paying_now),
   paying_unknown: num(r.paying_unknown), eligible_to_date: num(r.eligible_to_date), redeemed: num(r.redeemed),
+  // Current paying ARR (USD); null until migration 006 and a Clay status refresh have written it.
+  paying_arr_usd: r.paying_arr_usd == null ? null : Number(r.paying_arr_usd), paying_arr_unknown: num(r.paying_arr_unknown),
   redemption_connected: r.redemption_connected ?? null,
   ...(r.shared_by_partner != null ? { shared_by_partner: num(r.shared_by_partner) } : {}),
 })
@@ -80,6 +82,7 @@ if (latest) {
       id: s.company_id, name: c.name ?? '(unknown)', domain: c.domain ?? null, firms: s.firm_ids, cuts: s.cuts,
       inDenominator: true, lookup: s.lookup_status, hasWorkspace: s.has_workspace, workspaces: s.workspace_count,
       everPaid: s.ever_paid, payingNow: s.paying_now, redemption: s.redemption_status, eligibleToDate: !!s.eligible_to_date,
+      payingArr: s.paying_arr_usd == null ? null : Number(s.paying_arr_usd),
       stage: st.funding_stage ?? null, lastRoundAt: st.last_round_at ?? null,
     })
   }
@@ -93,7 +96,7 @@ for (const r of roster) {
   const o = outside.get(r.company_id) ?? {
     id: r.company_id, name: c.name ?? '(unknown)', domain: c.domain ?? null, firms: [], cuts: [], inDenominator: false,
     notCountedReason: r.verification_status === 'review' ? 'in_review' : (r.qualifying_sources?.length ? 'not_verified' : 'workspace_match_only'),
-    lookup: null, hasWorkspace: null, workspaces: null, everPaid: null, payingNow: null, redemption: 'not_connected', eligibleToDate: false,
+    lookup: null, hasWorkspace: null, workspaces: null, everPaid: null, payingNow: null, redemption: 'not_connected', eligibleToDate: false, payingArr: null,
     stage: null, lastRoundAt: null,
   }
   o.firms.push(r.firm_id); const cut = firmCut.get(r.firm_id); if (cut && !o.cuts.includes(cut)) o.cuts.push(cut)
@@ -118,6 +121,8 @@ const meta = {
     on_proven_tab: !!f.on_proven_tab, stage_focus: f.stage_focus, region: f.region, roster_refreshed_at: f.roster_refreshed_at })),
   // Discovery writes the week's rounds with funding_fit 'unknown'; eligibility is connected only once the
   // eligibility workflow has assessed companies for that week.
+  // ARR is connected once any matched company in the latest week has it (Clay's status lookup, after migration 006).
+  arrConnected: latest ? snapCos.some(s => s.snapshot_date === latest.snapshot_date && s.paying_arr_usd != null && s.lookup_status === 'matched') : false,
   eligibilityConnected: latest ? status.some(s => s.snapshot_date === latest.snapshot_date && s.funding_fit && s.funding_fit !== 'unknown') : false,
   companyChunks: chunks.length,
   openWeek: (() => { const o = snapshots.find(x => x.status === 'open' && !x.is_staging); return o ? { snapshot_date: o.snapshot_date, lookups: num(o.lookups) } : null })(),
