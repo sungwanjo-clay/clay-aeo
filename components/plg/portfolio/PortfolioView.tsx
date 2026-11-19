@@ -296,6 +296,13 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
     return [...rows].sort((a, b) => cmp(val(a), val(b), coSort.dir) || a.name.localeCompare(b.name))
   }, [data, cut, firmId, status, q, latest, coSort])
 
+  // Sums over every company the filters match (all pages). With no search and status All this is the cut's (or firm's) total:
+  // the same rule as the tiles and the Firms table total, each company once.
+  const listArr = useMemo(() => {
+    const counted = list.filter(r => r.inDenominator)
+    return { n: counted.length, paying: counted.filter(r => r.payingNow).length, arr: counted.reduce((n, r) => n + (r.payingArr ?? 0), 0) }
+  }, [list])
+
   const setCutAndReset = (v: CutFilter) => { setCut(v); setFirmId(null); setShown(PAGE) }
   const pickStep = (s: StepId | null) => { setStep(s); setStatus(s ? STEP_FILTER[s] : 'All'); setShown(PAGE) }
   const pickFirm = (id: string | null) => { setFirmId(id); setShown(PAGE) }
@@ -378,6 +385,30 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                 )
               }) : <tr><td colSpan={FIRM_COLS.length} className="px-3 py-4 text-[14px]" style={{ color: T.muted }}>No firm in this cut has a roster in this week yet.</td></tr>}
             </tbody>
+            {sortedFirmRows.length > 1 && !firmId && c && (() => {
+              const t = c
+              const rowSum = sortedFirmRows.reduce((n, r) => n + (r.paying_arr_usd ?? 0), 0)
+              return (
+                <tfoot><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2' }}>
+                  <td className="px-3 py-3 font-semibold whitespace-nowrap" colSpan={3}>
+                    Total · each company once
+                    {meta.arrConnected && Math.round(rowSum) !== Math.round(t.paying_arr_usd ?? 0) &&
+                      <p className="text-[12px] font-normal" style={{ color: T.muted }}>Firm rows add up to {fmtUsd(rowSum)}: companies backed by several firms count in each.</p>}
+                  </td>
+                  <td className={`${num} font-semibold`} style={mono}>{meta.arrConnected ? fmtUsd(t.paying_arr_usd) : <NC />}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{fmtInt(t.portfolio)}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{fmtInt(t.with_workspace)}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{fmtPct(rate(t.with_workspace, t.portfolio))}</td>
+                  <td className={num} style={mono}>{fmtInt(t.workspace_unknown)}</td>
+                  <td className={`${num} font-semibold`} style={mono}>{fmtInt(t.paying_now)}</td>
+                  <td className={num} style={mono}>{fmtInt(t.ever_paid)}</td>
+                  <td className={num} style={mono}>{meta.eligibilityConnected ? fmtInt(t.eligible_to_date) : <NC />}</td>
+                  <td className={num} style={mono}>{t.redemption_connected ? fmtInt(t.redeemed) : <NC />}</td>
+                  <td className={num} style={{ ...mono, color: T.faint }}>–</td>
+                  <td className="px-3 py-3" />
+                </tr></tfoot>
+              )
+            })()}
           </table></div>
           {firmsWithoutRoster > 0 && <p className="text-[13px]" style={{ color: T.muted }}>{fmtInt(firmsWithoutRoster)} more {firmsWithoutRoster === 1 ? 'firm' : 'firms'} in this cut {firmsWithoutRoster === 1 ? 'has' : 'have'} no roster yet.</p>}
           <ColDefs cols={FIRM_COLS} />
@@ -411,7 +442,10 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               ))}
             </div>
           </div>
-          <p className="text-[14px]" style={{ color: T.muted, ...mono }}>{fmtInt(list.length)} {list.length === 1 ? 'company' : 'companies'}</p>
+          <p className="text-[14px]" style={{ color: T.muted, ...mono }}>
+            {fmtInt(list.length)} {list.length === 1 ? 'company' : 'companies'}
+            {meta.arrConnected && listArr.n > 0 && <> · {fmtInt(listArr.paying)} paying · <b style={{ color: T.ink }}>{fmtUsd(listArr.arr)}</b> paying ARR</>}
+          </p>
           {exportMsg && <p className="text-[13px]" style={{ color: T.neg }}>{exportMsg}</p>}
           <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-[15px]" style={{ color: T.ink }}>
             <Head cols={COMPANY_COLS} sort={coSort} onSort={s => { setCoSort(s); setShown(PAGE) }} />
@@ -439,6 +473,14 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                 </tr>
               )) : <tr><td colSpan={COMPANY_COLS.length} className="px-3 py-4 text-[14px]" style={{ color: T.muted }}>No companies match these filters.</td></tr>}
             </tbody>
+            {meta.arrConnected && listArr.n > 0 && (
+              <tfoot><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2' }}>
+                <td className="px-3 py-3 font-semibold" colSpan={3}>Total · {fmtInt(listArr.n)} {listArr.n === 1 ? 'company' : 'companies'}{list.length > shown ? ' (all pages)' : ''}</td>
+                <td className={`${num} font-semibold`} style={mono}>{fmtUsd(listArr.arr)}</td>
+                <td className="px-3 py-3 text-[14px] whitespace-nowrap">{fmtInt(listArr.paying)} paying now</td>
+                <td className="px-3 py-3" colSpan={COMPANY_COLS.length - 5} />
+              </tr></tfoot>
+            )}
           </table></div>
           {list.length > shown && (
             <button type="button" onClick={() => setShown(s => s + PAGE)} className="self-start rounded-full px-4 py-2 text-[14px]"
