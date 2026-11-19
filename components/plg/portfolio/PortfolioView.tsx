@@ -169,11 +169,12 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
   const run = new Map(runs.map(r => [`${r.firm_id}|${r.source}`, r]))
   const used = SOURCE_ORDER.filter(s => cov.some(r => r.source === s) || runs.some(r => r.source === s))
   const lastRun = (id: string) => runs.filter(r => r.firm_id === id).map(r => r.recorded_at).sort().at(-1)
+  const total = (id: string) => meta.sourceTotals?.[id] ?? null
   const sorted = [...ids].sort((a, b) => cmp(
-    sort.key === 'firm' ? firmName(a) : sort.key === 'last' ? lastRun(a) ?? null : cell.get(`${a}|${sort.key}`)?.companies ?? null,
-    sort.key === 'firm' ? firmName(b) : sort.key === 'last' ? lastRun(b) ?? null : cell.get(`${b}|${sort.key}`)?.companies ?? null, sort.dir) || firmName(a).localeCompare(firmName(b)))
-  const sortTh = (key: string, label: string, right: boolean, numeric: boolean) => (
-    <th key={key} className={`px-3 py-2 text-[12px] uppercase whitespace-nowrap ${right ? 'text-right' : 'text-left'}`} style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}
+    sort.key === 'firm' ? firmName(a) : sort.key === 'last' ? lastRun(a) ?? null : sort.key === 'total' ? total(a) : cell.get(`${a}|${sort.key}`)?.companies ?? null,
+    sort.key === 'firm' ? firmName(b) : sort.key === 'last' ? lastRun(b) ?? null : sort.key === 'total' ? total(b) : cell.get(`${b}|${sort.key}`)?.companies ?? null, sort.dir) || firmName(a).localeCompare(firmName(b)))
+  const sortTh = (key: string, label: string, right: boolean, numeric: boolean, tip?: string) => (
+    <th key={key} title={tip} className={`px-3 py-2 text-[12px] uppercase whitespace-nowrap ${right ? 'text-right' : 'text-left'}`} style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}
       aria-sort={sort.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
       <button type="button" onClick={() => setSort(nextSort(sort, key, numeric || DESC_FIRST.has(key)))} className="uppercase inline-flex items-center gap-1" style={{ color: sort.key === key ? T.ink : T.muted, letterSpacing: 'inherit' }}>
         {label}<span aria-hidden style={{ opacity: sort.key === key ? 1 : 0.35 }}>{sort.key === key ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</span>
@@ -184,12 +185,13 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>How each list is built</H2>
       <p className="text-[15px]" style={{ color: T.muted }}>
-        Verified portfolio companies each source found, with how many only that source found in brackets. Every candidate is checked
+        Total companies is each firm’s unique verified companies. Each source column is how many of them that source found, with how many only that source found in brackets; most companies are found by several sources, so the columns add up to more than the total. Every candidate is checked
         against public evidence before it counts, whichever source found it. A source in orange or red had a partial or failed run this week (hover for detail).
       </p>
       <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-[15px]" style={{ color: T.ink }}>
         <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
           {sortTh('firm', 'Firm', false, false)}
+          {sortTh('total', 'Total companies', true, true, 'Unique verified companies across all sources. Sources overlap (most companies are found by several), so the source columns add up to more than this.')}
           {used.map(s => sortTh(s, SOURCE_LABEL[s] ?? s, true, true))}
           {sortTh('last', 'Last run', true, false)}
         </tr></thead>
@@ -197,6 +199,7 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
           <tr key={id} onClick={() => pick(selected === id ? null : id)} className="cursor-pointer"
             style={{ borderBottom: `1px solid ${T.border}`, background: selected === id ? '#E8F6F8' : undefined }}>
             <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(id)}</td>
+            <td className={`${num} font-semibold`} style={mono}>{total(id) != null ? fmtInt(total(id)!) : '–'}</td>
             {used.map(s => {
               const c = cell.get(`${id}|${s}`); const r = run.get(`${id}|${s}`)
               const tone = r ? RUN_TONE[r.status] ?? T.ink : T.ink

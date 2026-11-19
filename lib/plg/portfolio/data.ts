@@ -69,6 +69,7 @@ export type PortfolioMeta = {
   companyChunks: number
   openWeek?: { snapshot_date: string; lookups: number } | null   // the week being built, before it closes
   sources?: SourceCoverage[]        // verified companies per firm × source
+  sourceTotals?: Record<string, number>   // unique verified companies per firm, across all sources
   sourceRuns?: SourceRun[]          // latest run per firm × source
 }
 

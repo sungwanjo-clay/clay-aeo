@@ -114,6 +114,10 @@ const meta = {
   openWeek: (() => { const o = snapshots.find(x => x.status === 'open' && !x.is_staging); return o ? { snapshot_date: o.snapshot_date, lookups: num(o.lookups) } : null })(),
   // How each firm's list is built: verified companies per source (and found only by it), and each source's latest run.
   sources: coverage.map(r => ({ firm_id: r.firm_id, source: r.source, companies: num(r.companies), only: num(r.only_this_source) })),
+  // Unique verified companies per firm across all sources (sources overlap, so their columns add up to more).
+  sourceTotals: Object.fromEntries([...roster.filter(r => r.verification_status === 'verified').reduce((m, r) => {
+    const set = m.get(r.firm_id) ?? new Set(); set.add(r.company_id); return m.set(r.firm_id, set)
+  }, new Map()).entries()].map(([f, set]) => [f, set.size])),
   sourceRuns: [...sourceRuns.reduce((m, r) => {
     const k = `${r.firm_id}|${r.source}`; const cur = m.get(k)
     if (!cur || r.recorded_at > cur.recorded_at) m.set(k, r)
