@@ -77,5 +77,5 @@ def handler(context):
     root = '/'.join((g('list_url') or '').split('/')[:3])
     return {'blocked_by_robots': blocked, 'robots_url': (root + '/robots.txt') if root else '',
             'companies': [{'company': v['company'], 'website': v['website']} for v in companies.values()],
-            'profile_urls_found': len(profiles), 'profiles_to_open': todo[:300], 'profiles_deferred': max(0, len(todo) - 300),
+            'profile_urls_found': len(profiles), 'profiles_to_open': todo[:120], 'profiles_deferred': max(0, len(todo) - 120),
             'pages_read': ok_pages, 'found': found, 'newest_lastmod': newest, 'profiles_already_seen': len([u for u in profiles if u in seen])}

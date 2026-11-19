@@ -67,7 +67,8 @@ def handler(context):
                      'last_round_at': lr if re.fullmatch(r'\d{4}-\d{2}-\d{2}', lr) else None,
                      'last_round_amount_usd': _amount(c.get('latest_round_amount_usd'))})
     return {'snapshot_date': snap,
-            'open_write': body('snapshot_open', [{'snapshot_date': snap, 'run_id': run_id}]),
+            # reopen: a firm run after this week was published reopens it; publishing again refreezes membership.
+            'open_write': body('snapshot_open', [{'snapshot_date': snap, 'run_id': run_id, 'reopen': True}]),
             'lookup_writes': [body('workspace_lookups', ch) for ch in chunk(lookups)],
             'eligibility_writes': [body('snapshots', ch) for ch in chunk(elig)],
             'lookup_count': len(lookups), 'matched': sum(1 for l in lookups if l['lookup_status'] == 'matched'),
