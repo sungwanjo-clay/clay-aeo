@@ -12,7 +12,8 @@
 -- Access
 --   Clay      calls public.portfolio_ingest with the project's anon key plus its own ingest key
 --             (stored hashed in portfolio.ingest_keys). It cannot read or write any table directly.
---   Sync      logs in as dashboard_sync over a direct database connection and can read only `dashboard`.
+--   Sync      calls public.portfolio_export with the publishable key plus a 'read' key: dashboard views only.
+--             (dashboard_sync is a login for anyone reading the views over a direct connection instead.)
 --
 -- Deferred to later migrations: contacts, applications, audiences, outreach history, funding rounds.
 
@@ -402,6 +403,7 @@ end $$;
 
 -- The one function Clay calls (POST /rest/v1/rpc/portfolio_ingest).
 -- kind: 'firms' | 'roster' | 'snapshots' | 'runs'; rows: a JSON array (keep batches ≤ 500 rows).
+-- A key whose kinds include 'read' can't write unless it also lists the write kinds.
 create function public.portfolio_ingest(p_key text, p_kind text, p_rows jsonb) returns jsonb
 language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 begin
@@ -479,6 +481,25 @@ create view dashboard.review_queue as
   select kind, reason, count(*) as open_rows, min(created_at) as oldest
   from portfolio.match_review where resolved_at is null group by kind, reason;
 
+-- The sync's read path (POST /rest/v1/rpc/portfolio_export). Direct Postgres connections aren't reachable from
+-- the cloud environment that runs the sync, so it reads the dashboard views over HTTPS with a 'read' key.
+create function public.portfolio_export(p_key text, p_view text, p_offset int default 0, p_limit int default 1000) returns jsonb
+language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
+declare out jsonb;
+begin
+  if not exists (select 1 from portfolio.ingest_keys k
+                 where k.revoked_at is null and 'read' = any (k.kinds) and k.key_hash = extensions.crypt(p_key, k.key_hash)) then
+    raise exception 'invalid read key' using errcode = '28000';
+  end if;
+  if p_view not in ('firms', 'roster', 'companies', 'company_status', 'source_coverage', 'review_queue') then
+    raise exception 'unknown view %', p_view;
+  end if;
+  if p_limit < 1 or p_limit > 5000 or p_offset < 0 then raise exception 'limit must be 1–5000, offset ≥ 0'; end if;
+  execute format('select coalesce(jsonb_agg(to_jsonb(v)), ''[]'') from (select * from dashboard.%I order by 1 offset %s limit %s) v',
+                 p_view, p_offset, p_limit) into out;
+  return jsonb_build_object('view', p_view, 'offset', p_offset, 'rows', out, 'done', jsonb_array_length(out) < p_limit);
+end $$;
+
 -- ═════════════════════════ Grants ═════════════════════════
 -- Nothing in portfolio/dashboard for the API roles. (On Supabase these roles exist; locally the test creates them.)
 revoke all on schema portfolio, dashboard from public;
@@ -491,10 +512,13 @@ end $$;
 -- Functions: only the ingest entry point is callable from the API.
 revoke execute on all functions in schema portfolio from public;
 revoke execute on function public.portfolio_ingest(text, text, jsonb) from public;
+revoke execute on function public.portfolio_export(text, text, int, int) from public;
 do $$ begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     execute 'revoke execute on function public.portfolio_ingest(text, text, jsonb) from anon, authenticated';
     execute 'grant execute on function public.portfolio_ingest(text, text, jsonb) to anon';
+    execute 'revoke execute on function public.portfolio_export(text, text, int, int) from anon, authenticated';
+    execute 'grant execute on function public.portfolio_export(text, text, int, int) to anon';
   end if;
 end $$;
 

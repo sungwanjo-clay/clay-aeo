@@ -4,7 +4,8 @@
 \pset footer off
 insert into portfolio.ingest_keys (key_name, key_hash, kinds)
 values ('clay-test', extensions.crypt('test-key', extensions.gen_salt('bf')), '{firms,roster,snapshots,runs}'),
-       ('roster-only', extensions.crypt('roster-key', extensions.gen_salt('bf')), '{roster}');
+       ('roster-only', extensions.crypt('roster-key', extensions.gen_salt('bf')), '{roster}'),
+       ('sync-read', extensions.crypt('read-key', extensions.gen_salt('bf')), '{read}');
 
 \echo '== 1. firms: two sheet tabs loaded separately keep separate flags'
 set role anon;
@@ -82,6 +83,18 @@ select count(*) as firms_visible from dashboard.firms;
 select count(*) from portfolio.companies;
 select count(*) from portfolio.relationship_evidence;
 select public.portfolio_ingest('test-key', 'roster', '[]');
+reset role;
+\set ON_ERROR_STOP on
+
+\echo '== 9b. export: read key reads views; write keys and other views refused'
+\set ON_ERROR_STOP off
+set role anon;
+select public.portfolio_export('test-key', 'roster');
+select public.portfolio_export('read-key', 'pg_authid');
+select public.portfolio_ingest('read-key', 'roster', '[]');
+select jsonb_array_length(public.portfolio_export('read-key', 'roster')->'rows') as roster_rows,
+       public.portfolio_export('read-key', 'roster', 0, 2)->'done' as done_page1,
+       jsonb_array_length(public.portfolio_export('read-key', 'roster', 2, 2)->'rows') as page2_rows;
 reset role;
 \set ON_ERROR_STOP on
 
