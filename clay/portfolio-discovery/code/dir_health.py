@@ -28,7 +28,8 @@ def handler(context):
     last = int(g('last_count') or 0); expected = int(g('expected_count') or 0)
     recipe_known = bool(g('method'))
     out, failed_profiles = [], 0
-    for i, r in enumerate(_items(g('profile_scrape'))):
+    blocked = bool(g('blocked_by_robots'))
+    for i, r in enumerate(_items(g('profile_scrape'))[:len(urls)]):
         r = r.get('result', r) if isinstance(r, dict) else {}
         url = urls[i] if i < len(urls) else ''
         if not isinstance(r, dict) or not (r.get('bodyText') or r.get('links')):

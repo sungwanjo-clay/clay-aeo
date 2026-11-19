@@ -26,6 +26,11 @@ def handler(context):
     checkpoint = (g('checkpoint_date') or '')[:10]
     seen = set(g('known_profile_urls') or [])
     pages = _items(g('scrape'))
+    robots_text = ''
+    if len(pages) >= 2:
+        rb = pages[-1]; rb = rb.get('result', rb) if isinstance(rb, dict) else {}
+        robots_text = (rb.get('bodyText') or '') if isinstance(rb, dict) else ''
+        pages = pages[:-1]
     ok_pages = 0
     companies, profiles = {}, {}
     newest = ''
@@ -59,6 +64,18 @@ def handler(context):
     found = len(companies) + len(profiles)
     # Profiles to open this run: ones never read before (sitemaps often stamp every URL with the same lastmod), capped.
     todo = sorted((u for u in profiles if u not in seen), key=lambda u: (profiles[u], u), reverse=True)
-    return {'companies': [{'company': v['company'], 'website': v['website']} for v in companies.values()],
+    # Informational only: whether robots.txt disallows the directory path (the scraper does not obey it).
+    path = '/' + '/'.join((g('list_url') or '').split('/')[3:])
+    blocked = False
+    agent_rules = re.split(r'(?im)^user-agent:', robots_text)
+    for blk in agent_rules[1:]:
+        head = blk.split('\n', 1)[0].strip()
+        if head == '*':
+            for rule in re.findall(r'(?im)^disallow:\s*(\S*)', blk):
+                if rule and path.startswith(rule): blocked = True
+    
+    root = '/'.join((g('list_url') or '').split('/')[:3])
+    return {'blocked_by_robots': blocked, 'robots_url': (root + '/robots.txt') if root else '',
+            'companies': [{'company': v['company'], 'website': v['website']} for v in companies.values()],
             'profile_urls_found': len(profiles), 'profiles_to_open': todo[:300], 'profiles_deferred': max(0, len(todo) - 300),
             'pages_read': ok_pages, 'found': found, 'newest_lastmod': newest, 'profiles_already_seen': len([u for u in profiles if u in seen])}

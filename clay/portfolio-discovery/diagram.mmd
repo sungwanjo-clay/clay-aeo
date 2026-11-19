@@ -1,0 +1,154 @@
+flowchart TD
+    n0(["Manual"])
+    n1("PitchBook: find fund ID")
+    n2("PitchBook: get active investments")
+    n3[["Route fund outreach request"]]
+    n4{"Route leads by source type"}
+    n5("Dealroom investment results, page 1")
+    n6["Research official VC rosters and investment evidence"]
+    n7["Read YC directory by batch"]
+    n8["Find startups and verify named investors"]
+    n9[["Explain missing pilot inputs"]]
+    n10[["Normalize portfolio evidence and flag review cases"]]
+    n11("Read partnered firms from All Priority")
+    n12("Read non-partnered firms from All Priority")
+    n13{"Run workspace lookup for this batch?"}
+    n14[["Prepare current workspace domain lookup"]]
+    n15("Check workspace domains in Snowflake")
+    n16[["Format workspace evidence for snapshot ingest"]]
+    n17{"Supabase staging requested?"}
+    n18[["Prepare Supabase staging requests"]]
+    n19("Open staging snapshot in Supabase")
+    n20[["Check staging open or completed state"]]
+    n21{"Only write to an open staging snapshot"}
+    n22("Write workspace lookups to staging")
+    n23[["Verify every YC lookup was written"]]
+    n24("Close the verified staging snapshot")
+    n25[["Choose additional investor sources"]]
+    n26{"Is there another Dealroom page?"}
+    n27("Dealroom investment results, page 2")
+    n28{"Is a Crunchbase investor profile available?"}
+    n29["Research Crunchbase leads and corroborating announcements"]
+    n30{"Run company identity pilot?"}
+    n31["Verify company domains and investor proof"]
+    n32[["Review and report verified company identities"]]
+    n33{"Check workspaces for the verified sample?"}
+    n34["Find recent funding"]
+    n35["Find missed funding rounds"]
+    n36[["Reconcile recent funding roster"]]
+    n37("Search Google for firm investments")
+    n38(["Manual (1)"])
+    n39["Resolve firm identity"]
+    n40[["Plan provider calls"]]
+    n41("Dealroom: investments page 1")
+    n42[["Plan more Dealroom pages"]]
+    n43("Dealroom: remaining pages")
+    n44("PitchBook: search the firm")
+    n45[["Pick the PitchBook investor record"]]
+    n46("PitchBook: active investments")
+    n47("LinkedIn: firm's recent posts")
+    n48("Google: recent investments and cohorts")
+    n49("Salesforce reverse lookup (Snowflake)")
+    n50["Read official announcements, news and social"]
+    n51[["Combine sources into one company list"]]
+    n52["Verify each company and its latest round"]
+    n53[["Build Clay status lookup"]]
+    n54("Clay status lookup (Snowflake)")
+    n55[["Portfolio and target list"]]
+    n56["Research fallback: read the portfolio directory"]
+    n57("Load saved state (Supabase)")
+    n58[["Decide what this run needs"]]
+    n59{"Identity still fresh?"}
+    n60{"Directory recipe healthy?"}
+    n61["Discover directory recipe"]
+    n62[["Pick directory recipe"]]
+    n63("Scrape the directory")
+    n64[["Extract directory companies"]]
+    n65("Scrape new profile pages")
+    n66[["Directory health check"]]
+    n67{"Directory needs research fallback?"}
+    n68[["Normalize provider results"]]
+    n69[["Prepare Supabase writes"]]
+    n70("Write identity, sources and run status")
+    n71("Write roster evidence")
+    n72("Write verification results")
+    n71 --> n72
+    n70 --> n71
+    n69 --> n70
+    n55 --> n69
+    n68 --> n51
+    n50 --> n68
+    n56 --> n50
+    n67 -->|conditional-default| n50
+    n67 -->|conditional-rule-fallback| n56
+    n66 --> n67
+    n65 --> n66
+    n64 --> n65
+    n63 --> n64
+    n62 --> n63
+    n60 -->|conditional-rule-healthy| n62
+    n61 --> n62
+    n60 -->|conditional-default| n61
+    n49 --> n60
+    n39 --> n40
+    n59 -->|conditional-rule-fresh| n40
+    n59 -->|conditional-default| n39
+    n58 --> n59
+    n57 --> n58
+    n38 --> n57
+    n54 --> n55
+    n53 --> n54
+    n52 --> n53
+    n51 --> n52
+    n48 --> n49
+    n47 --> n48
+    n46 --> n47
+    n45 --> n46
+    n44 --> n45
+    n43 --> n44
+    n42 --> n43
+    n41 --> n42
+    n40 --> n41
+    n37 --> n34
+    n4 -->|conditional-rule-recent_funding| n37
+    n35 --> n36
+    n34 --> n35
+    n33 -->|conditional-rule-lookup| n14
+    n13 -->|conditional-rule-lookup| n14
+    n32 --> n33
+    n30 -->|conditional-default| n13
+    n31 --> n32
+    n30 -->|conditional-rule-research| n31
+    n10 --> n30
+    n7 --> n10
+    n28 -->|conditional-default| n10
+    n29 --> n10
+    n4 -->|conditional-rule-yc_handoff| n10
+    n8 --> n10
+    n28 -->|conditional-rule-go| n29
+    n27 --> n28
+    n26 -->|conditional-default| n28
+    n26 -->|conditional-rule-go| n27
+    n25 --> n26
+    n6 --> n25
+    n23 --> n24
+    n22 --> n23
+    n21 -->|conditional-rule-proceed| n22
+    n20 --> n21
+    n19 --> n20
+    n18 --> n19
+    n17 -->|conditional-rule-proceed| n18
+    n16 --> n17
+    n15 --> n16
+    n14 --> n15
+    n11 --> n12
+    n12 --> n3
+    n0 --> n11
+    n4 -->|conditional-default| n9
+    n4 -->|conditional-rule-startup| n8
+    n4 -->|conditional-rule-yc| n7
+    n5 --> n6
+    n2 --> n5
+    n4 -->|conditional-rule-investor| n1
+    n3 --> n4
+    n1 --> n2

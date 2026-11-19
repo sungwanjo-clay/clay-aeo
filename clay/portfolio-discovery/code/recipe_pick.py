@@ -9,6 +9,9 @@ def handler(context):
     list_url = (src.get('list_url') or '').strip()
     needs_js = bool(src.get('needs_js')) if not isinstance(src.get('needs_js'), str) else src.get('needs_js').lower() == 'true'
     fetch = [{'url': list_url, 'needs_js': needs_js, 'wait': 5 if needs_js else 0}] if list_url and method not in ('agent_only',) else []
+    if fetch:
+        root = '/'.join(list_url.split('/')[:3])
+        fetch.append({'url': root + '/robots.txt', 'needs_js': False, 'wait': 0})   # always readable; keeps the step from failing outright
     def num(x):
         try: return int(float(x or 0))
         except (ValueError, TypeError): return 0
