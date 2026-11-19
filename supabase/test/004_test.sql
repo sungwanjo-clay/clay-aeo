@@ -21,6 +21,17 @@ commit;
 select url, status, checkpoint_date, checkpoint_url, last_success_at is not null as had_success, last_failure_at is not null as had_failure from portfolio.firm_sources;
 select c.name, cf.verification_status from portfolio.company_firms cf join portfolio.companies c using (company_id) join portfolio.firms f using (firm_id) where f.name = 'Y Combinator' order by 1;
 
+\echo '== 1b. directory recipe: discover, healthy read, broken read, rediscover'
+begin; set local role anon; select set_config('request.headers', '{"x-portfolio-key":"test-key"}', true);
+select public.portfolio_ingest_h('firm_sources', '[{"firm":"Y Combinator","url":"https://www.accel.com/sitemap.xml","source_type":"portfolio_directory","method":"sitemap","list_url":"https://www.accel.com/sitemap.xml","link_pattern":"/companies/[a-z0-9-]+$","expected_count":784,"last_count":782,"outcome":"ok"}]') as discovered;
+select public.portfolio_ingest_h('firm_sources', '[{"firm":"Y Combinator","url":"https://www.accel.com/sitemap.xml","source_type":"portfolio_directory","outcome":"failed","last_failure_at":"2026-11-26T00:00:00Z","last_count":0}]') as broken_read;
+commit;
+select url, method, status, consecutive_failures, last_count, recipe_version from portfolio.firm_sources where source_type = 'portfolio_directory';
+begin; set local role anon; select set_config('request.headers', '{"x-portfolio-key":"test-key"}', true);
+select public.portfolio_ingest_h('firm_sources', '[{"firm":"Y Combinator","url":"https://www.accel.com/sitemap.xml","source_type":"portfolio_directory","method":"profile_pages","list_url":"https://www.accel.com/relationships","needs_js":true,"profile_pattern":"/companies/[a-z0-9-]+$","recipe_notes":"sitemap removed; directory page now"}]') as rediscovered;
+commit;
+select url, method, list_url, needs_js, status, consecutive_failures, last_count, recipe_version from portfolio.firm_sources where source_type = 'portfolio_directory';
+
 \echo '== 2. state read: header key with the state kind only'
 begin; set local role anon; select set_config('request.headers', '{"x-portfolio-read-key":"state-key"}', true);
 select s->'firm_known' as known, s->'identity'->>'firm_domain' as domain, s->'identity'->'aliases' as aliases, s->>'known_count' as known_count,
@@ -29,6 +40,8 @@ from (select public.portfolio_state_h('Y Combinator') s) x;
 select k->>'name' as company, k->>'verification_status' as status, k->>'backing' as backing, k->>'latest_round_date' as round_date, k->>'signal_key' as signal
 from (select jsonb_array_elements(public.portfolio_state_h('Y Combinator')->'known_companies') k) x order by 1;
 commit;
+begin; set local role anon; select set_config('request.headers', '{"x-portfolio-key":"cw"}', true);
+select (public.portfolio_state_h('Y Combinator')->>'known_count') as writer_connection_can_read_state; commit;
 \set ON_ERROR_STOP off
 begin; set local role anon; select set_config('request.headers', '{"x-portfolio-read-key":"read-key"}', true);
 select public.portfolio_state_h('Y Combinator') as dashboard_read_key_refused; rollback;

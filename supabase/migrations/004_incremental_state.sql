@@ -10,13 +10,17 @@
 -- New ingest kinds (via public.portfolio_ingest_h, the writer key):
 --   firm_identity   [{firm, official_name, firm_domain, firm_type, aliases[], alias_collisions[], crunchbase_url,
 --                     linkedin_url, x_url, portfolio_url, identity_confidence, checked_at?}]
---   firm_sources    [{firm, url, source_type, validated_at?, last_success_at?, checkpoint_date?, checkpoint_url?, status?}]
+--   firm_sources    [{firm, url, source_type, status?, outcome? ('ok'|'failed'|'partial'), last_success_at?, last_failure_at?,
+--                     checkpoint_date?, checkpoint_url?, and, when (re)discovered, the recipe: method, list_url, needs_js,
+--                     link_pattern, profile_pattern, expected_count, last_count, recipe_notes}]
+--                   A failed outcome marks the source broken; the next run rediscovers its recipe.
 --   verifications   [{firm, <company identifiers>, company_name, backing, relationship, backing_source_url,
 --                     latest_round_type, latest_round_date, latest_round_amount_usd, latest_round_leads,
 --                     latest_round_source_url, firm_in_latest_round, signal_key, verified_at?, run_id?}]
 --   source_runs     [{run_id, firm, source, status, companies, new_companies, cap_hit, checkpoint, error}]
 -- New read entry point for Clay (separate read key in its own header):
---   POST /rest/v1/rpc/portfolio_state_h   body {"p_firm": "<firm as in the sheet>"}   header x-portfolio-read-key
+--   POST /rest/v1/rpc/portfolio_state_h   body {"p_firm": "<firm as in the sheet>"}   header x-portfolio-key (the existing Clay
+--   writer connection, granted 'state' below) or x-portfolio-read-key
 
 -- ───────────────────────── Firm identity cache ─────────────────────────
 alter table portfolio.firms
@@ -40,6 +44,17 @@ create table portfolio.firm_sources (
   last_failure_at  timestamptz,
   checkpoint_date  date,          -- newest announcement date seen on this source
   checkpoint_url   text,          -- newest announcement URL seen
+  -- Recipe: how to read this source without research. Discovered once by Claygent, replayed by scrape steps.
+  method           text check (method in ('sitemap', 'feed', 'static_html', 'js_html', 'profile_pages', 'agent_only')),
+  list_url         text,          -- what to fetch (sitemap URL, directory page, feed)
+  needs_js         boolean not null default false,
+  link_pattern     text,          -- regex a company link must match (e.g. /companies/[a-z0-9-]+$), or 'external' for off-site company websites
+  profile_pattern  text,          -- for profile-page directories: regex of a company profile URL
+  expected_count   int,           -- total the site states, if any
+  last_count       int,           -- companies the recipe returned last time it worked
+  consecutive_failures int not null default 0,
+  recipe_version   int not null default 0,
+  recipe_notes     text,
   updated_at       timestamptz not null default now(),
   primary key (firm_id, url)
 );
@@ -84,7 +99,8 @@ insert into portfolio.sources values
   ('google', true, 'Google search result, verified against the underlying article'),
   ('linkedin', true, 'The firm''s own LinkedIn posts'),
   ('x', true, 'The firm''s own X posts'),
-  ('salesforce', false, 'Salesforce investor field; a lead until independently verified')
+  ('salesforce', false, 'Salesforce investor field; a lead until independently verified'),
+  ('official_page', true, 'An announcement on the firm''s own website')
 on conflict (source) do nothing;
 
 do $$ declare t text; begin
@@ -133,12 +149,29 @@ begin
     if fid is null or nullif(r->>'url', '') is null then
       insert into portfolio.match_review (kind, reason, row_data) values ('firm_sources', case when fid is null then 'unknown_firm' else 'no_url' end, r); n_review := n_review + 1; continue;
     end if;
-    insert into portfolio.firm_sources as s (firm_id, url, source_type, status, validated_at, last_success_at, last_failure_at, checkpoint_date, checkpoint_url)
+    insert into portfolio.firm_sources as s (firm_id, url, source_type, status, validated_at, last_success_at, last_failure_at, checkpoint_date, checkpoint_url,
+      method, list_url, needs_js, link_pattern, profile_pattern, expected_count, last_count, consecutive_failures, recipe_version, recipe_notes)
     values (fid, r->>'url', coalesce(r->>'source_type', 'news'), coalesce(r->>'status', 'candidate'), (r->>'validated_at')::timestamptz,
-            (r->>'last_success_at')::timestamptz, (r->>'last_failure_at')::timestamptz, (r->>'checkpoint_date')::date, r->>'checkpoint_url')
+            (r->>'last_success_at')::timestamptz, (r->>'last_failure_at')::timestamptz, (r->>'checkpoint_date')::date, r->>'checkpoint_url',
+            r->>'method', r->>'list_url', coalesce((r->>'needs_js')::boolean, false), r->>'link_pattern', r->>'profile_pattern',
+            (r->>'expected_count')::int, (r->>'last_count')::int, case when r->>'outcome' = 'failed' then 1 else 0 end,
+            case when r ? 'method' then 1 else 0 end, r->>'recipe_notes')
     on conflict (firm_id, url) do update set
       source_type = excluded.source_type,
-      status = coalesce(r->>'status', s.status),
+      -- A new recipe (method sent) replaces the old one and bumps its version; an outcome updates health.
+      method = coalesce(excluded.method, s.method), list_url = coalesce(excluded.list_url, s.list_url),
+      needs_js = case when r ? 'needs_js' then excluded.needs_js else s.needs_js end,
+      link_pattern = coalesce(excluded.link_pattern, s.link_pattern), profile_pattern = coalesce(excluded.profile_pattern, s.profile_pattern),
+      expected_count = coalesce(excluded.expected_count, s.expected_count),
+      last_count = case when r->>'outcome' = 'ok' then coalesce(excluded.last_count, s.last_count) else s.last_count end,
+      recipe_version = s.recipe_version + case when r ? 'method' then 1 else 0 end,
+      recipe_notes = coalesce(excluded.recipe_notes, s.recipe_notes),
+      consecutive_failures = case when r->>'outcome' = 'failed' then s.consecutive_failures + 1
+                                  when r->>'outcome' = 'ok' or r ? 'method' then 0 else s.consecutive_failures end,
+      status = case when r ? 'status' then r->>'status'
+                    when r ? 'method' and not r ? 'outcome' then 'candidate'
+                    when r->>'outcome' = 'failed' and s.consecutive_failures + 1 >= 1 then 'broken'
+                    when r->>'outcome' = 'ok' then 'verified' else s.status end,
       validated_at = coalesce(excluded.validated_at, s.validated_at),
       last_success_at = greatest(excluded.last_success_at, s.last_success_at),
       last_failure_at = greatest(excluded.last_failure_at, s.last_failure_at),
@@ -225,7 +258,7 @@ begin
     else null end;
 end $$;
 
-update portfolio.ingest_keys set kinds = array(select distinct unnest(kinds || '{firm_identity,firm_sources,verifications,source_runs}'::text[]))
+update portfolio.ingest_keys set kinds = array(select distinct unnest(kinds || '{firm_identity,firm_sources,verifications,source_runs,state}'::text[]))
 where key_name = 'clay-workflows';
 
 -- ═════════════════════════ State for the weekly run ═════════════════════════
@@ -252,12 +285,17 @@ create function portfolio.firm_state(p_firm text) returns jsonb language sql sta
     'sources', coalesce((select jsonb_agg(to_jsonb(s) - 'firm_id') from portfolio.firm_sources s join f using (firm_id) where s.status <> 'retired'), '[]'),
     'directory_read_at', (select max(sr.recorded_at) from portfolio.source_runs sr join f using (firm_id) where sr.source = 'official_portfolio' and sr.status in ('ok', 'no_new', 'partial')),
     'known_companies', coalesce((select jsonb_agg(to_jsonb(k)) from known k), '[]'),
+    -- Directory profile pages already read (sitemaps often stamp every page with the same lastmod, so "seen" is the reliable test).
+    'known_profile_urls', coalesce((select jsonb_agg(distinct e.source_ref) from portfolio.relationship_evidence e
+                                     join portfolio.company_firms cf using (relationship_id) join f using (firm_id)
+                                     where e.source = 'official_portfolio' and e.source_ref like 'http%'), '[]'),
     'known_count', (select count(*) from known))
 $$;
 
 create function public.portfolio_state_h(p_firm text) returns jsonb
 language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
-declare k text := nullif(current_setting('request.headers', true), '')::json->>'x-portfolio-read-key';
+declare h json := nullif(current_setting('request.headers', true), '')::json;
+        k text := coalesce(h->>'x-portfolio-read-key', h->>'x-portfolio-key');   -- Clay's existing writer connection can read state too
 begin
   if k is null or not exists (select 1 from portfolio.ingest_keys ik
                               where ik.revoked_at is null and 'state' = any (ik.kinds) and ik.key_hash = extensions.crypt(k, ik.key_hash)) then
