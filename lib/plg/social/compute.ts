@@ -186,7 +186,7 @@ export function buildSocial(o: {
       const tagged = vs.filter(v => v.tagged)
       const cov = vs.map(v => coverage(c, v.published, cohortEnd(v.published, o.dataEnd)))
       const imprDays = sum(cov.map(x => x.days)), imprHave = sum(cov.map(x => x.have))
-      const impressions = c.imprState === 'live' && imprHave === imprDays ? sum(vs.map(v => v.impressions ?? 0)) : null
+      const impressions = c.imprState === 'live' ? sum(vs.map(v => v.impressions ?? 0)) : null
       return {
         videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions, imprDays, imprHave,
         views, minutes: sum(vs.map(v => v.minutes)), subs: sum(vs.map(v => v.subsGained)),
@@ -205,7 +205,7 @@ export function buildSocial(o: {
     const kr = (k: string) => rows.filter(r => r.k === k && r.b === b && c.keys.has(r.key))
     const ws = kr('ws'); const ex = kr('ex')
     const cov = end >= range[0] ? coverage(c, range[0], end) : { days: 0, have: 0 }
-    const impressions = c.imprState === 'live' && cov.have === cov.days ? sum(c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end).map(r => r[1])) : null
+    const impressions = c.imprState === 'live' ? sum(c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end).map(r => r[1])) : null
     return {
       videos: null as number | null, pending: 0, impressions, imprDays: cov.days, imprHave: cov.have,
       views, minutes: yt ? sum(yt.map(r => r[2])) : 0, subs: yt ? sum(yt.map(r => r[3] - r[4])) : 0,
@@ -271,7 +271,8 @@ export function buildSocial(o: {
   const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
   const imprLive = inScope.length > 0 && inScope.every(c => c.imprState === 'live')
   const imprPartial = imprLive && pc.imprHave < pc.imprDays
-  const imprKnown = imprLive && !imprPartial
+  // Shown even while Google is still backfilling (partial periods are flagged on the row, not hidden).
+  const imprKnown = imprLive
   const firstReport = inScope.flatMap(c => [...c.imprDays]).sort()[0]
   const imprWhy = inScope.some(c => c.imprState === 'none')
     ? 'Needs the channel owner’s one-time sign-in (YouTube Reporting API, channel_reach_basic_a1)'
@@ -279,8 +280,9 @@ export function buildSocial(o: {
       ? `Google has delivered impressions for ${pc.imprHave} of ${pc.imprDays} days in this period so far (reports start ${firstReport}, about 30 days before the report job was set up). Impressions and view rate show once every day is in, so they're never compared with views from other days.`
       : 'Report job is set up; Google delivers the first daily files about 48 hours after setup'
   const steps: Step[] = [
-    { id: 'impr', stage: 'Reach', label: 'Impressions', lever: 'Thumbnail, title, topic, cadence', source: 'YouTube Reporting API', cur: pc.impressions, prev: pp.impressions, rate: null, prevRate: null, goal: null,
-      notConnected: !imprKnown, ncLabel: imprPartial ? 'Partial data' : undefined, why: imprWhy, impact: null },
+    { id: 'impr', stage: 'Reach', label: 'Impressions', lever: 'Thumbnail, title, topic, cadence',
+      source: imprPartial ? `YouTube Reporting API · partial: ${pc.imprHave} of ${pc.imprDays} days delivered so far` : 'YouTube Reporting API', cur: pc.impressions, prev: pp.impressions, rate: null, prevRate: null, goal: null,
+      notConnected: !imprKnown, why: imprWhy, impact: null },
     { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail & title', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views,
       rate: imprKnown ? rate(pc.views, pc.impressions) : null, prevRate: imprKnown ? rate(pp.views, pp.impressions) : null, goal: null,
       notConnected: !viewsKnown, why: NO_ANALYTICS, impact: null },

@@ -49,7 +49,8 @@
   "workflow": "wf_0torfb0HFxNBwqHMaT4",
   "trigger": "ce169180-82d5-464b-a308-5485dbf795cd",
   "trigger_node": "wfn_0torfb2kFvtCZ4eD3MD",
-  "node": "wfn_0torfb4PZdAtSVuECtf"
+  "node": "wfn_0torh9pj5BF6e6YH3qe",
+  "reopen_node": "wfn_0torfb4PZdAtSVuECtf"
  },
  "merge": "wfn_0torgn8yNbXtypknGXF"
 }
