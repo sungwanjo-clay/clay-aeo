@@ -376,7 +376,9 @@ function App() {
     for (const [name, r] of [['social', socialResult], ['startup', startupResult]] as const) {
       if (!r || (name === 'social' ? r.key !== socialSqlText : r.key !== startupSqlText)) continue
       const prev = saved?.[name]
-      if (prev && prev.key === r.key) continue
+      // Same query and saved in the last 6 hours: keep it. Otherwise replace it with this live result (this also corrects a
+      // copy the daily job wrote, the next time someone with Sigma opens the tab).
+      if (prev && prev.key === r.key && Date.now() - prev.storedAt < 6 * 3600_000) continue
       const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
       writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? { main: null, social: null, startup: null }), [name]: c })) } })
     }
