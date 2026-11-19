@@ -4,7 +4,7 @@ from datetime import date, timedelta
 def body(kind, rows):
     return json.dumps({'p_kind': kind, 'p_rows': rows}, separators=(',', ':'))
 
-def chunk(rows, n=300):
+def chunk(rows, n=100):   # 100 rows per write keeps Supabase under its statement timeout under load
     return [rows[i:i + n] for i in range(0, len(rows), n)]
 
 def _json(v):

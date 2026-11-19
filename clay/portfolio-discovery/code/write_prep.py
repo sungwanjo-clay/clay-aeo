@@ -99,11 +99,25 @@ def handler(context):
                        'latest_round_date': v.get('latest_round_date') or '', 'latest_round_amount_usd': v.get('latest_round_amount_usd') or 0,
                        'latest_round_leads': v.get('latest_round_leads') or '', 'latest_round_source_url': v.get('latest_round_source_url') or '',
                        'firm_in_latest_round': v.get('firm_in_latest_round') or 'Unknown', 'signal_key': c.get('latest_hint') or '', 'run_id': run_id or None})
+    # Companies already verified in earlier runs (no new signal this week): resend one roster row per source that found
+    # them, with a stable reference, so a run whose roster write failed is repaired by the next run. Idempotent.
+    for c in g('cached') or []:
+        domain = (c.get('domain') or '').strip().lower()
+        if not domain or c.get('backing') != 'Confirmed' or domain in roster: continue
+        rows = []
+        for lane in c.get('lanes') or []:
+            src = LANE_SOURCE.get(lane)
+            if not src: continue
+            rows.append({'firm': firm, 'source': src, 'source_ref': f'{src}:{domain}', 'company_name': c.get('name') or domain, 'domain': domain,
+                         'evidence_url': c.get('backing_source_url') or '', 'observed_at': now, 'run_id': run_id or None,
+                         'round_or_batch': c.get('latest_round_type') or '', 'invested_at': None, 'payload': {'note': 'carried forward'}})
+        if rows: roster[domain] = rows
     roster_bodies, cur, n = [], [], 0
     verifs = list(verifs.values())
     for grp in (gr for gr in roster.values() if gr):
-        if n + len(grp) > 400 and cur: roster_bodies.append(body('roster', cur)); cur, n = [], 0
+        # 100 rows per write: larger batches hit Supabase's statement timeout when many firms write at once.
+        if n + len(grp) > 100 and cur: roster_bodies.append(body('roster', cur)); cur, n = [], 0
         cur += grp; n += len(grp)
     if cur: roster_bodies.append(body('roster', cur))
-    return {'meta_writes': meta, 'roster_writes': roster_bodies, 'verification_writes': [body('verifications', ch) for ch in chunk(verifs)],
-            'counts': {'meta': len(meta), 'roster_rows': sum(len(x) for x in roster), 'verifications': len(verifs), 'sources': len(srcs)}}
+    return {'meta_writes': meta, 'roster_writes': roster_bodies, 'verification_writes': [body('verifications', ch) for ch in chunk(verifs, 100)],
+            'counts': {'meta': len(meta), 'roster_rows': sum(len(v) for v in roster.values()), 'verifications': len(verifs), 'sources': len(srcs)}}
