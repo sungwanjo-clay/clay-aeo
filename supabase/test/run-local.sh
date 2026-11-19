@@ -14,4 +14,7 @@ $P -f "$W/001_portfolio_test.sql" > "$W/001.out" 2>&1 && echo "001 test ran (out
 $P -c "insert into portfolio.ingest_keys (key_name, key_hash, kinds) values ('clay-workflows', extensions.crypt('cw', extensions.gen_salt('bf')), '{firms,roster,snapshots,runs}')"
 $P -v ON_ERROR_STOP=1 -f "$W/002_snapshots_workspace_lookups.sql"
 echo "002 applied on top of 001 data"
-$P -f "$W/002_test.sql" 2>&1
+$P -f "$W/002_test.sql" > "$W/002.out" 2>&1 && echo "002 test ran (output in $W/002.out)"
+$P -v ON_ERROR_STOP=1 -f "$W/003_header_auth_staging.sql"
+echo "003 applied"
+$P -f "$W/003_test.sql" 2>&1
