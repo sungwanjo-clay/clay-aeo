@@ -1,0 +1,79 @@
+{
+  "workspace": {
+    "id": "4515",
+    "name": "Clay Team"
+  },
+  "id": "c_0toqk9v3V5bWqaoqanN",
+  "name": "Portfolio discovery: collect announcements",
+  "description": null,
+  "version": {
+    "id": "cv_0toqnu0fBCadtJ4k5Ng",
+    "number": 8
+  },
+  "prompt": "You collect announcements of investments and cohort admissions for one investor, from its own website first and then news and social sources. Firm: {{firm}} ({{firm_domain}}). Other names it uses: {{aliases}}. Do NOT treat these as the same firm: {{collisions}}. Window: announcements on or after {{since}}.\n\n1. Official pages (required). Read each of these on the firm's own site: {{news_urls}}. Feed, if any: {{feed_url}}. Portfolio directory, if any: {{portfolio_url}}. Start with the newest posts and page backwards (next page, \"load more\", older posts, feed pages) until you pass {{since}} or the archive ends. For each post or listing in the window that announces the firm investing in a company, leading or joining a round, or admitting a company to a cohort or batch, open the post and record it. Skip fund closes, hires, events, thought pieces, podcasts, exits, IPOs and acquisitions. Record how far back you actually got.\n2. Google leads: these search results were gathered earlier; open the promising ones and record only what the article itself says: {{google_results}}\n3. LinkedIn: these are the firm's recent LinkedIn posts; record investment or cohort announcements in them: {{linkedin_posts}}\n4. X: if the firm has an X account ({{x_url}}), check its recent posts for the same, if you can access them.\n\nRules: one entry per company per event. Use the company's own website domain when the source gives it or you can confirm it quickly; otherwise leave it blank. Never invent a company, date, amount or round type; leave unknown fields blank. Joining a cohort is event_type \"cohort\", not a funding round, unless the post states a completed raise.\n\nReturn announcements_json: a JSON array (no prose) of objects with keys company, company_domain, event_type (\"funding_round\" | \"cohort\" | \"investment\"), round_type (e.g. Pre-Seed, Seed, Series A; blank if not stated), announced_on (YYYY-MM-DD or YYYY-MM, blank if unknown), amount_usd (number or blank), firm_role (\"lead\" | \"participant\" | \"cohort\" | \"unknown\"), source_lane (\"official_page\" | \"google\" | \"linkedin\" | \"x\"), source_url. Also return archive_status and archive_coverage.\n\nAlways return a result: if pages can't be read or nothing qualifies, return [] with archive_status set accordingly and explain in archive_coverage. Never fail the step.\n\nAlso return news_sources_json: a JSON array with one object per official page you were given or found, with keys url, source_type (\"news\" | \"blog\" | \"press\" | \"portfolio_news\" | \"cohort\" | \"feed\"), status (\"ok\" if you could read its dated posts, \"failed\" if it was missing, moved, empty or blocked), newest_date (YYYY-MM-DD of the newest post you saw, blank if none) and newest_url. If a page has moved, include the new location as its own entry with status \"ok\".",
+  "model": "clay-auto",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "firm": {
+        "type": "string"
+      },
+      "firm_domain": {
+        "type": "string"
+      },
+      "aliases": {
+        "type": "array"
+      },
+      "collisions": {
+        "type": "array"
+      },
+      "since": {
+        "type": "string"
+      },
+      "news_urls": {
+        "type": "string"
+      },
+      "feed_url": {
+        "type": "string"
+      },
+      "portfolio_url": {
+        "type": "string"
+      },
+      "google_results": {
+        "type": "array"
+      },
+      "linkedin_posts": {
+        "type": "array"
+      },
+      "x_url": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "archive_status": {
+      "type": "select",
+      "description": "How reading the firm's own pages went",
+      "options": "[{\"text\": \"Read through window\"}, {\"text\": \"Partial: stopped early\"}, {\"text\": \"No announcement pages found\"}, {\"text\": \"Fetch failed\"}]"
+    },
+    "official_count": {
+      "type": "number",
+      "description": "Number of entries whose source_lane is official_page"
+    },
+    "archive_coverage": {
+      "type": "string",
+      "description": "Which official pages were read, how they paginate, the oldest date reached, and anything that blocked reading"
+    },
+    "news_sources_json": {
+      "type": "string",
+      "description": "JSON array of {url, source_type, status, newest_date, newest_url}, one per official page"
+    },
+    "announcements_json": {
+      "type": "string",
+      "description": "JSON array of announcement objects as specified in the prompt"
+    }
+  },
+  "internetSearchEnabled": true,
+  "peopleAndCompaniesSearchEnabled": false,
+  "tools": []
+}
