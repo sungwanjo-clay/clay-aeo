@@ -15,3 +15,10 @@ notify pgrst, 'reload config';
 -- primary key leads with snapshot_date, so at ~10k companies that lookup was a scan per row and the view timed out.
 create index if not exists company_snapshots_company_idx on portfolio.company_snapshots (company_id, snapshot_date);
 analyze portfolio.company_snapshots;
+
+-- The real cause of the roster-write timeouts: resolve_company matches rows on company_identifiers (id_type, value), but
+-- the only index there is partial (id_type <> 'stealth_name'), which the planner can't use for a join against a row's
+-- identifiers or for the stealth-name lookup, so every roster row did several full scans (~45k identifiers). Locally a
+-- 100-row roster ingest went from ~800 ms to ~20 ms with this index; on shared Supabase the former crosses anon's 3 s limit.
+create index if not exists company_identifiers_lookup_idx on portfolio.company_identifiers (id_type, value);
+analyze portfolio.company_identifiers;
