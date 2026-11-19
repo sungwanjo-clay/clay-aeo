@@ -3,12 +3,12 @@
     "id": "4515",
     "name": "Clay Team"
   },
-  "id": "wfs_0toqnx2VFfXo5pUEG79",
+  "id": "wfs_0toqprcgfuApaaGSU47",
   "workflow": {
     "id": "wf_0tob8rw7JJoTpoDByc8"
   },
-  "hash": "48bd097fbb9262bd360fcfbde344771baae8e8043e35e83c6ebc702d5e15aab8",
-  "createdAt": "2026-11-19T07:39:02.087Z",
+  "hash": "90e02fe72327b988c05cac40188e806481e75edd254ad94e55ab4a7d9cdfba9b",
+  "createdAt": "2026-11-19T08:18:48.199Z",
   "containsCycles": false,
   "nodes": [
     {
@@ -6978,15 +6978,15 @@
           "schemaKey": "5a4be6e8a32832b068316619dbb2ab80a0dfeac0c049709c95a3b94d7d9b3363"
         }
       },
-      "scriptVersionId": "sv_0toqnucQXeCb3nskAJH",
+      "scriptVersionId": "sv_0toqprbi6EQDsG3MzQ8",
       "currentScriptVersion": {
-        "id": "sv_0toqnucQXeCb3nskAJH",
+        "id": "sv_0toqprbi6EQDsG3MzQ8",
         "scriptName": "Untitled",
-        "versionNumber": 3,
+        "versionNumber": 4,
         "scriptId": "tcs_0toqkbk8Wrw9WQRab6K",
         "isInline": true,
         "language": "python",
-        "code": "import json, re\n\nLANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'salesforce']\nBAD_DOMAINS = {'linkedin.com', 'crunchbase.com', 'twitter.com', 'x.com', 'facebook.com', 'medium.com', 'techcrunch.com', 'ycombinator.com', 'angel.co', 'wellfound.com', 'github.com', 'notion.site', 'google.com'}\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef _res(it):\n    return it.get('result') if isinstance(it, dict) and 'result' in it else it\n\n_PROTO = re.compile(r'^[a-z]+://'); _WWW = re.compile(r'^www\\d?\\.'); _DOMOK = re.compile(r'[a-z0-9][a-z0-9.-]*\\.[a-z]{2,63}')\n_SUFFIX = re.compile(r'\\b(inc|llc|ltd|limited|corp|corporation|co|gmbh|sas|ab|oy|bv|plc|labs?|technologies|technology|ai|hq|app)\\b\\.?')\n_NONAL = re.compile(r'[^a-z0-9]+')\n_dc, _nc = {}, {}\n\ndef dom(u):\n    if u in _dc: return _dc[u]\n    x = (u or '').strip().lower()\n    x = _WWW.sub('', _PROTO.sub('', x))\n    x = x.split('/')[0].split('?')[0].split('#')[0].strip('.')\n    r = x if (_DOMOK.fullmatch(x) and x not in BAD_DOMAINS) else ''\n    _dc[u] = r\n    return r\n\ndef nkey(n):\n    if n in _nc: return _nc[n]\n    r = _NONAL.sub('', _SUFFIX.sub(' ', (n or '').lower()))\n    _nc[n] = r\n    return r\n\ndef handler(context):\n    g = context.get_input\n    firm = g('firm') or ''\n    since = g('since') or ''\n    max_verify = int(g('max_verify') or 300)\n    cos, by_dom, by_name = [], {}, {}\n    lane_raw = {l: 0 for l in LANES}\n\n    def upsert(name, domain, lane, ev):\n        d, k = dom(domain), nkey(name)\n        if not d and not k: return\n        c = None\n        if d and d in by_dom: c = by_dom[d]\n        elif k and k in by_name: c = by_name[k]\n        if c is None:\n            c = {'name': (name or d).strip(), 'domain': d, 'lanes': [], 'evidence': [], 'dates': [], 'round_hints': []}\n            cos.append(c)\n        if d and not c['domain']: c['domain'] = d\n        if d: by_dom[d] = c\n        if k: by_name.setdefault(k, c)\n        if lane not in c['lanes']: c['lanes'].append(lane)\n        if len(c['evidence']) < 8:\n            e = {k: str(ev.get(k) or '') for k in ('note', 'date', 'round', 'url', 'id', 'role', 'event')}\n            e['lane'] = lane\n            c['evidence'].append(e)\n        if ev.get('date'): c['dates'].append(str(ev['date']))\n        if ev.get('round'): c['round_hints'].append(str(ev['round']))\n        lane_raw[lane] += 1\n\n    # Dealroom, PitchBook and Salesforce, already flattened by the normalize step (lane, name, domain, date, round, url, id, note).\n    sf_total = int(g('salesforce_total') or 0); sf_rows = int(g('salesforce_rows') or 0)\n    for line in g('provider_rows') or []:\n        f = (line.split('\\t') + [''] * 8)[:8]\n        upsert(f[1], f[2], f[0], {'date': f[3], 'round': f[4], 'url': f[5], 'id': f[6], 'note': f[7]})\n    # Announcements from official pages, Google, LinkedIn, X.\n    try: ann = json.loads(g('announcements_json') or '[]')\n    except (ValueError, TypeError): ann = []\n    ann_bad = not isinstance(ann, list)\n    for a in ann if isinstance(ann, list) else []:\n        if not isinstance(a, dict): continue\n        lane = a.get('source_lane') if a.get('source_lane') in LANES else 'google'\n        upsert(a.get('company'), a.get('company_domain'), lane,\n               {'date': a.get('announced_on') or '', 'round': a.get('round_type') or a.get('event_type') or '', 'url': a.get('source_url') or '',\n                'role': a.get('firm_role') or '', 'event': a.get('event_type') or ''})\n\n    # Official portfolio directory (undated membership): the deterministic reader first, then the research fallback.\n    try: port = json.loads(g('portfolio_json') or '[]')\n    except (ValueError, TypeError): port = []\n    port = (g('directory_companies') or []) + (port if isinstance(port, list) else [])\n    for p in port if isinstance(port, list) else []:\n        if isinstance(p, dict):\n            upsert(p.get('company') or p.get('website'), p.get('website') or p.get('domain'), 'official_portfolio',\n                   {'note': ('Official portfolio page' + (': ' + str(p.get('fund_or_batch')) if p.get('fund_or_batch') else '') + (' (' + str(p.get('status')) + ')' if p.get('status') else '')),\n                    'url': p.get('profile_url') or '', 'id': p.get('profile_url') or dom(p.get('website') or '')})\n    # Coverage: companies per lane and companies only that lane found.\n    per_lane = {l: sum(1 for c in cos if l in c['lanes']) for l in LANES}\n    only = {l: sum(1 for c in cos if c['lanes'] == [l]) for l in LANES}\n    caps = {'salesforce_capped': sf_total > sf_rows, 'salesforce_total_matches': sf_total,\n            'dealroom_capped': bool(g('dealroom_capped')), 'dealroom_total': int(g('dealroom_total') or 0)}\n\n    # Incremental: what we already know about this firm's companies.\n    known_by = {}\n    for k in g('known_companies') or []:\n        for key in filter(None, [dom(k.get('domain')), 'name:' + nkey(k.get('name'))]):\n            known_by.setdefault(key, k)\n    today = (g('today') or '')[:10]\n    def prio(c):\n        recent = max(c['dates']) if c['dates'] else ''\n        independent = [l for l in c['lanes'] if l != 'salesforce']\n        return ((('official_page' in c['lanes']) or ('official_portfolio' in c['lanes'])), len(independent), recent >= since, recent)\n    ranked = sorted(cos, key=prio, reverse=True)\n    rotation_budget = max(1, max_verify // 10)\n    picked, reasons = 0, {'new': 0, 'changed': 0, 'unresolved': 0, 'refresh': 0}\n    verify, held, cached = [], [], []\n    for c in ranked:\n        c['key'] = c['domain'] or 'name:' + nkey(c['name'])\n        c['latest_hint'] = max(c['dates']) if c['dates'] else ''\n        k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name']))\n        why = ''\n        if not k: why = 'new'\n        elif k.get('backing') in ('', 'Unclear'): why = 'unresolved'\n        elif c['latest_hint'] and c['latest_hint'] > (k.get('signal_key') or ''): why = 'changed'\n        elif k.get('verified_at') and today and k['verified_at'][:10] < today and (int(today[:4]) * 12 + int(today[5:7])) - (int(k['verified_at'][:4]) * 12 + int(k['verified_at'][5:7])) >= 6 and rotation_budget > 0:\n            why = 'refresh'; rotation_budget -= 1\n        item = {'key': c['key'], 'name': c['name'] or '', 'domain': c['domain'] or '', 'lanes': c['lanes'], 'evidence': c['evidence'][:5],\n                'latest_hint': c['latest_hint'] or '', 'round_hints': c['round_hints'][:3], 'why': why or 'cached'}\n        if why and picked < max_verify:\n            verify.append(item); picked += 1; reasons[why] += 1\n        elif why:\n            held.append({x: item[x] for x in ('key', 'name', 'domain', 'lanes', 'latest_hint')})\n        else:\n            cached.append(dict({x: item[x] for x in ('key', 'name', 'domain', 'lanes', 'latest_hint')},\n                               **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',\n                                                              'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'verified_at')}))\n    # Known companies no lane found this week stay in the portfolio (a lane missing a company isn't evidence it left).\n    seen = set()\n    for c in ranked:\n        seen.add(c['domain']); seen.add('name:' + nkey(c['name']))\n    for k in g('known_companies') or []:\n        if dom(k.get('domain')) in seen or ('name:' + nkey(k.get('name'))) in seen: continue\n        if k.get('backing') != 'Confirmed': continue\n        cached.append({'key': dom(k.get('domain')) or 'name:' + nkey(k.get('name')), 'name': k.get('name') or '', 'domain': dom(k.get('domain')),\n                       'lanes': ['previous_run'], 'latest_hint': k.get('signal_key') or '',\n                       **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',\n                                                      'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'verified_at')}})\n    return {'companies_total': len(cos), 'to_verify': verify, 'not_verified_this_run': held[:500], 'not_verified_count': len(held),\n            'not_verified_domains': [h['domain'] for h in held if h['domain']], 'cached': cached, 'verify_reasons': reasons,\n            'lane_counts': per_lane, 'lane_only_counts': only, 'caps': caps, 'announcements_parse_error': ann_bad,\n            'firm': firm}\n",
+        "code": "import json, re\n\nLANES = ['official_page', 'official_portfolio', 'google', 'linkedin', 'x', 'dealroom', 'pitchbook', 'salesforce']\nBAD_DOMAINS = {'linkedin.com', 'crunchbase.com', 'twitter.com', 'x.com', 'facebook.com', 'medium.com', 'techcrunch.com', 'ycombinator.com', 'angel.co', 'wellfound.com', 'github.com', 'notion.site', 'google.com'}\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef _res(it):\n    return it.get('result') if isinstance(it, dict) and 'result' in it else it\n\n_PROTO = re.compile(r'^[a-z]+://'); _WWW = re.compile(r'^www\\d?\\.'); _DOMOK = re.compile(r'[a-z0-9][a-z0-9.-]*\\.[a-z]{2,63}')\n_PAREN = re.compile(r'\\s*\\([^)]*\\)\\s*$')\n_SUFFIX = re.compile(r'\\b(inc|llc|ltd|limited|corp|corporation|co|gmbh|sas|ab|oy|bv|plc|labs?|technologies|technology|ai|hq|app)\\b\\.?')\n_NONAL = re.compile(r'[^a-z0-9]+')\n_dc, _nc = {}, {}\n\ndef dom(u):\n    if u in _dc: return _dc[u]\n    x = (u or '').strip().lower()\n    x = _WWW.sub('', _PROTO.sub('', x))\n    x = x.split('/')[0].split('?')[0].split('#')[0].strip('.')\n    r = x if (_DOMOK.fullmatch(x) and x not in BAD_DOMAINS) else ''\n    _dc[u] = r\n    return r\n\ndef nkey(n):\n    if n in _nc: return _nc[n]\n    r = _NONAL.sub('', _SUFFIX.sub(' ', (n or '').lower()))\n    _nc[n] = r\n    return r\n\ndef handler(context):\n    g = context.get_input\n    firm = g('firm') or ''\n    since = g('since') or ''\n    max_verify = int(g('max_verify') or 300)\n    cos, by_dom, by_name = [], {}, {}\n    lane_raw = {l: 0 for l in LANES}\n\n    def upsert(name, domain, lane, ev):\n        # PitchBook appends the industry: \"Punch (Business/Productivity Software)\". Emails are page junk, not companies.\n        name = _PAREN.sub('', name or '').strip()\n        if '@' in name: name = ''\n        if '@' in (domain or ''): domain = ''\n        d, k = dom(domain), nkey(name)\n        if not d and not k: return\n        c = None\n        if d and d in by_dom: c = by_dom[d]\n        elif k and k in by_name: c = by_name[k]\n        if c is None:\n            c = {'name': (name or d).strip(), 'domain': d, 'lanes': [], 'evidence': [], 'dates': [], 'round_hints': []}\n            cos.append(c)\n        if d and not c['domain']: c['domain'] = d\n        if d: by_dom[d] = c\n        if k: by_name.setdefault(k, c)\n        if lane not in c['lanes']: c['lanes'].append(lane)\n        if len(c['evidence']) < 8:\n            e = {k: str(ev.get(k) or '') for k in ('note', 'date', 'round', 'url', 'id', 'role', 'event')}\n            e['lane'] = lane\n            c['evidence'].append(e)\n        if ev.get('date'): c['dates'].append(str(ev['date']))\n        if ev.get('round'): c['round_hints'].append(str(ev['round']))\n        lane_raw[lane] += 1\n\n    # Dealroom, PitchBook and Salesforce, already flattened by the normalize step (lane, name, domain, date, round, url, id, note).\n    sf_total = int(g('salesforce_total') or 0); sf_rows = int(g('salesforce_rows') or 0)\n    for line in g('provider_rows') or []:\n        f = (line.split('\\t') + [''] * 8)[:8]\n        upsert(f[1], f[2], f[0], {'date': f[3], 'round': f[4], 'url': f[5], 'id': f[6], 'note': f[7]})\n    # Announcements from official pages, Google, LinkedIn, X.\n    try: ann = json.loads(g('announcements_json') or '[]')\n    except (ValueError, TypeError): ann = []\n    ann_bad = not isinstance(ann, list)\n    for a in ann if isinstance(ann, list) else []:\n        if not isinstance(a, dict): continue\n        lane = a.get('source_lane') if a.get('source_lane') in LANES else 'google'\n        upsert(a.get('company'), a.get('company_domain'), lane,\n               {'date': a.get('announced_on') or '', 'round': a.get('round_type') or a.get('event_type') or '', 'url': a.get('source_url') or '',\n                'role': a.get('firm_role') or '', 'event': a.get('event_type') or ''})\n\n    # Official portfolio directory (undated membership): the deterministic reader first, then the research fallback.\n    try: port = json.loads(g('portfolio_json') or '[]')\n    except (ValueError, TypeError): port = []\n    port = (g('directory_companies') or []) + (port if isinstance(port, list) else [])\n    for p in port if isinstance(port, list) else []:\n        if isinstance(p, dict):\n            upsert(p.get('company') or p.get('website'), p.get('website') or p.get('domain'), 'official_portfolio',\n                   {'note': ('Official portfolio page' + (': ' + str(p.get('fund_or_batch')) if p.get('fund_or_batch') else '') + (' (' + str(p.get('status')) + ')' if p.get('status') else '')),\n                    'url': p.get('profile_url') or '', 'id': p.get('profile_url') or dom(p.get('website') or '')})\n    # Coverage: companies per lane and companies only that lane found.\n    per_lane = {l: sum(1 for c in cos if l in c['lanes']) for l in LANES}\n    only = {l: sum(1 for c in cos if c['lanes'] == [l]) for l in LANES}\n    caps = {'salesforce_capped': sf_total > sf_rows, 'salesforce_total_matches': sf_total,\n            'dealroom_capped': bool(g('dealroom_capped')), 'dealroom_total': int(g('dealroom_total') or 0)}\n\n    # Incremental: what we already know about this firm's companies.\n    known_by = {}\n    for k in g('known_companies') or []:\n        if '@' in (k.get('name') or ''): continue\n        for key in filter(None, [dom(k.get('domain')), 'name:' + nkey(k.get('name'))]):\n            known_by.setdefault(key, k)\n    today = (g('today') or '')[:10]\n    def prio(c):\n        recent = max(c['dates']) if c['dates'] else ''\n        independent = [l for l in c['lanes'] if l != 'salesforce']\n        return ((('official_page' in c['lanes']) or ('official_portfolio' in c['lanes'])), len(independent), recent >= since, recent)\n    ranked = sorted(cos, key=prio, reverse=True)\n    rotation_budget = max(1, max_verify // 10)\n    picked, reasons = 0, {'new': 0, 'changed': 0, 'unresolved': 0, 'refresh': 0}\n    verify, held, cached = [], [], []\n    used_known = set()\n    for c in ranked:\n        c['latest_hint'] = max(c['dates']) if c['dates'] else ''\n        k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name']))\n        if k:\n            # A name-only lane hit for a company we already resolved keeps the saved domain, and two lane hits for the\n            # same saved company collapse into one row.\n            kid = k.get('company_id') or dom(k.get('domain')) or nkey(k.get('name'))\n            if kid in used_known: continue\n            used_known.add(kid)\n            if not c['domain']: c['domain'] = dom(k.get('domain'))\n        c['key'] = c['domain'] or 'name:' + nkey(c['name'])\n        why = ''\n        if not k: why = 'new'\n        elif k.get('backing') in ('', 'Unclear'): why = 'unresolved'\n        elif c['latest_hint'] and c['latest_hint'] > (k.get('signal_key') or ''): why = 'changed'\n        elif k.get('verified_at') and today and k['verified_at'][:10] < today and (int(today[:4]) * 12 + int(today[5:7])) - (int(k['verified_at'][:4]) * 12 + int(k['verified_at'][5:7])) >= 6 and rotation_budget > 0:\n            why = 'refresh'; rotation_budget -= 1\n        item = {'key': c['key'], 'name': c['name'] or '', 'domain': c['domain'] or '', 'lanes': c['lanes'], 'evidence': c['evidence'][:5],\n                'latest_hint': c['latest_hint'] or '', 'round_hints': c['round_hints'][:3], 'why': why or 'cached'}\n        if why and picked < max_verify:\n            verify.append(item); picked += 1; reasons[why] += 1\n        elif why:\n            held.append({x: item[x] for x in ('key', 'name', 'domain', 'lanes', 'latest_hint')})\n        else:\n            cached.append(dict({x: item[x] for x in ('key', 'name', 'domain', 'lanes', 'latest_hint')},\n                               **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',\n                                                              'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'verified_at')}))\n    # Known companies no lane found this week stay in the portfolio (a lane missing a company isn't evidence it left).\n    seen = set()\n    for c in ranked:\n        seen.add(c['domain']); seen.add('name:' + nkey(c['name']))\n    for k in g('known_companies') or []:\n        if dom(k.get('domain')) in seen or ('name:' + nkey(k.get('name'))) in seen: continue\n        if k.get('backing') != 'Confirmed' or '@' in (k.get('name') or ''): continue\n        cached.append({'key': dom(k.get('domain')) or 'name:' + nkey(k.get('name')), 'name': k.get('name') or '', 'domain': dom(k.get('domain')),\n                       'lanes': ['previous_run'], 'latest_hint': k.get('signal_key') or '',\n                       **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',\n                                                      'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'verified_at')}})\n    return {'companies_total': len(cos), 'to_verify': verify, 'not_verified_this_run': held[:500], 'not_verified_count': len(held),\n            'not_verified_domains': [h['domain'] for h in held if h['domain']], 'cached': cached, 'verify_reasons': reasons,\n            'lane_counts': per_lane, 'lane_only_counts': only, 'caps': caps, 'announcements_parse_error': ann_bad,\n            'firm': firm}\n",
         "inputSchema": {},
         "outputSchema": {
           "caps": {
@@ -7045,7 +7045,7 @@
         "scriptMetadata": {
           "syntaxValid": true,
           "syntaxError": null,
-          "lastAnalyzedAt": "2026-11-19T07:37:24.631Z"
+          "lastAnalyzedAt": "2026-11-19T08:18:47.768Z"
         }
       }
     },
@@ -8659,15 +8659,15 @@
           "schemaKey": "f16e04dbc46b0a6bf3a5579cb4b52ed3897c0cd839f732aab647fd3bb50f5ad5"
         }
       },
-      "scriptVersionId": "sv_0toqnpcAGKmZba4Mp44",
+      "scriptVersionId": "sv_0toqpivKeXzvZEumS6m",
       "currentScriptVersion": {
-        "id": "sv_0toqnpcAGKmZba4Mp44",
+        "id": "sv_0toqpivKeXzvZEumS6m",
         "scriptName": "Untitled",
-        "versionNumber": 1,
+        "versionNumber": 2,
         "scriptId": "tcs_0toqnpcT4qCwGPhWBak",
         "isInline": true,
         "language": "python",
-        "code": "import json, uuid\nfrom datetime import date, datetime, timedelta\n\ndef _d(s):\n    try: return datetime.fromisoformat(str(s)[:19].replace('Z', '')).date()\n    except (ValueError, TypeError): return None\n\ndef handler(context):\n    g = context.get_input\n    raw = g('state')\n    st = raw.get('result', raw) if isinstance(raw, dict) else {}\n    if not isinstance(st, dict) or 'firm_known' not in st: st = {}\n    ok_state = bool(st)\n    today = date.today()\n    months = int(g('lookback_months') or 12)\n    window_start = today - timedelta(days=round(months * 30.44))\n    ident = st.get('identity') or {}\n    checked = _d(ident.get('identity_checked_at'))\n    sources = st.get('sources') or []\n    news = [s for s in sources if s.get('source_type') in ('news', 'blog', 'press', 'portfolio_news', 'cohort', 'feed') and s.get('status') != 'retired']\n    any_news_broken = any(s.get('status') == 'broken' for s in news)\n    identity_fresh = bool(checked and (today - checked).days <= 90 and ident.get('identity_confidence') in ('High', 'Medium') and not any_news_broken)\n    news_ok = [s for s in news if s.get('status') != 'broken']\n    cps = [_d(s.get('checkpoint_date')) for s in news_ok if s.get('checkpoint_date')]\n    news_since = max(window_start, (min(cps) - timedelta(days=14))) if cps else window_start\n    dirs = [s for s in sources if s.get('source_type') == 'portfolio_directory' and s.get('status') in ('verified', 'candidate')]\n    dirs.sort(key=lambda s: (s.get('status') == 'verified', s.get('updated_at') or ''), reverse=True)\n    rec = dirs[0] if dirs else {}\n    recipe_ok = bool(rec.get('method') and rec.get('method') != 'agent_only' and rec.get('list_url') and int(rec.get('consecutive_failures') or 0) == 0)\n    known = []\n    for k in st.get('known_companies') or []:\n        known.append({f: ('' if k.get(f) is None else str(k.get(f))) for f in\n                      ('name', 'domain', 'verification_status', 'verified_at', 'backing', 'relationship', 'backing_source_url', 'latest_round_type',\n                       'latest_round_date', 'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'signal_key')})\n    return {\n        'run_id': str(uuid.uuid4()), 'state_loaded': ok_state, 'first_run': not known,\n        'identity_fresh': identity_fresh,\n        'cached_identity': {f: ('' if ident.get(f) is None else (' | '.join(ident.get(f)) if isinstance(ident.get(f), list) else str(ident.get(f))))\n                            for f in ('official_name', 'firm_domain', 'firm_type', 'aliases', 'alias_collisions', 'crunchbase_url', 'linkedin_url', 'x_url', 'portfolio_url', 'identity_confidence')},\n        'cached_news_urls': ' | '.join(s.get('url') for s in news_ok if s.get('url')),\n        'news_since': news_since.isoformat(), 'window_start': window_start.isoformat(),\n        'recipe_ok': recipe_ok,\n        'recipe': {f: ('' if rec.get(f) is None else str(rec.get(f))) for f in ('url', 'method', 'list_url', 'link_pattern', 'profile_pattern', 'expected_count', 'last_count', 'checkpoint_date', 'recipe_version')}\n                  | {'needs_js': bool(rec.get('needs_js'))},\n        'known_companies': known, 'known_count': len(known), 'today': today.isoformat(),\n        'known_profile_urls': [u for u in (st.get('known_profile_urls') or []) if isinstance(u, str)][:20000],\n    }\n",
+        "code": "import json, uuid\nfrom datetime import date, datetime, timedelta\n\ndef _d(s):\n    try: return datetime.fromisoformat(str(s)[:19].replace('Z', '')).date()\n    except (ValueError, TypeError): return None\n\ndef handler(context):\n    g = context.get_input\n    raw = g('state')\n    st = raw.get('result', raw) if isinstance(raw, dict) else {}\n    if not isinstance(st, dict) or 'firm_known' not in st: st = {}\n    ok_state = bool(st)\n    today = date.today()\n    months = int(g('lookback_months') or 12)\n    window_start = today - timedelta(days=round(months * 30.44))\n    ident = st.get('identity') or {}\n    checked = _d(ident.get('identity_checked_at'))\n    sources = st.get('sources') or []\n    news = [s for s in sources if s.get('source_type') in ('news', 'blog', 'press', 'portfolio_news', 'cohort', 'feed') and s.get('status') != 'retired']\n    any_news_broken = any(s.get('status') == 'broken' for s in news)\n    identity_fresh = bool(checked and (today - checked).days <= 90 and ident.get('identity_confidence') in ('High', 'Medium') and not any_news_broken)\n    news_ok = [s for s in news if s.get('status') != 'broken']\n    cps = [_d(s.get('checkpoint_date')) for s in news_ok if s.get('checkpoint_date')]\n    news_since = max(window_start, (min(cps) - timedelta(days=14))) if cps else window_start\n    # A saved recipe marks a directory even when the URL was first stored under another type (e.g. as a news page).\n    dirs = [s for s in sources if (s.get('source_type') == 'portfolio_directory' or s.get('method')) and s.get('status') in ('verified', 'candidate')]\n    dirs.sort(key=lambda s: (s.get('status') == 'verified', s.get('updated_at') or ''), reverse=True)\n    rec = dirs[0] if dirs else {}\n    recipe_ok = bool(rec.get('method') and rec.get('method') != 'agent_only' and rec.get('list_url') and int(rec.get('consecutive_failures') or 0) == 0)\n    known = []\n    for k in st.get('known_companies') or []:\n        known.append({f: ('' if k.get(f) is None else str(k.get(f))) for f in\n                      ('name', 'domain', 'verification_status', 'verified_at', 'backing', 'relationship', 'backing_source_url', 'latest_round_type',\n                       'latest_round_date', 'latest_round_amount_usd', 'latest_round_leads', 'latest_round_source_url', 'firm_in_latest_round', 'signal_key')})\n    return {\n        'run_id': str(uuid.uuid4()), 'state_loaded': ok_state, 'first_run': not known,\n        'identity_fresh': identity_fresh,\n        'cached_identity': {f: ('' if ident.get(f) is None else (' | '.join(ident.get(f)) if isinstance(ident.get(f), list) else str(ident.get(f))))\n                            for f in ('official_name', 'firm_domain', 'firm_type', 'aliases', 'alias_collisions', 'crunchbase_url', 'linkedin_url', 'x_url', 'portfolio_url', 'identity_confidence')},\n        'cached_news_urls': ' | '.join(s.get('url') for s in news_ok if s.get('url')),\n        'news_since': news_since.isoformat(), 'window_start': window_start.isoformat(),\n        'recipe_ok': recipe_ok,\n        'recipe': {f: ('' if rec.get(f) is None else str(rec.get(f))) for f in ('url', 'method', 'list_url', 'link_pattern', 'profile_pattern', 'expected_count', 'last_count', 'checkpoint_date', 'recipe_version')}\n                  | {'needs_js': bool(rec.get('needs_js'))},\n        'known_companies': known, 'known_count': len(known), 'today': today.isoformat(),\n        'known_profile_urls': [u for u in (st.get('known_profile_urls') or []) if isinstance(u, str)][:20000],\n    }\n",
         "inputSchema": {},
         "outputSchema": {
           "today": {
@@ -8734,7 +8734,7 @@
         "scriptMetadata": {
           "syntaxValid": true,
           "syntaxError": null,
-          "lastAnalyzedAt": "2026-11-19T07:34:24.863Z"
+          "lastAnalyzedAt": "2026-11-19T08:13:43.225Z"
         }
       }
     },
@@ -9140,15 +9140,15 @@
           "schemaKey": "42af996036bfa63c44da981bdad05ab25770fc48255ea931ec686be95528de6d"
         }
       },
-      "scriptVersionId": "sv_0toqnrkHxrRg78wamDv",
+      "scriptVersionId": "sv_0toqojgh5fgNYZSd2pE",
       "currentScriptVersion": {
-        "id": "sv_0toqnrkHxrRg78wamDv",
+        "id": "sv_0toqojgh5fgNYZSd2pE",
         "scriptName": "Untitled",
-        "versionNumber": 1,
+        "versionNumber": 2,
         "scriptId": "tcs_0toqnrkKQCtH4xqYYz5",
         "isInline": true,
         "language": "python",
-        "code": "def handler(context):\n    g = context.get_input\n    ok = bool(g('recipe_ok'))\n    cached = g('cached_recipe') or {}\n    d = {k: g('new_' + k) for k in ('method', 'list_url', 'needs_js', 'link_pattern', 'profile_pattern', 'expected_count', 'recipe_notes')}\n    use_new = (not ok) and bool(d.get('method'))\n    src = d if use_new else cached\n    method = (src.get('method') or 'agent_only') if (ok or use_new) else 'agent_only'\n    list_url = (src.get('list_url') or '').strip()\n    needs_js = bool(src.get('needs_js')) if not isinstance(src.get('needs_js'), str) else src.get('needs_js').lower() == 'true'\n    fetch = [{'url': list_url, 'needs_js': needs_js, 'wait': 5 if needs_js else 0}] if list_url and method not in ('agent_only',) else []\n    def num(x):\n        try: return int(float(x or 0))\n        except (ValueError, TypeError): return 0\n    return {'method': method, 'fetch': fetch, 'source_url': list_url or (cached.get('url') or ''),\n            'link_pattern': src.get('link_pattern') or '', 'profile_pattern': src.get('profile_pattern') or '',\n            'expected_count': num(src.get('expected_count')), 'last_count': num(cached.get('last_count')) if not use_new else 0,\n            'checkpoint_date': cached.get('checkpoint_date') or '', 'is_new_recipe': use_new, 'recipe_notes': d.get('recipe_notes') or ''}\n",
+        "code": "def handler(context):\n    g = context.get_input\n    ok = bool(g('recipe_ok'))\n    cached = g('cached_recipe') or {}\n    d = {k: g('new_' + k) for k in ('method', 'list_url', 'needs_js', 'link_pattern', 'profile_pattern', 'expected_count', 'recipe_notes')}\n    use_new = (not ok) and bool(d.get('method'))\n    src = d if use_new else cached\n    method = (src.get('method') or 'agent_only') if (ok or use_new) else 'agent_only'\n    list_url = (src.get('list_url') or '').strip()\n    needs_js = bool(src.get('needs_js')) if not isinstance(src.get('needs_js'), str) else src.get('needs_js').lower() == 'true'\n    fetch = [{'url': list_url, 'needs_js': needs_js, 'wait': 5 if needs_js else 0}] if list_url and method not in ('agent_only',) else []\n    if fetch:\n        root = '/'.join(list_url.split('/')[:3])\n        fetch.append({'url': root + '/robots.txt', 'needs_js': False, 'wait': 0})   # always readable; keeps the step from failing outright\n    def num(x):\n        try: return int(float(x or 0))\n        except (ValueError, TypeError): return 0\n    return {'method': method, 'fetch': fetch, 'source_url': list_url or (cached.get('url') or ''),\n            'link_pattern': src.get('link_pattern') or '', 'profile_pattern': src.get('profile_pattern') or '',\n            'expected_count': num(src.get('expected_count')), 'last_count': num(cached.get('last_count')) if not use_new else 0,\n            'checkpoint_date': cached.get('checkpoint_date') or '', 'is_new_recipe': use_new, 'recipe_notes': d.get('recipe_notes') or ''}\n",
         "inputSchema": {},
         "outputSchema": {
           "fetch": {
@@ -9199,7 +9199,7 @@
         "scriptMetadata": {
           "syntaxValid": true,
           "syntaxError": null,
-          "lastAnalyzedAt": "2026-11-19T07:35:44.015Z"
+          "lastAnalyzedAt": "2026-11-19T07:52:28.362Z"
         }
       }
     },
@@ -9278,7 +9278,7 @@
             },
             "respectRobotsTxt": {
               "type": "static",
-              "value": true
+              "value": false
             },
             "enableJavaScriptRendering": {
               "path": "$.needs_js",
@@ -9426,7 +9426,9 @@
             "pages_read",
             "found",
             "newest_lastmod",
-            "profiles_already_seen"
+            "profiles_already_seen",
+            "blocked_by_robots",
+            "robots_url"
           ],
           "properties": {
             "found": {
@@ -9453,6 +9455,9 @@
             "pages_read": {
               "type": "number"
             },
+            "robots_url": {
+              "type": "string"
+            },
             "newest_lastmod": {
               "type": "string"
             },
@@ -9461,6 +9466,9 @@
               "items": {
                 "type": "string"
               }
+            },
+            "blocked_by_robots": {
+              "type": "boolean"
             },
             "profiles_deferred": {
               "type": "number"
@@ -9475,20 +9483,20 @@
         },
         "outputPreview": {
           "path": [
-            "found"
+            "newest_lastmod"
           ],
-          "schemaKey": "259549bcffdf33d1b2c27f58095e943f873fd02ab1567dddee5fc1884e81d2ac"
+          "schemaKey": "d6e20c2b677fad2be17e3cddf7976ef1c6c90f58140c3eaecdd522935be25a61"
         }
       },
-      "scriptVersionId": "sv_0toqnrzfpEiV328iM2K",
+      "scriptVersionId": "sv_0toqojizmaQt7TcVPxW",
       "currentScriptVersion": {
-        "id": "sv_0toqnrzfpEiV328iM2K",
+        "id": "sv_0toqojizmaQt7TcVPxW",
         "scriptName": "Untitled",
-        "versionNumber": 1,
+        "versionNumber": 2,
         "scriptId": "tcs_0toqnrzgvgXF6yREf3g",
         "isInline": true,
         "language": "python",
-        "code": "import re\n\nSOCIAL = ('linkedin.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'youtube.com', 'medium.com', 'github.com', 'tiktok.com',\n          'crunchbase.com', 'angel.co', 'wellfound.com', 'cookieyes.com', 'google.com', 'apple.com', 'techcrunch.com', 'reuters.com', 'bloomberg.com',\n          'forbes.com', 'businessinsider.com', 'wsj.com', 'ft.com', 'substack.com', 'notion.site', 'calendly.com', 'typeform.com', 'hubspot.com',\n          'vimeo.com', 'spotify.com', 'apple.co', 'bit.ly', 'airtable.com', 'webflow.io', 'airops.com', 'privacy', 'jobs.')\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef host(u):\n    u = re.sub(r'^[a-z]+://', '', (u or '').strip().lower()); u = re.sub(r'^www\\d?\\.', '', u)\n    return u.split('/')[0].split('?')[0].split('#')[0]\n\ndef handler(context):\n    g = context.get_input\n    method = g('method') or ''\n    firm_dom = host(g('firm_domain'))\n    link_pat = g('link_pattern') or ''\n    prof_pat = g('profile_pattern') or link_pat\n    checkpoint = (g('checkpoint_date') or '')[:10]\n    seen = set(g('known_profile_urls') or [])\n    pages = _items(g('scrape'))\n    ok_pages = 0\n    companies, profiles = {}, {}\n    newest = ''\n    for r in pages:\n        r = r.get('result', r) if isinstance(r, dict) else {}\n        if not isinstance(r, dict): continue\n        body = r.get('bodyText') or ''\n        links = r.get('links') or []\n        if body or links: ok_pages += 1\n        if method == 'sitemap':\n            for block in re.findall(r'<url>(.*?)</url>', body, flags=re.S) or []:\n                loc = re.search(r'<loc>\\s*([^<\\s]+)\\s*</loc>', block); mod = re.search(r'<lastmod>\\s*([^<\\s]+)\\s*</lastmod>', block)\n                if loc and (not prof_pat or re.search(prof_pat, loc.group(1))):\n                    lm = (mod.group(1)[:10] if mod else '')\n                    profiles[loc.group(1)] = lm; newest = max(newest, lm)\n            if not profiles:   # sitemap without <url> blocks: plain locs\n                for loc in re.findall(r'<loc>\\s*([^<\\s]+)\\s*</loc>', body):\n                    if not prof_pat or re.search(prof_pat, loc): profiles[loc] = ''\n        else:\n            for l in links:\n                href = (l.get('href') or '').strip(); text = re.sub(r'\\s+', ' ', (l.get('text') or '')).strip()\n                h = host(href)\n                if not h: continue\n                if method == 'profile_pages' or (link_pat and link_pat != 'external'):\n                    if re.search(prof_pat, href) and (h == firm_dom or h.endswith('.' + firm_dom)): profiles.setdefault(href, '')\n                else:   # 'external': off-site company websites linked from the directory\n                    if h == firm_dom or h.endswith('.' + firm_dom) or any(s in h for s in SOCIAL): continue\n                    name = text if text and text.lower() not in ('visit website', 'website', 'visit', 'learn more', 'read more', '→') else ''\n                    companies.setdefault(h, {'company': name, 'website': h})\n                    if name and not companies[h]['company']: companies[h]['company'] = name\n    found = len(companies) + len(profiles)\n    # Profiles to open this run: ones never read before (sitemaps often stamp every URL with the same lastmod), capped.\n    todo = sorted((u for u in profiles if u not in seen), key=lambda u: (profiles[u], u), reverse=True)\n    return {'companies': [{'company': v['company'], 'website': v['website']} for v in companies.values()],\n            'profile_urls_found': len(profiles), 'profiles_to_open': todo[:300], 'profiles_deferred': max(0, len(todo) - 300),\n            'pages_read': ok_pages, 'found': found, 'newest_lastmod': newest, 'profiles_already_seen': len([u for u in profiles if u in seen])}\n",
+        "code": "import re\n\nSOCIAL = ('linkedin.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'youtube.com', 'medium.com', 'github.com', 'tiktok.com',\n          'crunchbase.com', 'angel.co', 'wellfound.com', 'cookieyes.com', 'google.com', 'apple.com', 'techcrunch.com', 'reuters.com', 'bloomberg.com',\n          'forbes.com', 'businessinsider.com', 'wsj.com', 'ft.com', 'substack.com', 'notion.site', 'calendly.com', 'typeform.com', 'hubspot.com',\n          'vimeo.com', 'spotify.com', 'apple.co', 'bit.ly', 'airtable.com', 'webflow.io', 'airops.com', 'privacy', 'jobs.')\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef host(u):\n    u = re.sub(r'^[a-z]+://', '', (u or '').strip().lower()); u = re.sub(r'^www\\d?\\.', '', u)\n    return u.split('/')[0].split('?')[0].split('#')[0]\n\ndef handler(context):\n    g = context.get_input\n    method = g('method') or ''\n    firm_dom = host(g('firm_domain'))\n    link_pat = g('link_pattern') or ''\n    prof_pat = g('profile_pattern') or link_pat\n    checkpoint = (g('checkpoint_date') or '')[:10]\n    seen = set(g('known_profile_urls') or [])\n    pages = _items(g('scrape'))\n    robots_text = ''\n    if len(pages) >= 2:\n        rb = pages[-1]; rb = rb.get('result', rb) if isinstance(rb, dict) else {}\n        robots_text = (rb.get('bodyText') or '') if isinstance(rb, dict) else ''\n        pages = pages[:-1]\n    ok_pages = 0\n    companies, profiles = {}, {}\n    newest = ''\n    for r in pages:\n        r = r.get('result', r) if isinstance(r, dict) else {}\n        if not isinstance(r, dict): continue\n        body = r.get('bodyText') or ''\n        links = r.get('links') or []\n        if body or links: ok_pages += 1\n        if method == 'sitemap':\n            for block in re.findall(r'<url>(.*?)</url>', body, flags=re.S) or []:\n                loc = re.search(r'<loc>\\s*([^<\\s]+)\\s*</loc>', block); mod = re.search(r'<lastmod>\\s*([^<\\s]+)\\s*</lastmod>', block)\n                if loc and (not prof_pat or re.search(prof_pat, loc.group(1))):\n                    lm = (mod.group(1)[:10] if mod else '')\n                    profiles[loc.group(1)] = lm; newest = max(newest, lm)\n            if not profiles:   # sitemap without <url> blocks: plain locs\n                for loc in re.findall(r'<loc>\\s*([^<\\s]+)\\s*</loc>', body):\n                    if not prof_pat or re.search(prof_pat, loc): profiles[loc] = ''\n        else:\n            for l in links:\n                href = (l.get('href') or '').strip(); text = re.sub(r'\\s+', ' ', (l.get('text') or '')).strip()\n                h = host(href)\n                if not h: continue\n                if method == 'profile_pages' or (link_pat and link_pat != 'external'):\n                    if re.search(prof_pat, href) and (h == firm_dom or h.endswith('.' + firm_dom)): profiles.setdefault(href, '')\n                else:   # 'external': off-site company websites linked from the directory\n                    if h == firm_dom or h.endswith('.' + firm_dom) or any(s in h for s in SOCIAL): continue\n                    name = text if text and text.lower() not in ('visit website', 'website', 'visit', 'learn more', 'read more', '→') else ''\n                    companies.setdefault(h, {'company': name, 'website': h})\n                    if name and not companies[h]['company']: companies[h]['company'] = name\n    found = len(companies) + len(profiles)\n    # Profiles to open this run: ones never read before (sitemaps often stamp every URL with the same lastmod), capped.\n    todo = sorted((u for u in profiles if u not in seen), key=lambda u: (profiles[u], u), reverse=True)\n    # Informational only: whether robots.txt disallows the directory path (the scraper does not obey it).\n    path = '/' + '/'.join((g('list_url') or '').split('/')[3:])\n    blocked = False\n    agent_rules = re.split(r'(?im)^user-agent:', robots_text)\n    for blk in agent_rules[1:]:\n        head = blk.split('\\n', 1)[0].strip()\n        if head == '*':\n            for rule in re.findall(r'(?im)^disallow:\\s*(\\S*)', blk):\n                if rule and path.startswith(rule): blocked = True\n    \n    root = '/'.join((g('list_url') or '').split('/')[:3])\n    return {'blocked_by_robots': blocked, 'robots_url': (root + '/robots.txt') if root else '',\n            'companies': [{'company': v['company'], 'website': v['website']} for v in companies.values()],\n            'profile_urls_found': len(profiles), 'profiles_to_open': todo[:300], 'profiles_deferred': max(0, len(todo) - 300),\n            'pages_read': ok_pages, 'found': found, 'newest_lastmod': newest, 'profiles_already_seen': len([u for u in profiles if u in seen])}\n",
         "inputSchema": {},
         "outputSchema": {
           "found": {
@@ -9503,11 +9511,19 @@
             "type": "string",
             "required": false
           },
+          "robots_url": {
+            "type": "string",
+            "required": false
+          },
           "newest_lastmod": {
             "type": "string",
             "required": false
           },
           "profiles_to_open": {
+            "type": "string",
+            "required": false
+          },
+          "blocked_by_robots": {
             "type": "string",
             "required": false
           },
@@ -9531,7 +9547,7 @@
         "scriptMetadata": {
           "syntaxValid": true,
           "syntaxError": null,
-          "lastAnalyzedAt": "2026-11-19T07:35:59.782Z"
+          "lastAnalyzedAt": "2026-11-19T07:52:30.129Z"
         }
       }
     },
@@ -9606,7 +9622,7 @@
             },
             "respectRobotsTxt": {
               "type": "static",
-              "value": true
+              "value": false
             }
           }
         }
@@ -9819,15 +9835,15 @@
           "schemaKey": "5e89dec4b30ad30b7e90defbbf591e5a590be57db91c3a161410d118418235e1"
         }
       },
-      "scriptVersionId": "sv_0toqnshFgmSa6NZ9bNb",
+      "scriptVersionId": "sv_0toqojlh9wRtf8F7Yrd",
       "currentScriptVersion": {
-        "id": "sv_0toqnshFgmSa6NZ9bNb",
+        "id": "sv_0toqojlh9wRtf8F7Yrd",
         "scriptName": "Untitled",
-        "versionNumber": 1,
+        "versionNumber": 2,
         "scriptId": "tcs_0toqnshharuu7mupj4D",
         "isInline": true,
         "language": "python",
-        "code": "import re\n\nSOCIAL = ('linkedin.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'youtube.com', 'medium.com', 'github.com', 'tiktok.com',\n          'crunchbase.com', 'angel.co', 'wellfound.com', 'google.com', 'apple.com', 'startupschool.org', 'amazon.com', 'bit.ly', 'calendly.com')\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef host(u):\n    u = re.sub(r'^[a-z]+://', '', (u or '').strip().lower()); u = re.sub(r'^www\\d?\\.', '', u)\n    return u.split('/')[0].split('?')[0].split('#')[0]\n\nSEASON = re.compile(r'(Winter|Summer|Spring|Fall|Autumn)\\s*(20\\d\\d)(?!\\d)')\nFUND = re.compile(r'\\bFund\\s+([IVX]+|\\d+)\\b')\nSTATUS = re.compile(r'(Active|Acquired|Inactive|Public|Exited|Closed)(?=[A-Z]|\\s|$)')\n\ndef handler(context):\n    g = context.get_input\n    firm_dom = host(g('firm_domain'))\n    urls = g('profiles_to_open') or []\n    listed = g('companies') or []\n    found = int(g('found') or 0); pages_read = int(g('pages_read') or 0)\n    last = int(g('last_count') or 0); expected = int(g('expected_count') or 0)\n    recipe_known = bool(g('method'))\n    out, failed_profiles = [], 0\n    for i, r in enumerate(_items(g('profile_scrape'))):\n        r = r.get('result', r) if isinstance(r, dict) else {}\n        url = urls[i] if i < len(urls) else ''\n        if not isinstance(r, dict) or not (r.get('bodyText') or r.get('links')):\n            failed_profiles += 1; continue\n        title = re.split(r'\\s[:|–-]\\s|:', r.get('title') or '')[0].strip()\n        site = ''\n        for l in r.get('links') or []:\n            h = host(l.get('href'))\n            if h and h != firm_dom and not h.endswith('.' + firm_dom) and not any(s in h for s in SOCIAL):\n                site = h; break\n        body = r.get('bodyText') or ''\n        m = SEASON.search(body) or FUND.search(body); s = STATUS.search(body)\n        batch = (m.group(1) + ' ' + m.group(2)) if m and m.re is SEASON else (m.group(0) if m else '')\n        out.append({'company': title, 'website': site, 'fund_or_batch': batch, 'status': s.group(1) if s else '', 'profile_url': url})\n    for c in listed:\n        out.append({'company': c.get('company') or c.get('website') or '', 'website': c.get('website') or '', 'fund_or_batch': '', 'status': '', 'profile_url': ''})\n    # Health: is the recipe still reading this site?\n    reasons = []\n    if pages_read == 0: reasons.append('the directory fetch returned nothing')\n    if found == 0: reasons.append('no company links matched the recipe')\n    if last and found < 0.5 * last: reasons.append(f'found {found} vs {last} last time')\n    if urls and failed_profiles > 0.5 * len(urls): reasons.append(f'{failed_profiles} of {len(urls)} profile pages failed')\n    if not recipe_known: status = 'no_recipe'\n    elif reasons: status = 'broken'\n    elif expected and found < 0.8 * expected: status = 'partial'\n    else: status = 'ok'\n    return {'directory_companies': out, 'directory_status': status, 'directory_found': found, 'profiles_read': len(urls) - failed_profiles,\n            'health_reason': '; '.join(reasons) or ('below the site\\'s stated total' if status == 'partial' else ''), 'needs_fallback': status in ('broken', 'no_recipe')}\n",
+        "code": "import re\n\nSOCIAL = ('linkedin.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'youtube.com', 'medium.com', 'github.com', 'tiktok.com',\n          'crunchbase.com', 'angel.co', 'wellfound.com', 'google.com', 'apple.com', 'startupschool.org', 'amazon.com', 'bit.ly', 'calendly.com')\n\ndef _items(x):\n    if isinstance(x, list): return x\n    if isinstance(x, dict):\n        for k in ('results', 'entries', 'items', 'outputs'):\n            if isinstance(x.get(k), list): return x[k]\n        return [x]\n    return []\n\ndef host(u):\n    u = re.sub(r'^[a-z]+://', '', (u or '').strip().lower()); u = re.sub(r'^www\\d?\\.', '', u)\n    return u.split('/')[0].split('?')[0].split('#')[0]\n\nSEASON = re.compile(r'(Winter|Summer|Spring|Fall|Autumn)\\s*(20\\d\\d)(?!\\d)')\nFUND = re.compile(r'\\bFund\\s+([IVX]+|\\d+)\\b')\nSTATUS = re.compile(r'(Active|Acquired|Inactive|Public|Exited|Closed)(?=[A-Z]|\\s|$)')\n\ndef handler(context):\n    g = context.get_input\n    firm_dom = host(g('firm_domain'))\n    urls = g('profiles_to_open') or []\n    listed = g('companies') or []\n    found = int(g('found') or 0); pages_read = int(g('pages_read') or 0)\n    last = int(g('last_count') or 0); expected = int(g('expected_count') or 0)\n    recipe_known = bool(g('method'))\n    out, failed_profiles = [], 0\n    blocked = bool(g('blocked_by_robots'))\n    for i, r in enumerate(_items(g('profile_scrape'))[:len(urls)]):\n        r = r.get('result', r) if isinstance(r, dict) else {}\n        url = urls[i] if i < len(urls) else ''\n        if not isinstance(r, dict) or not (r.get('bodyText') or r.get('links')):\n            failed_profiles += 1; continue\n        title = re.split(r'\\s[:|–-]\\s|:', r.get('title') or '')[0].strip()\n        site = ''\n        for l in r.get('links') or []:\n            h = host(l.get('href'))\n            if h and h != firm_dom and not h.endswith('.' + firm_dom) and not any(s in h for s in SOCIAL):\n                site = h; break\n        body = r.get('bodyText') or ''\n        m = SEASON.search(body) or FUND.search(body); s = STATUS.search(body)\n        batch = (m.group(1) + ' ' + m.group(2)) if m and m.re is SEASON else (m.group(0) if m else '')\n        out.append({'company': title, 'website': site, 'fund_or_batch': batch, 'status': s.group(1) if s else '', 'profile_url': url})\n    for c in listed:\n        out.append({'company': c.get('company') or c.get('website') or '', 'website': c.get('website') or '', 'fund_or_batch': '', 'status': '', 'profile_url': ''})\n    # Health: is the recipe still reading this site?\n    reasons = []\n    if pages_read == 0: reasons.append('the directory fetch returned nothing')\n    if found == 0: reasons.append('no company links matched the recipe')\n    if last and found < 0.5 * last: reasons.append(f'found {found} vs {last} last time')\n    if urls and failed_profiles > 0.5 * len(urls): reasons.append(f'{failed_profiles} of {len(urls)} profile pages failed')\n    if not recipe_known: status = 'no_recipe'\n    elif reasons: status = 'broken'\n    elif expected and found < 0.8 * expected: status = 'partial'\n    else: status = 'ok'\n    return {'directory_companies': out, 'directory_status': status, 'directory_found': found, 'profiles_read': len(urls) - failed_profiles,\n            'health_reason': '; '.join(reasons) or ('below the site\\'s stated total' if status == 'partial' else ''), 'needs_fallback': status in ('broken', 'no_recipe')}\n",
         "inputSchema": {},
         "outputSchema": {
           "health_reason": {
@@ -9862,7 +9878,7 @@
         "scriptMetadata": {
           "syntaxValid": true,
           "syntaxError": null,
-          "lastAnalyzedAt": "2026-11-19T07:36:17.653Z"
+          "lastAnalyzedAt": "2026-11-19T07:52:33.981Z"
         }
       }
     },
@@ -10398,11 +10414,11 @@
           "schemaKey": "24e6bf83d18749aeb06969561dc8b413d6f6037fc74c62c16ca4a992b8890096"
         }
       },
-      "scriptVersionId": "sv_0toqnvnkhnHUabPjyp2",
+      "scriptVersionId": "sv_0toqojnaqbSNQ2CnR53",
       "currentScriptVersion": {
-        "id": "sv_0toqnvnkhnHUabPjyp2",
+        "id": "sv_0toqojnaqbSNQ2CnR53",
         "scriptName": "Untitled",
-        "versionNumber": 1,
+        "versionNumber": 2,
         "scriptId": "tcs_0toqnvnkDAQt7aw2Eet",
         "isInline": true,
         "language": "python",
@@ -10433,7 +10449,7 @@
         "scriptMetadata": {
           "syntaxValid": true,
           "syntaxError": null,
-          "lastAnalyzedAt": "2026-11-19T07:38:11.671Z"
+          "lastAnalyzedAt": "2026-11-19T07:52:35.747Z"
         }
       }
     },

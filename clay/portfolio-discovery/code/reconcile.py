@@ -15,6 +15,7 @@ def _res(it):
     return it.get('result') if isinstance(it, dict) and 'result' in it else it
 
 _PROTO = re.compile(r'^[a-z]+://'); _WWW = re.compile(r'^www\d?\.'); _DOMOK = re.compile(r'[a-z0-9][a-z0-9.-]*\.[a-z]{2,63}')
+_PAREN = re.compile(r'\s*\([^)]*\)\s*$')
 _SUFFIX = re.compile(r'\b(inc|llc|ltd|limited|corp|corporation|co|gmbh|sas|ab|oy|bv|plc|labs?|technologies|technology|ai|hq|app)\b\.?')
 _NONAL = re.compile(r'[^a-z0-9]+')
 _dc, _nc = {}, {}
@@ -43,6 +44,10 @@ def handler(context):
     lane_raw = {l: 0 for l in LANES}
 
     def upsert(name, domain, lane, ev):
+        # PitchBook appends the industry: "Punch (Business/Productivity Software)". Emails are page junk, not companies.
+        name = _PAREN.sub('', name or '').strip()
+        if '@' in name: name = ''
+        if '@' in (domain or ''): domain = ''
         d, k = dom(domain), nkey(name)
         if not d and not k: return
         c = None
@@ -97,6 +102,7 @@ def handler(context):
     # Incremental: what we already know about this firm's companies.
     known_by = {}
     for k in g('known_companies') or []:
+        if '@' in (k.get('name') or ''): continue
         for key in filter(None, [dom(k.get('domain')), 'name:' + nkey(k.get('name'))]):
             known_by.setdefault(key, k)
     today = (g('today') or '')[:10]
@@ -108,10 +114,18 @@ def handler(context):
     rotation_budget = max(1, max_verify // 10)
     picked, reasons = 0, {'new': 0, 'changed': 0, 'unresolved': 0, 'refresh': 0}
     verify, held, cached = [], [], []
+    used_known = set()
     for c in ranked:
-        c['key'] = c['domain'] or 'name:' + nkey(c['name'])
         c['latest_hint'] = max(c['dates']) if c['dates'] else ''
         k = known_by.get(c['domain']) or known_by.get('name:' + nkey(c['name']))
+        if k:
+            # A name-only lane hit for a company we already resolved keeps the saved domain, and two lane hits for the
+            # same saved company collapse into one row.
+            kid = k.get('company_id') or dom(k.get('domain')) or nkey(k.get('name'))
+            if kid in used_known: continue
+            used_known.add(kid)
+            if not c['domain']: c['domain'] = dom(k.get('domain'))
+        c['key'] = c['domain'] or 'name:' + nkey(c['name'])
         why = ''
         if not k: why = 'new'
         elif k.get('backing') in ('', 'Unclear'): why = 'unresolved'
@@ -134,7 +148,7 @@ def handler(context):
         seen.add(c['domain']); seen.add('name:' + nkey(c['name']))
     for k in g('known_companies') or []:
         if dom(k.get('domain')) in seen or ('name:' + nkey(k.get('name'))) in seen: continue
-        if k.get('backing') != 'Confirmed': continue
+        if k.get('backing') != 'Confirmed' or '@' in (k.get('name') or ''): continue
         cached.append({'key': dom(k.get('domain')) or 'name:' + nkey(k.get('name')), 'name': k.get('name') or '', 'domain': dom(k.get('domain')),
                        'lanes': ['previous_run'], 'latest_hint': k.get('signal_key') or '',
                        **{f: k.get(f) or '' for f in ('backing', 'relationship', 'backing_source_url', 'latest_round_type', 'latest_round_date',

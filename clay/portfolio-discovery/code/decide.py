@@ -23,7 +23,8 @@ def handler(context):
     news_ok = [s for s in news if s.get('status') != 'broken']
     cps = [_d(s.get('checkpoint_date')) for s in news_ok if s.get('checkpoint_date')]
     news_since = max(window_start, (min(cps) - timedelta(days=14))) if cps else window_start
-    dirs = [s for s in sources if s.get('source_type') == 'portfolio_directory' and s.get('status') in ('verified', 'candidate')]
+    # A saved recipe marks a directory even when the URL was first stored under another type (e.g. as a news page).
+    dirs = [s for s in sources if (s.get('source_type') == 'portfolio_directory' or s.get('method')) and s.get('status') in ('verified', 'candidate')]
     dirs.sort(key=lambda s: (s.get('status') == 'verified', s.get('updated_at') or ''), reverse=True)
     rec = dirs[0] if dirs else {}
     recipe_ok = bool(rec.get('method') and rec.get('method') != 'agent_only' and rec.get('list_url') and int(rec.get('consecutive_failures') or 0) == 0)
