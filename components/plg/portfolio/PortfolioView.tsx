@@ -27,7 +27,17 @@ function NC({ why }: { why?: string }) {
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d.length === 10 ? `${d}T00:00:00Z` : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '–'
 
-type Col = { h: string; tip?: string; num?: boolean }
+type Col = { h: string; tip?: string; num?: boolean; sort?: string }
+type Sort = { key: string; dir: 1 | -1 }
+/** Click a sortable header to sort by it; click again to flip. Numbers start high-to-low, text A–Z. */
+const DESC_FIRST = new Set(['lastRoundAt', 'refreshed', 'last'])   // dates: newest first
+const nextSort = (cur: Sort, key: string, numeric: boolean): Sort => (cur.key === key ? { key, dir: cur.dir === 1 ? -1 : 1 } : { key, dir: numeric ? -1 : 1 })
+function cmp(a: unknown, b: unknown, dir: 1 | -1) {
+  if (a == null && b == null) return 0
+  if (a == null) return 1                          // blanks always last
+  if (b == null) return -1
+  return (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))) * dir
+}
 function ColDefs({ cols }: { cols: Col[] }) {
   return (
     <details className="text-[14px]" style={{ color: T.ink }}>
@@ -38,8 +48,20 @@ function ColDefs({ cols }: { cols: Col[] }) {
     </details>
   )
 }
-function Head({ cols }: { cols: Col[] }) {
-  return <thead><tr style={head}>{cols.map(c => <th key={c.h} className={`${th} ${c.num ? 'text-right' : 'text-left'}`}>{c.h}</th>)}</tr></thead>
+function Head({ cols, sort, onSort }: { cols: Col[]; sort?: Sort; onSort?: (s: Sort) => void }) {
+  return <thead><tr style={head}>{cols.map(c => {
+    const on = !!sort && !!c.sort && sort.key === c.sort
+    return (
+      <th key={c.h} className={`${th} ${c.num ? 'text-right' : 'text-left'}`} aria-sort={on ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}>
+        {c.sort && sort && onSort
+          ? <button type="button" onClick={() => onSort(nextSort(sort, c.sort!, !!c.num || DESC_FIRST.has(c.sort!)))} className="uppercase inline-flex items-center gap-1"
+              style={{ color: on ? T.ink : T.muted, letterSpacing: 'inherit' }}>
+              {c.h}<span aria-hidden style={{ opacity: on ? 1 : 0.35 }}>{on ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</span>
+            </button>
+          : c.h}
+      </th>
+    )
+  })}</tr></thead>
 }
 
 /* ───────────────────────── Strip ───────────────────────── */
@@ -94,26 +116,26 @@ function Strip({ c, p, eligibilityConnected, selected, onSelect }: {
 
 /* ───────────────────────── Firms ───────────────────────── */
 const FIRM_COLS: Col[] = [
-  { h: 'Firm' }, { h: 'Type' },
-  { h: 'Partner', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven is shown as a separate tag and doesn’t make a firm partnered.' },
-  { h: 'Portfolio', num: true, tip: 'Verified portfolio companies in the latest week: the denominator.' },
-  { h: 'With a workspace', num: true }, { h: 'Penetration', num: true, tip: 'With a workspace ÷ portfolio.' },
-  { h: 'Unknown', num: true, tip: 'Companies whose workspace lookup failed or needs review. Not counted as zero.' },
-  { h: 'Paying now', num: true }, { h: 'Ever paid', num: true },
+  { h: 'Firm', sort: 'name' }, { h: 'Type', sort: 'type' },
+  { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven is shown as a separate tag and doesn’t make a firm partnered.' },
+  { h: 'Portfolio', num: true, sort: 'portfolio', tip: 'Verified portfolio companies in the latest week: the denominator.' },
+  { h: 'With a workspace', num: true, sort: 'with_workspace' }, { h: 'Penetration', num: true, sort: 'penetration', tip: 'With a workspace ÷ portfolio.' },
+  { h: 'Unknown', num: true, sort: 'workspace_unknown', tip: 'Companies whose workspace lookup failed or needs review. Not counted as zero.' },
+  { h: 'Paying now', num: true, sort: 'paying_now' }, { h: 'Ever paid', num: true, sort: 'ever_paid' },
   { h: 'Eligible', num: true, tip: 'Confirmed eligible since tracking began.' },
   { h: 'Redeemed', num: true },
-  { h: 'Shared by partner', num: true, tip: 'Companies that were on a list the firm shared with us. A coverage check.' },
-  { h: 'Roster refreshed', tip: 'Last successful roster run for the firm.' },
+  { h: 'Shared by partner', num: true, sort: 'shared_by_partner', tip: 'Companies that were on a list the firm shared with us. A coverage check.' },
+  { h: 'Roster refreshed', sort: 'refreshed', tip: 'Last successful roster run for the firm.' },
 ]
 
 /* ───────────────────────── Companies ───────────────────────── */
 const COMPANY_COLS: Col[] = [
-  { h: 'Company', tip: 'Name and current domain.' },
-  { h: 'Firm(s)', tip: 'Firms in the list that back it.' },
-  { h: 'Clay workspace', tip: 'From Clay’s Snowflake lookup: matched (with the number of workspaces), no exact match, or unknown when the lookup failed or needs review.' },
-  { h: 'Paid', tip: 'Paying now, ever paid, or not. Unknown when Clay didn’t read paid status.' },
+  { h: 'Company', sort: 'name', tip: 'Name and current domain.' },
+  { h: 'Firm(s)', sort: 'firms', tip: 'Firms in the list that back it. Sorting puts companies with the most backers first.' },
+  { h: 'Clay workspace', sort: 'workspaces', tip: 'From Clay’s Snowflake lookup: matched (with the number of workspaces), no exact match, or unknown when the lookup failed or needs review.' },
+  { h: 'Paid', sort: 'paid', tip: 'Paying now, ever paid, or not. Unknown when Clay didn’t read paid status.' },
   { h: 'Offer', tip: 'Eligible since tracking began, and redemption. Redemption shows Not connected until promo-code events are in.' },
-  { h: 'Stage' }, { h: 'Last round' },
+  { h: 'Stage', sort: 'stage' }, { h: 'Last round', sort: 'lastRoundAt' },
   { h: 'Counted', tip: 'Whether the company is in the denominator, and why not: in review, or found only by matching our workspaces.' },
 ]
 
@@ -138,6 +160,7 @@ const RUN_TONE: Record<string, string> = { ok: T.ink, partial: T.amberInk, faile
 function Sources({ meta, firmIds, firmName, pick, selected }: {
   meta: PortfolioMeta; firmIds: string[] | null; firmName: (id: string) => string; pick: (id: string | null) => void; selected: string | null
 }) {
+  const [sort, setSort] = useState<Sort>({ key: 'firm', dir: 1 })
   const cov = meta.sources ?? []
   const runs = meta.sourceRuns ?? []
   const ids = firmIds ?? [...new Set(cov.map(r => r.firm_id))]
@@ -146,6 +169,17 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
   const run = new Map(runs.map(r => [`${r.firm_id}|${r.source}`, r]))
   const used = SOURCE_ORDER.filter(s => cov.some(r => r.source === s) || runs.some(r => r.source === s))
   const lastRun = (id: string) => runs.filter(r => r.firm_id === id).map(r => r.recorded_at).sort().at(-1)
+  const sorted = [...ids].sort((a, b) => cmp(
+    sort.key === 'firm' ? firmName(a) : sort.key === 'last' ? lastRun(a) ?? null : cell.get(`${a}|${sort.key}`)?.companies ?? null,
+    sort.key === 'firm' ? firmName(b) : sort.key === 'last' ? lastRun(b) ?? null : cell.get(`${b}|${sort.key}`)?.companies ?? null, sort.dir) || firmName(a).localeCompare(firmName(b)))
+  const sortTh = (key: string, label: string, right: boolean, numeric: boolean) => (
+    <th key={key} className={`px-3 py-2 text-[12px] uppercase whitespace-nowrap ${right ? 'text-right' : 'text-left'}`} style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}
+      aria-sort={sort.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+      <button type="button" onClick={() => setSort(nextSort(sort, key, numeric || DESC_FIRST.has(key)))} className="uppercase inline-flex items-center gap-1" style={{ color: sort.key === key ? T.ink : T.muted, letterSpacing: 'inherit' }}>
+        {label}<span aria-hidden style={{ opacity: sort.key === key ? 1 : 0.35 }}>{sort.key === key ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</span>
+      </button>
+    </th>
+  )
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>How each list is built</H2>
@@ -155,11 +189,11 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
       </p>
       <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-[15px]" style={{ color: T.ink }}>
         <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
-          <th className="px-3 py-2 text-left text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>Firm</th>
-          {used.map(s => <th key={s} className="px-3 py-2 text-right text-[12px] uppercase whitespace-nowrap" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{SOURCE_LABEL[s] ?? s}</th>)}
-          <th className="px-3 py-2 text-right text-[12px] uppercase whitespace-nowrap" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>Last run</th>
+          {sortTh('firm', 'Firm', false, false)}
+          {used.map(s => sortTh(s, SOURCE_LABEL[s] ?? s, true, true))}
+          {sortTh('last', 'Last run', true, false)}
         </tr></thead>
-        <tbody>{ids.map(id => (
+        <tbody>{sorted.map(id => (
           <tr key={id} onClick={() => pick(selected === id ? null : id)} className="cursor-pointer"
             style={{ borderBottom: `1px solid ${T.border}`, background: selected === id ? '#E8F6F8' : undefined }}>
             <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(id)}</td>
@@ -187,6 +221,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const [firmId, setFirmId] = useState<string | null>(null)
   const [step, setStep] = useState<StepId | null>(null)
   const [status, setStatus] = useState<StatusFilter>('All')
+  const [firmSort, setFirmSort] = useState<Sort>({ key: 'portfolio', dir: -1 })
+  const [coSort, setCoSort] = useState<Sort>({ key: 'name', dir: 1 })
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
@@ -202,6 +238,20 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const firmRows = useMemo(() => (meta && latest
     ? meta.firmRows.filter(r => r.snapshot_date === latest && (cut === 'all' || r.partnership_cut === cut)).sort((a, b) => b.portfolio - a.portfolio)
     : []), [meta, latest, cut])
+  const sortedFirmRows = useMemo(() => {
+    const val = (r: (typeof firmRows)[number]) => {
+      const f = firmsById.get(r.firm_id)
+      switch (firmSort.key) {
+        case 'name': return firmName(r.firm_id)
+        case 'type': return f?.firm_type ?? null
+        case 'cut': return CUT_LABEL[r.partnership_cut] + (f?.on_proven_tab ? ' ·' : '')
+        case 'penetration': return rate(r.with_workspace, r.portfolio)
+        case 'refreshed': return f?.roster_refreshed_at ?? null
+        default: return (r as unknown as Record<string, number | undefined>)[firmSort.key] ?? null
+      }
+    }
+    return [...firmRows].sort((a, b) => cmp(val(a), val(b), firmSort.dir) || firmName(a.firm_id).localeCompare(firmName(b.firm_id)))
+  }, [firmRows, firmSort, firmsById, firmName])
   const firmsWithoutRoster = useMemo(() => {
     if (!meta) return 0
     const has = new Set(meta.firmRows.filter(r => r.snapshot_date === latest).map(r => r.firm_id))
@@ -210,7 +260,30 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
 
   const c = meta ? countsFor(meta, latest, cut, firmId) : null
   const p = meta ? countsFor(meta, meta.previous, cut, firmId) : null
-  const list = useMemo(() => (data ? filterCompanies(data.companies, { cut, firmId, status, q, asOf: latest }) : []), [data, cut, firmId, status, q, latest])
+  // Firms with companies in the current cut, for the Companies card's firm picker (count = companies listed).
+  const firmOptions = useMemo(() => {
+    if (!data) return [] as { id: string; n: number }[]
+    const n = new Map<string, number>()
+    for (const r of filterCompanies(data.companies, { cut, firmId: null, status: 'All', q: '', asOf: latest }))
+      for (const f of r.firms) if (cut === 'all' || firmsById.get(f)?.partnership_cut === cut) n.set(f, (n.get(f) ?? 0) + 1)
+    return [...n.entries()].map(([id, c]) => ({ id, n: c })).sort((a, b) => firmName(a.id).localeCompare(firmName(b.id)))
+  }, [data, cut, latest, firmName, firmsById])
+  const list = useMemo(() => {
+    if (!data) return []
+    const rows = filterCompanies(data.companies, { cut, firmId, status, q, asOf: latest })
+    const val = (r: CompanyRow): unknown => {
+      switch (coSort.key) {
+        case 'name': return r.name.toLowerCase()
+        case 'firms': return r.firms.length
+        case 'workspaces': return r.hasWorkspace === true ? (r.workspaces ?? 1) : r.hasWorkspace === false ? 0 : null
+        case 'paid': return r.payingNow ? 2 : r.everPaid ? 1 : r.everPaid === false ? 0 : null
+        case 'stage': return r.stage
+        case 'lastRoundAt': return r.lastRoundAt
+        default: return null
+      }
+    }
+    return [...rows].sort((a, b) => cmp(val(a), val(b), coSort.dir) || a.name.localeCompare(b.name))
+  }, [data, cut, firmId, status, q, latest, coSort])
 
   const setCutAndReset = (v: CutFilter) => { setCut(v); setFirmId(null); setShown(PAGE) }
   const pickStep = (s: StepId | null) => { setStep(s); setStatus(s ? STEP_FILTER[s] : 'All'); setShown(PAGE) }
@@ -234,7 +307,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <select value={firmId ?? ''} onChange={e => pickFirm(e.target.value || null)} disabled={!firmRows.length}
             className="rounded-full px-3 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }}>
             <option value="">All firms in the cut</option>
-            {firmRows.map(r => <option key={r.firm_id} value={r.firm_id}>{firmName(r.firm_id)}</option>)}
+            {[...firmRows].sort((a, b) => firmName(a.firm_id).localeCompare(firmName(b.firm_id))).map(r => <option key={r.firm_id} value={r.firm_id}>{firmName(r.firm_id)}</option>)}
           </select>
         </label>
         <span className="text-[13px]" style={{ ...mono, color: T.muted }}>
@@ -268,9 +341,9 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <H2>Firms</H2>
           <p className="text-[15px]" style={{ color: T.muted }}>Click a firm to filter the numbers and companies to it. A company backed by two firms counts in both rows, once in the totals.</p>
           <div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-[15px]" style={{ color: T.ink }}>
-            <Head cols={FIRM_COLS} />
+            <Head cols={FIRM_COLS} sort={firmSort} onSort={setFirmSort} />
             <tbody>
-              {firmRows.length ? firmRows.map(r => {
+              {sortedFirmRows.length ? sortedFirmRows.map(r => {
                 const f = firmsById.get(r.firm_id)
                 const on = firmId === r.firm_id
                 return (
@@ -311,6 +384,11 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               style={{ background: onExport && list.length ? T.ink : '#EFEEEA', color: onExport && list.length ? '#fff' : T.faint }}>Export CSV</button>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <select value={firmId ?? ''} onChange={e => pickFirm(e.target.value || null)} aria-label="Filter companies by firm"
+              className="rounded-full px-3 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${firmId ? T.ink : T.border}`, color: T.ink }}>
+              <option value="">All firms · {CUT_LABEL[cut].toLowerCase()}</option>
+              {firmOptions.map(f => <option key={f.id} value={f.id}>{firmName(f.id)} ({fmtInt(f.n)})</option>)}
+            </select>
             <input type="search" value={q} onChange={e => { setQ(e.target.value); setShown(PAGE) }} placeholder="Search company or domain"
               className="rounded-full px-4 py-2 text-[14px] min-w-[240px]" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }} />
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
@@ -324,7 +402,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <p className="text-[14px]" style={{ color: T.muted, ...mono }}>{fmtInt(list.length)} {list.length === 1 ? 'company' : 'companies'}</p>
           {exportMsg && <p className="text-[13px]" style={{ color: T.neg }}>{exportMsg}</p>}
           <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-[15px]" style={{ color: T.ink }}>
-            <Head cols={COMPANY_COLS} />
+            <Head cols={COMPANY_COLS} sort={coSort} onSort={s => { setCoSort(s); setShown(PAGE) }} />
             <tbody>
               {list.length ? list.slice(0, shown).map(r => (
                 <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
