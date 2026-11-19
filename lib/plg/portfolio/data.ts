@@ -78,7 +78,7 @@ export type PortfolioMeta = {
 }
 
 export type SourceCoverage = { firm_id: string; source: string; companies: number; only: number }
-export type SourceRun = { firm_id: string; source: string; status: string; companies: number; cap_hit: boolean; error: string | null; recorded_at: string }
+export type SourceRun = { firm_id: string; source: string; status: string; companies: number; cap_hit?: boolean; error?: string | null; recorded_at: string }
 
 /** Sources in display order, with plain names. Salesforce is a lookup of our CRM, not a portfolio source. */
 export const SOURCE_LABEL: Record<string, string> = {

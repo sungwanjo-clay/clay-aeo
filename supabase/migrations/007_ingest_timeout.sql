@@ -10,3 +10,8 @@
 
 alter role anon set statement_timeout = '30s';
 notify pgrst, 'reload config';
+
+-- dashboard.snapshot_companies looks up each company's first eligible week in company_snapshots by company_id; the
+-- primary key leads with snapshot_date, so at ~10k companies that lookup was a scan per row and the view timed out.
+create index if not exists company_snapshots_company_idx on portfolio.company_snapshots (company_id, snapshot_date);
+analyze portfolio.company_snapshots;

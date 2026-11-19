@@ -37,7 +37,7 @@ async function view(name) {
       j = await res.json()
       if (res.ok) break
       // Heavy views can hit the statement timeout while others run; retry once on its own.
-      if (attempt < 1 && /statement timeout/i.test(j.message ?? '')) { await new Promise(r => setTimeout(r, 3000)); continue }
+      if (attempt < 5 && /statement timeout/i.test(j.message ?? '')) { await new Promise(r => setTimeout(r, 5000 * (attempt + 1))); continue }
       throw new Error(`${name}: ${j.message ?? res.status}`)
     }
     rows.push(...j.rows)
@@ -49,7 +49,12 @@ async function view(name) {
 const NAMES = ['snapshots', 'portfolio_totals', 'firm_penetration', 'snapshot_companies', 'firms', 'roster', 'companies', 'company_status',
   'source_coverage', 'source_runs']
 const got = []
-for (const n of NAMES) { const t = Date.now(); got.push(await view(n)); console.error(`${n}: ${got.at(-1).length} rows in ${Date.now() - t} ms`) }
+// META_ONLY=1: firm-level numbers only (skips the heavy per-company view); the companies list keeps its last sync.
+const META_ONLY = process.env.META_ONLY === '1'
+for (const n of NAMES) {
+  if (META_ONLY && n === 'snapshot_companies') { got.push([]); continue }
+  const t = Date.now(); got.push(await view(n)); console.error(`${n}: ${got.at(-1).length} rows in ${Date.now() - t} ms`)
+}
 const [snapshots, totals, firmPen, snapCos, firms, roster, companies, status, coverage, sourceRuns] = got
 
 const complete = snapshots.filter(s => s.status === 'complete' && !s.is_staging).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
@@ -122,9 +127,10 @@ const meta = {
   // Discovery writes the week's rounds with funding_fit 'unknown'; eligibility is connected only once the
   // eligibility workflow has assessed companies for that week.
   // ARR is connected once any matched company in the latest week has it (Clay's status lookup, after migration 006).
-  arrConnected: latest ? snapCos.some(s => s.snapshot_date === latest.snapshot_date && s.paying_arr_usd != null && s.lookup_status === 'matched') : false,
+  arrConnected: latest ? (META_ONLY ? firmPen.some(r => r.snapshot_date === latest.snapshot_date && Number(r.paying_arr_usd) > 0)
+    : snapCos.some(s => s.snapshot_date === latest.snapshot_date && s.paying_arr_usd != null && s.lookup_status === 'matched')) : false,
   eligibilityConnected: latest ? status.some(s => s.snapshot_date === latest.snapshot_date && s.funding_fit && s.funding_fit !== 'unknown') : false,
-  companyChunks: chunks.length,
+  companyChunks: META_ONLY ? Number(process.env.PREV_CHUNKS || 0) : chunks.length,
   openWeek: (() => { const o = snapshots.find(x => x.status === 'open' && !x.is_staging); return o ? { snapshot_date: o.snapshot_date, lookups: num(o.lookups) } : null })(),
   // How each firm's list is built: verified companies per source (and found only by it), and each source's latest run.
   sources: coverage.map(r => ({ firm_id: r.firm_id, source: r.source, companies: num(r.companies), only: num(r.only_this_source) })),
@@ -137,8 +143,10 @@ const meta = {
     if (!cur || r.recorded_at > cur.recorded_at) m.set(k, r)
     return m
   }, new Map()).values()].map(r => ({ firm_id: r.firm_id, source: r.source, status: r.status, companies: num(r.companies),
-    cap_hit: !!r.cap_hit, error: r.error || null, recorded_at: r.recorded_at })),
+    // Compact: the page shows the day and, for runs that weren't ok, a short error (documents are capped at 256 KB).
+    ...(r.cap_hit ? { cap_hit: true } : {}), ...(r.status !== 'ok' && r.error ? { error: String(r.error).slice(0, 120) } : {}),
+    recorded_at: String(r.recorded_at).slice(0, 10) })),
 }
-const docs = [{ path: 'portfolio/meta', data: meta }, ...chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } }))]
+const docs = [{ path: 'portfolio/meta', data: meta }, ...(META_ONLY ? [] : chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } })))]
 writeFileSync(out, JSON.stringify({ docs }))
 console.log(`latest complete snapshot: ${latest?.snapshot_date ?? 'none'} · firms ${firms.length} · companies ${rows.length} (${rows.filter(r => r.inDenominator).length} in denominator) · ${docs.length} docs → ${out}`)
