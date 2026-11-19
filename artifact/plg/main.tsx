@@ -19,6 +19,7 @@ import { CHANNELS } from '@/lib/plg/social/config'
 import { socialSql } from '@/lib/plg/social/sql'
 import StartupView from '@/components/plg/startup/StartupView'
 import PortfolioView from '@/components/plg/portfolio/PortfolioView'
+import type { CompanyRow, PortfolioData, PortfolioMeta } from '@/lib/plg/portfolio/data'
 import { buildStartup, parseStartupRows } from '@/lib/plg/startup/compute'
 import { startupSql } from '@/lib/plg/startup/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
@@ -126,6 +127,9 @@ function App() {
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
+  // Portfolio tab: synced from the Supabase reporting views into db `portfolio/*` (undefined = loading, null = not synced).
+  const [portfolio, setPortfolio] = useState<PortfolioData | null | undefined>(undefined)
+  const [downloads, setDownloads] = useState<any>(null)
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
   // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
@@ -135,8 +139,16 @@ function App() {
   useEffect(() => {
     if (!window.claude?.use) { queueMicrotask(() => setMcp(null)); return }
     window.claude.use('mcp').then(m => setMcp(m ?? null)).catch(() => setMcp(null))
+    window.claude.use('downloads').then(x => setDownloads(x ?? null)).catch(() => setDownloads(null))
     window.claude.use('db').then(async d => {
-      if (!d) return
+      if (!d) { setPortfolio(null); return }
+      d.doc('portfolio/meta').get().then(async (snap: any) => {
+        if (!snap?.exists) { setPortfolio(null); return }
+        const meta = snap.data() as PortfolioMeta
+        const parts = await Promise.all(Array.from({ length: meta.companyChunks ?? 0 }, (_, i) =>
+          d.doc(`portfolio/companies-${i}`).get().then((x: any) => (x?.exists ? (x.data()?.rows as CompanyRow[]) : [])).catch(() => [])))
+        setPortfolio({ meta, companies: parts.flat() })
+      }).catch(() => setPortfolio(null))
       setDb(d)
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
         .then(snaps => setYt(snaps.filter(x => x?.exists).map(x => x.data() as YtChannelDoc)))
@@ -339,7 +351,8 @@ function App() {
     <DashboardView
       tab={route.tab}
       startup={startupPane}
-      portfolio={route.tab === 'portfolio' ? <PortfolioView /> : null}
+      portfolio={route.tab === 'portfolio' ? <PortfolioView data={portfolio}
+        onExport={downloads ? async (filename, csv) => { await downloads.save({ filename, data: new Blob([csv], { type: 'text/csv' }) }) } : undefined} /> : null}
       onTab={t => go(t, route.channel)}
       socialSubtitle={route.channel === 'peter' ? 'Peter Kang’s YouTube channel (@peterfromclay)'
         : route.channel === 'payton' ? 'Payton’s YouTube channel, Not My Business (@itsnotmybusiness)'
