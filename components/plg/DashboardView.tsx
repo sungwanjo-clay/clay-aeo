@@ -50,10 +50,12 @@ function freshness(v: DashboardPayload, refreshedAt?: number | string | null) {
   return `${through} · refreshed ${t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
 }
 
-export default function DashboardView({ v, loading, error, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
+export default function DashboardView({ v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
   v: DashboardPayload
   loading: boolean
   error: string | null
+  /** Neutral banner under the filters, e.g. "showing the saved 7-day view; connect Sigma for other dates". */
+  notice?: React.ReactNode
   onChange: (patch: Partial<FilterState>) => void
   /** When the shown data was produced (e.g. Sigma cache.storedAt). */
   refreshedAt?: number | string | null
@@ -108,6 +110,7 @@ export default function DashboardView({ v, loading, error, onChange, refreshedAt
         dataStart={v.range.dataStart} dataEnd={v.range.dataEnd}
         onChange={update}
       />
+      {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
       {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}

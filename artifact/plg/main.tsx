@@ -37,8 +37,38 @@ declare global { interface Window { claude?: { use(name: string): Promise<any> }
 
 const CACHE = { staleTime: 6 * 3600_000, gcTime: 7 * 24 * 3600_000 }
 const STORAGE_KEY = 'plg-filters'
+const fmtDay = (d: ISODate) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 
 type Problem = { code: string; message: string } | null
+
+/*
+ * Saved default view. Viewers without a working Clay Sigma connection see the default "Last 7 days" view from a copy
+ * kept in this page's db (collection `cache`, readable by everyone who can open the page, written by editors). It is
+ * refreshed whenever someone with Sigma and edit access loads the default view. Any other range needs Sigma.
+ */
+type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate }
+const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
+const NO_SIGMA = new Set(['no_runtime', 'server_not_connected', 'needs_reauth', 'not_granted', 'blocked_by_policy', 'approval_required', 'not_in_manifest'])
+async function readCached(db: Db, name: string): Promise<Cached | null> {
+  try {
+    const h = await db.doc(`cache/${name}`).get()
+    if (!h?.exists) return null
+    const head = h.data() as { parts: number; key: string; storedAt: number; dataEnd: ISODate }
+    const parts = await Promise.all(Array.from({ length: head.parts }, (_, i) => db.doc(`cache/${name}-${i}`).get()))
+    if (parts.some((x: any) => !x?.exists)) return null
+    const payload = JSON.parse(parts.map((x: any) => x.data().s as string).join(''))
+    return { key: head.key, payload, storedAt: head.storedAt, dataEnd: head.dataEnd }
+  } catch { return null }
+}
+async function writeCached(db: Db, name: string, c: Cached): Promise<boolean> {
+  try {
+    const json = JSON.stringify(c.payload)
+    const n = Math.max(1, Math.ceil(json.length / CACHE_PART))
+    for (let i = 0; i < n; i++) await db.doc(`cache/${name}-${i}`).set({ s: json.slice(i * CACHE_PART, (i + 1) * CACHE_PART) })
+    await db.doc(`cache/${name}`).set({ parts: n, key: c.key, storedAt: c.storedAt, dataEnd: c.dataEnd })   // header last: readers never see a half-written copy
+    return true
+  } catch { return false }   // viewers who can't edit the page can't write the copy
+}
 
 function problemCopy(p: NonNullable<Problem>): { title: string; body: string; canAllow?: boolean } {
   switch (p.code) {
@@ -119,6 +149,9 @@ function App() {
   const [problem, setProblem] = useState<Problem>(null)
   const [restatements, setRestatements] = useState<Meta['restatements']>([])
   const [attempt, setAttempt] = useState(0)
+  // Saved default view (undefined = not read yet, null = none).
+  const [saved, setSaved] = useState<Record<'main' | 'social' | 'startup', Cached | null> | undefined>(undefined)
+  const [notice, setNotice] = useState<string | null>(null)
   // Social tab: routed on the hash (#social, #social-peter) so links can point at it.
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
@@ -141,7 +174,7 @@ function App() {
     window.claude.use('mcp').then(m => setMcp(m ?? null)).catch(() => setMcp(null))
     window.claude.use('downloads').then(x => setDownloads(x ?? null)).catch(() => setDownloads(null))
     window.claude.use('db').then(async d => {
-      if (!d) { setPortfolio(null); return }
+      if (!d) { setPortfolio(null); setSaved({ main: null, social: null, startup: null }); return }
       d.doc('portfolio/meta').get().then(async (snap: any) => {
         if (!snap?.exists) { setPortfolio(null); return }
         const meta = snap.data() as PortfolioMeta
@@ -150,6 +183,8 @@ function App() {
         setPortfolio({ meta, companies: parts.flat() })
       }).catch(() => setPortfolio(null))
       setDb(d)
+      Promise.all((['main', 'social', 'startup'] as const).map(n => readCached(d, n)))
+        .then(([main, social, startup]) => setSaved({ main, social, startup })).catch(() => setSaved({ main: null, social: null, startup: null }))
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
         .then(snaps => setYt(snaps.filter(x => x?.exists).map(x => x.data() as YtChannelDoc)))
         .catch(() => setYt([]))
@@ -183,8 +218,13 @@ function App() {
   }, [mcp, handleError, attempt])
 
   const quarters = useMemo(() => resolveQuarters(DEFAULT_QUARTERS, goals), [goals])
-  const plan = useMemo(() => (dataEnd ? planDashboard(new URLSearchParams(qs), dataEnd, quarters) : null), [dataEnd, qs, quarters])
+  // No Sigma for this viewer (no connector, not allowed, signed out of Sigma…): fall back to the saved default view.
+  const sigmaDown = mcp === null || (!!problem && NO_SIGMA.has(problem.code) && !result)
+  const offline = sigmaDown && !!saved?.main
+  const effEnd = offline ? saved!.main!.dataEnd : dataEnd
+  const plan = useMemo(() => (effEnd ? planDashboard(new URLSearchParams(offline ? '' : qs), effEnd, quarters) : null), [effEnd, qs, quarters, offline])
   const sql = useMemo(() => (plan ? dashboardSql(plan) : null), [plan])
+  const defaultSql = useMemo(() => (dataEnd ? dashboardSql(planDashboard(new URLSearchParams(''), dataEnd, quarters)) : null), [dataEnd, quarters])
 
   // Main query for the current filter state.
   useEffect(() => {
@@ -207,17 +247,29 @@ function App() {
   }, [mcp, sql, handleError, attempt])
 
   // Parse once per result; assemble separately so restatement updates don't re-parse.
+  const shownResult = offline ? { key: sql ?? '', payload: saved!.main!.payload, storedAt: saved!.main!.storedAt } : result
   const parsed = useMemo(() => {
-    if (!plan || !result) return null
-    try { return { data: parseDashboardRows(result.payload, plan), stale: result.key !== sql } }
+    if (!plan || !shownResult) return null
+    try { return { data: parseDashboardRows(shownResult.payload, plan), stale: !offline && shownResult.key !== sql } }
     catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
-  }, [plan, result, sql])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, shownResult?.payload, shownResult?.key, sql, offline])
 
   const view = useMemo(() => {
-    if (!parsed || !plan || !dataEnd) return null
+    if (!parsed || !plan || !effEnd) return null
     if ('error' in parsed) return { error: parsed.error }
-    return { v: assembleDashboard(plan, emptyMeta(dataEnd, goals, restatements), parsed.data!, 'sigma'), stale: parsed.stale }
-  }, [parsed, plan, dataEnd, goals, restatements])
+    return { v: assembleDashboard(plan, emptyMeta(effEnd, goals, restatements), parsed.data!, 'sigma'), stale: parsed.stale }
+  }, [parsed, plan, effEnd, goals, restatements])
+
+  // Keep the saved default view current: when this viewer loads the default view live, store it (editors only;
+  // other viewers' writes are refused and ignored).
+  useEffect(() => {
+    if (!db || !result || !dataEnd || offline || result.key !== defaultSql) return
+    const at = result.storedAt ?? Date.now()
+    if (saved?.main && saved.main.storedAt >= at) return
+    const c: Cached = { key: result.key, payload: result.payload, storedAt: at, dataEnd }
+    writeCached(db, 'main', c).then(ok => { if (ok) setSaved(s => ({ ...(s ?? { social: null, startup: null }), main: c })) })
+  }, [db, result, dataEnd, defaultSql, offline, saved?.main])
 
   // Restatement log (only when fresh data for the current state arrives).
   const recent = parsed && 'data' in parsed && !parsed.stale ? parsed.data!.dailies.recent : null
@@ -229,11 +281,12 @@ function App() {
   }, [db, recent, dataEnd])
 
   const onChange = useCallback((patch: Partial<FilterState>) => {
+    if (offline) { setNotice('Other dates, comparisons and grains need a Clay Sigma connection. Connect Clay Sigma in claude.ai Settings → Connectors, then reload.'); return }
     if (!view || !('v' in view) || !view.v) return
     const next = paramsFor(view.v, patch).toString()
     saveQs(next)
     setQs(next)
-  }, [view])
+  }, [view, offline])
 
   const allow = useCallback(async () => {
     if (!mcp) return
@@ -258,10 +311,10 @@ function App() {
   const socialRanges = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
   // One query serves both sub-tabs; it waits for the YouTube documents (video → campaign lookup).
   const socialSqlText = useMemo(() => {
-    if (!socialRanges || !dataEnd || route.tab !== 'social' || yt == null) return null
+    if (!socialRanges || !dataEnd || route.tab !== 'social' || yt == null || offline) return null
     return socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd), fallbacks: channelFallbacks(yt, dataEnd) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, yt, dataEnd])
+  }, [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, yt, dataEnd, offline])
   useEffect(() => {
     if (!mcp || !socialSqlText) return
     const key = socialSqlText
@@ -273,22 +326,23 @@ function App() {
     }, { cache: CACHE })
     return unsub
   }, [mcp, socialSqlText])
+  const socialShown = offline ? (saved?.social ? { key: '', payload: saved.social.payload } : null) : socialResult
   const socialView = useMemo(() => {
-    if (!socialResult || !socialRanges || !dataEnd) return null
+    if (!socialShown || !socialRanges || !effEnd) return null
     try {
       return {
-        s: buildSocial({ scope: route.channel, mode: modes[route.channel], cur: socialRanges.cur, prev: socialRanges.prev, dataEnd,
-          rows: parseSocialRows(socialResult.payload), yt: yt ?? [] }),
-        stale: socialResult.key !== socialSqlText,
+        s: buildSocial({ scope: route.channel, mode: modes[route.channel], cur: socialRanges.cur, prev: socialRanges.prev, dataEnd: effEnd,
+          rows: parseSocialRows(socialShown.payload), yt: yt ?? [] }),
+        stale: !offline && socialShown.key !== socialSqlText,
       }
     } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socialResult, yt, route.channel, modes, socialSqlText, dataEnd])
+  }, [socialShown?.payload, yt, route.channel, modes, socialSqlText, effEnd, offline])
 
   // ── Startup program tab ──────────────────────────────────────────────────
-  const startupSqlText = useMemo(() => (socialRanges && route.tab === 'startup' ? startupSql(socialRanges) : null),
+  const startupSqlText = useMemo(() => (socialRanges && route.tab === 'startup' && !offline ? startupSql(socialRanges) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab])
+    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, offline])
   const [startupResult, setStartupResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [startupProblem, setStartupProblem] = useState<Problem>(null)
   useEffect(() => {
@@ -302,16 +356,58 @@ function App() {
     }, { cache: CACHE })
     return unsub
   }, [mcp, startupSqlText])
+  const startupShown = offline ? (saved?.startup ? { key: '', payload: saved.startup.payload } : null) : startupResult
   const startupView = useMemo(() => {
-    if (!startupResult || !socialRanges || !dataEnd) return null
+    if (!startupShown || !socialRanges || !effEnd) return null
     try {
-      return { s: buildStartup({ cur: socialRanges.cur, prev: socialRanges.prev, dataEnd, rows: parseStartupRows(startupResult.payload) }), stale: startupResult.key !== startupSqlText }
+      return { s: buildStartup({ cur: socialRanges.cur, prev: socialRanges.prev, dataEnd: effEnd, rows: parseStartupRows(startupShown.payload) }), stale: !offline && startupShown.key !== startupSqlText }
     } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startupResult, startupSqlText, dataEnd])
+  }, [startupShown?.payload, startupSqlText, effEnd, offline])
+
+  // Saved copies of the Media properties and Startup default views: written when this viewer loads them live in the
+  // default range, and warmed in the background (at most every 12 h) once this viewer has shown it can write the copy.
+  const isDefault = !offline && !!sql && sql === defaultSql
+  const [canWrite, setCanWrite] = useState(false)
+  useEffect(() => {
+    if (!db || !dataEnd || !isDefault) return
+    for (const [name, r] of [['social', socialResult], ['startup', startupResult]] as const) {
+      if (!r || (name === 'social' ? r.key !== socialSqlText : r.key !== startupSqlText)) continue
+      const prev = saved?.[name]
+      if (prev && prev.key === r.key) continue
+      const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
+      writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? { main: null, social: null, startup: null }), [name]: c })) } })
+    }
+  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, saved])
+  useEffect(() => {
+    if (!db || !mcp || !dataEnd || !isDefault || !socialRanges || yt == null || saved === undefined) return
+    let live = true
+    ;(async () => {
+      // Probe once: only editors can write the copy, so other viewers never spend Sigma queries warming it.
+      const ok = canWrite || await db.doc('cache/probe').set({ at: Date.now() }).then(() => true).catch(() => false)
+      if (!ok || !live) return
+      setCanWrite(true)
+      const due = (c: Cached | null) => !c || c.dataEnd !== dataEnd || Date.now() - c.storedAt > 12 * 3600_000
+      const jobs: ['social' | 'startup', string][] = []
+      if (due(saved.social ?? null) && route.tab !== 'social')
+        jobs.push(['social', socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd), fallbacks: channelFallbacks(yt, dataEnd) })])
+      if (due(saved.startup ?? null) && route.tab !== 'startup') jobs.push(['startup', startupSql(socialRanges)])
+      for (const [name, text] of jobs) {
+        try {
+          const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
+          const c: Cached = { key: text, payload: res?.payload, storedAt: Date.now(), dataEnd }
+          if (live && await writeCached(db, name, c)) setSaved(s => ({ ...(s ?? { main: null, social: null, startup: null }), [name]: c }))
+        } catch { /* warming is best effort */ }
+      }
+    })()
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, mcp, dataEnd, isDefault, yt, saved === undefined])
 
   const v = view && 'v' in view ? view.v : null
   if (!v) {
+    // Still reading the saved copy: don't flash the "connect Sigma" error at viewers who will get the saved view.
+    if (sigmaDown && saved === undefined) return <div className="px-4 py-10 sm:px-12" style={{ background: T.page, minHeight: '100vh' }}><p className="text-[16px]" style={{ color: T.muted }}>Loading…</p></div>
     const shown: Problem = mcp === null ? { code: 'no_runtime', message: '' } : problem
     const copy = shown ? problemCopy(shown) : null
     const parseErr = view && 'error' in view ? view.error : null
@@ -339,12 +435,12 @@ function App() {
   const socialPane = route.tab !== 'social' ? null
     : yt != null && yt.length === 0 ? <p className="text-[15px]" style={{ color: T.neg }}>No YouTube data synced yet. Run scripts/sync-youtube.mjs and store its output in this page’s youtube collection.</p>
     : socialProblem && !socialView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(socialProblem).title}: {problemCopy(socialProblem).body}</p>
-    : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for YouTube traffic… first load takes 10–30 seconds.</p>
+    : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for YouTube traffic… first load takes 10–30 seconds.'}</p>
     : 'error' in socialView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {socialView.error}</p>
     : <SocialView s={socialView.s} loading={socialView.stale} />
   const startupPane = route.tab !== 'startup' ? null
     : startupProblem && !startupView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(startupProblem).title}: {problemCopy(startupProblem).body}</p>
-    : !startupView ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for startup program traffic… first load takes 10–30 seconds.</p>
+    : !startupView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for startup program traffic… first load takes 10–30 seconds.'}</p>
     : 'error' in startupView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {startupView.error}</p>
     : <StartupView s={startupView.s} loading={startupView.stale} />
   return (
@@ -367,10 +463,14 @@ function App() {
       </div>}
       v={v}
       loading={stale}
-      error={problem && problem.code !== 'no_runtime' ? problemCopy(problem).title : null}
+      error={offline ? null : problem && problem.code !== 'no_runtime' ? problemCopy(problem).title : null}
+      notice={offline ? <span className="flex flex-wrap items-center gap-3">
+        <span>{notice ?? `Showing the saved Last 7 days view (data through ${fmtDay(saved!.main!.dataEnd)}). Other dates, comparisons and grains need a Clay Sigma connection: add Clay Sigma in claude.ai Settings → Connectors, then reload.`}</span>
+        {problem && problemCopy(problem).canAllow && <button onClick={allow} className="rounded-full px-4 py-1.5 text-[14px] font-medium" style={{ background: T.ink, color: '#fff' }}>Allow Clay Sigma</button>}
+      </span> : null}
       onChange={onChange}
-      refreshedAt={result?.storedAt ?? null}
-      sourceNote="Live from Snowflake through your Clay Sigma connector. Cached up to 6 hours."
+      refreshedAt={offline ? saved!.main!.storedAt : result?.storedAt ?? null}
+      sourceNote={offline ? 'Saved copy of the default view, refreshed when someone with Sigma opens the dashboard.' : 'Live from Snowflake through your Clay Sigma connector. Cached up to 6 hours.'}
     />
   )
 }
