@@ -1,0 +1,1 @@
+{"type":"object","required":["query","domains","domain_count"],"properties":{"query":{"type":"string"},"domains":{"type":"array","items":{"type":"string"}},"domain_count":{"type":"number"}}}

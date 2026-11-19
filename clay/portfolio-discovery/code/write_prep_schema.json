@@ -1,0 +1,3 @@
+{"type":"object","required":["meta_writes","roster_writes","verification_writes","counts"],"properties":{
+ "meta_writes":{"type":"array","items":{"type":"string"}},"roster_writes":{"type":"array","items":{"type":"string"}},"verification_writes":{"type":"array","items":{"type":"string"}},
+ "counts":{"type":"object","required":["meta","roster_rows","verifications","sources"],"properties":{"meta":{"type":"number"},"roster_rows":{"type":"number"},"verifications":{"type":"number"},"sources":{"type":"number"}}}}}

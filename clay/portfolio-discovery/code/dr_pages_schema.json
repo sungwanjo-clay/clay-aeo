@@ -1,0 +1,1 @@
+{"type":"object","required":["dealroom_pages","dealroom_total","dealroom_capped"],"properties":{"dealroom_pages":{"type":"array","items":{"type":"object","properties":{"domain":{"type":"string"},"page":{"type":"number"}}}},"dealroom_total":{"type":"number"},"dealroom_capped":{"type":"boolean"}}}

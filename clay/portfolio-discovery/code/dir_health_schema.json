@@ -1,0 +1,3 @@
+{"type":"object","required":["directory_companies","directory_status","directory_found","profiles_read","health_reason","needs_fallback"],"properties":{
+ "directory_companies":{"type":"array","items":{"type":"object","required":["company","website","fund_or_batch","status","profile_url"],"properties":{"company":{"type":"string"},"website":{"type":"string"},"fund_or_batch":{"type":"string"},"status":{"type":"string"},"profile_url":{"type":"string"}}}},
+ "directory_status":{"type":"string"},"directory_found":{"type":"number"},"profiles_read":{"type":"number"},"health_reason":{"type":"string"},"needs_fallback":{"type":"boolean"}}}

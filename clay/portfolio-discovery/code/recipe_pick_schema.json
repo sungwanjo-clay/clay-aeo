@@ -1,0 +1,4 @@
+{"type":"object","required":["method","fetch","source_url","link_pattern","profile_pattern","expected_count","last_count","checkpoint_date","is_new_recipe","recipe_notes"],"properties":{
+ "method":{"type":"string"},"fetch":{"type":"array","items":{"type":"object","required":["url","needs_js","wait"],"properties":{"url":{"type":"string"},"needs_js":{"type":"boolean"},"wait":{"type":"number"}}}},
+ "source_url":{"type":"string"},"link_pattern":{"type":"string"},"profile_pattern":{"type":"string"},"expected_count":{"type":"number"},"last_count":{"type":"number"},
+ "checkpoint_date":{"type":"string"},"is_new_recipe":{"type":"boolean"},"recipe_notes":{"type":"string"}}}
