@@ -147,6 +147,16 @@ const meta = {
     ...(r.cap_hit ? { cap_hit: true } : {}), ...(r.status !== 'ok' && r.error ? { error: String(r.error).slice(0, 120) } : {}),
     recorded_at: String(r.recorded_at).slice(0, 10) })),
 }
-const docs = [{ path: 'portfolio/meta', data: meta }, ...(META_ONLY ? [] : chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } })))]
+// Per-source detail goes in its own document, grouped by firm (firm ids would otherwise repeat on every row; at ~258 firms
+// × 8 sources it outgrows the 256 KB document cap). The page expands it back into meta.sources/sourceRuns/sourceTotals.
+const group = (rows, f) => rows.reduce((o, r) => ((o[r.firm_id] ??= {})[r.source] = f(r), o), {})
+const sourcesDoc = {
+  version: 1,
+  cov: group(meta.sources, r => [r.companies, r.only]),
+  runs: group(meta.sourceRuns, r => [r.status, r.companies, r.recorded_at, ...(r.cap_hit || r.error ? [r.cap_hit ? 1 : 0] : []), ...(r.error ? [r.error] : [])]),
+  totals: meta.sourceTotals,
+}
+delete meta.sources; delete meta.sourceRuns; delete meta.sourceTotals; meta.sourcesDoc = true
+const docs = [{ path: 'portfolio/meta', data: meta }, { path: 'portfolio/sources', data: sourcesDoc }, ...(META_ONLY ? [] : chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } })))]
 writeFileSync(out, JSON.stringify({ docs }))
 console.log(`latest complete snapshot: ${latest?.snapshot_date ?? 'none'} · firms ${firms.length} · companies ${rows.length} (${rows.filter(r => r.inDenominator).length} in denominator) · ${docs.length} docs → ${out}`)

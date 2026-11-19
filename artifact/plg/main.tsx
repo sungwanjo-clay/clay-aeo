@@ -19,7 +19,8 @@ import { CHANNELS } from '@/lib/plg/social/config'
 import { socialSql } from '@/lib/plg/social/sql'
 import StartupView from '@/components/plg/startup/StartupView'
 import PortfolioView from '@/components/plg/portfolio/PortfolioView'
-import type { CompanyRow, PortfolioData, PortfolioMeta } from '@/lib/plg/portfolio/data'
+import type { CompanyRow, PortfolioData, PortfolioMeta, SourcesDoc } from '@/lib/plg/portfolio/data'
+import { expandSources } from '@/lib/plg/portfolio/data'
 import { buildStartup, parseStartupRows } from '@/lib/plg/startup/compute'
 import { startupSql } from '@/lib/plg/startup/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
@@ -176,7 +177,10 @@ function App() {
       if (!d) { setPortfolio(null); setSaved({ main: null, social: null, startup: null }); return }
       d.doc('portfolio/meta').get().then(async (snap: any) => {
         if (!snap?.exists) { setPortfolio(null); return }
-        const meta = snap.data() as PortfolioMeta
+        const raw = snap.data() as PortfolioMeta
+        const meta = raw.sourcesDoc
+          ? expandSources(raw, await d.doc('portfolio/sources').get().then((x: any) => (x?.exists ? (x.data() as SourcesDoc) : null)).catch(() => null))
+          : raw
         const parts = await Promise.all(Array.from({ length: meta.companyChunks ?? 0 }, (_, i) =>
           d.doc(`portfolio/companies-${i}`).get().then((x: any) => (x?.exists ? (x.data()?.rows as CompanyRow[]) : [])).catch(() => [])))
         setPortfolio({ meta, companies: parts.flat() })

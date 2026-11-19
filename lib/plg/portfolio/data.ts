@@ -75,6 +75,27 @@ export type PortfolioMeta = {
   sources?: SourceCoverage[]        // verified companies per firm × source
   sourceTotals?: Record<string, number>   // unique verified companies per firm, across all sources
   sourceRuns?: SourceRun[]          // latest run per firm × source
+  sourcesDoc?: boolean              // sources/sourceRuns/sourceTotals live in db `portfolio/sources` (see expandSources)
+}
+
+/** db `portfolio/sources`: per-source detail grouped by firm, to stay under the document size cap. */
+export type SourcesDoc = {
+  version: 1
+  cov: Record<string, Record<string, [number, number]>>
+  runs: Record<string, Record<string, [string, number, string, number?, string?]>>
+  totals: Record<string, number>
+}
+
+export function expandSources(meta: PortfolioMeta, d: SourcesDoc | null): PortfolioMeta {
+  if (!d) return meta
+  const flat = <T,>(o: Record<string, Record<string, T>>) => Object.entries(o ?? {}).flatMap(([firm_id, m]) => Object.entries(m).map(([source, v]) => ({ firm_id, source, v })))
+  return {
+    ...meta,
+    sources: flat(d.cov).map(({ firm_id, source, v }) => ({ firm_id, source, companies: v[0], only: v[1] })),
+    sourceRuns: flat(d.runs).map(({ firm_id, source, v }) => ({ firm_id, source, status: v[0], companies: v[1], recorded_at: v[2],
+      ...(v[3] ? { cap_hit: true } : {}), ...(v[4] ? { error: v[4] } : {}) })),
+    sourceTotals: d.totals ?? {},
+  }
 }
 
 export type SourceCoverage = { firm_id: string; source: string; companies: number; only: number }
