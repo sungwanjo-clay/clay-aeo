@@ -6,7 +6,7 @@ import { CRO } from '@/lib/plg/cro/sql'
 import { ZONE_LABEL, botShare, convRate, croInsight, ctr, demoShare, rate, type CroView as V, type Daily, type Seg, type SegRow, type Window } from '@/lib/plg/cro/compute'
 import { mondayOf, type ISODate } from '@/lib/plg/dates'
 import WhatMoved from '../WhatMoved'
-import { Card, Delta, Eyebrow, H2, InfoTip, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
+import { Card, Def, Delta, Eyebrow, H2, InfoTip, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
 
 const mono = { fontFamily: T.mono } as const
 const th = 'px-3 py-2.5 text-[12px] font-medium uppercase whitespace-nowrap'
@@ -20,10 +20,10 @@ const PP = ({ c, p }: { c: number | null; p: number | null }) => {
   return <span style={{ ...mono, color: deltaColor(Math.abs(d) < 0.05 ? 0 : d) }}>{fmtPp(Math.abs(d) < 0.05 ? 0 : d)}</span>
 }
 
-function Tile({ label, value, tip, children, muted }: { label: string; value: string; tip: React.ReactNode; children: React.ReactNode; muted?: boolean }) {
+function Tile({ label, value, tip, children, muted }: { label: string; value: string; tip?: React.ReactNode; children: React.ReactNode; muted?: boolean }) {
   return (
     <div className="rounded-[22px] p-5 flex flex-col gap-2" style={{ background: T.tile }}>
-      <div className="flex items-center gap-2"><Eyebrow>{label}</Eyebrow><InfoTip label={`About ${label}`}>{tip}</InfoTip></div>
+      <div className="flex items-center gap-2"><Eyebrow>{label}</Eyebrow>{tip && <InfoTip label={`About ${label}`}>{tip}</InfoTip>}</div>
       <p className="text-[34px] leading-none" style={{ ...mono, color: muted ? T.muted : T.ink }}>{value}</p>
       <p className="text-[14px] leading-snug" style={{ color: T.ink }}>{children}</p>
     </div>
@@ -38,23 +38,22 @@ export default function CroView({ v, loading }: { v: V; loading?: boolean }) {
     <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
         <Tile label="New visitors" value={fmtInt(c.newVisitors)}
-          tip={<>First-ever sessions on clay.com, the signup and login sites, guides and university, from people with no workspace yet. Likely bots (crawler-flagged IP, no Clay user id) are left out.</>}>
+          tip={<Def d="First-ever sessions from people with no workspace yet, on clay.com, signup and login, guides and university." src="MARKETING_WEBSITE_SESSIONS" note="Likely bots (crawler IP, no Clay user id) are left out." />}>
           <Delta value={rel(c.newVisitors, p.newVisitors)}>{fmtPctSigned(rel(c.newVisitors, p.newVisitors))}</Delta> <span style={{ color: T.muted }}>vs period before</span>
         </Tile>
         <Tile label="Visit → workspace (1 day)" value={fmtPct(convRate(c), 1)}
-          tip={<>New visitors who created a workspace within 24 hours of their first visit. The last day’s window is still open, so the latest day reads low until it closes.</>}>
+          tip={<Def d="New visitors who created a workspace within 24 hours of their first visit." src="COOKIE_TO_WORKSPACE_RELATIONSHIP → CUSTOMERS" note="The latest day reads low until its window closes." />}>
           {fmtInt(c.converted)} workspaces · {ppLine(convRate(c), convRate(p))}
         </Tile>
-        <Tile label="CTA click-through" value={fmtPct(ctr(c), 1)}
-          tip={<>New visitors who clicked a conversion button (Start free trial, Get a demo, Sign up…) within a day of their first visit, on any page.</>}>
+        <Tile label="CTA click-through" value={fmtPct(ctr(c), 1)}>
           {fmtInt(c.clickers)} clickers · {ppLine(ctr(c), ctr(p))}
         </Tile>
         <Tile label="Demo share of CTA clicks" value={fmtPct(demoShare(c), 0)}
-          tip={<>Clickers who clicked a “Get a demo” style button, as a share of everyone who clicked a demo or a self-serve button. Shows whether clicks moved between motions.</>}>
+          tip={<Def d="Demo clickers ÷ demo plus self-serve clickers." src="CONVERSION_BUTTON_CLICKED · button type" />}>
           {fmtInt(c.demo)} demo · {fmtInt(c.selfServe)} self-serve · <PP c={demoShare(c)} p={demoShare(p)} />
         </Tile>
         <Tile label="Likely-bot share" value={fmtPct(botShare(c), 0)} muted
-          tip={<>Share of first-ever entry sessions flagged as likely bots and excluded from everything else here. Big swings mean the denominators moved for reasons that aren’t people.</>}>
+          tip={<Def d="Share of first-ever sessions flagged as likely bots and excluded from every other number here." src="MARKETING_IP_CRAWLER_CLASSIFICATION" />}>
           {fmtInt(c.bots)} of {fmtInt(c.entries)} entries · <PP c={botShare(c)} p={botShare(p)} />
         </Tile>
       </div>

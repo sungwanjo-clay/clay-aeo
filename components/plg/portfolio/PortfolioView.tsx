@@ -12,7 +12,7 @@ import { useMemo, useState } from 'react'
 import WhatMoved from '../WhatMoved'
 import ProgressChart, { type ProgressMetric } from '../ProgressChart'
 import { addDays, fmtShort, mondayOf } from '@/lib/plg/dates'
-import { Card, Eyebrow, H2, InfoTip, Pill, Segmented, T, fmtInt, fmtPct, fmtPp } from '../ui'
+import { Card, Def, Eyebrow, H2, InfoTip, Pill, Segmented, T, fmtInt, fmtPct, fmtPp } from '../ui'
 import {
   CUT_LABEL, STATUS_FILTERS, countsFor, csvOf, filterCompanies, rate,
   type CompanyRow, type Counts, type CutFilter, type PortfolioData, type PortfolioMeta, type StatusFilter, SOURCE_LABEL,
@@ -80,12 +80,12 @@ function Head({ cols, sort, onSort }: { cols: Col[]; sort?: Sort; onSort?: (s: S
 /* ───────────────────────── Strip ───────────────────────── */
 type StepId = 'portfolio' | 'workspace' | 'paying' | 'eligible' | 'redeemed'
 const STEP_FILTER: Record<StepId, StatusFilter> = { portfolio: 'All', workspace: 'With a workspace', paying: 'Paying now', eligible: 'Eligible', redeemed: 'Redeemed' }
-const STEP_TIP: Record<StepId, string> = {
-  portfolio: 'Companies verified as backed by the selected firms, from firm-first sources (official rosters, Harmonic, PitchBook, Crunchbase, Dealroom, portfolio pages, partner lists, announcements), frozen when the week closed. Companies found only by matching our own workspaces don’t count.',
-  workspace: 'Companies Clay matched to at least one Clay workspace in Snowflake, free or paid, on an exact domain. Lookups that failed or need review are shown as unknown, never as zero.',
-  paying: 'Companies with a workspace that is paying now, as Clay read it from Snowflake. “Ever paid” counts any first invoice. Churned ARR = what companies that paid before and pay nothing now were paying: their last invoice, annualized (within 20% of real ARR for 98% of current customers). Sort the firms or companies by Churned ARR, or filter companies by Churned, for the re-engagement list.',
-  eligible: 'Companies ever confirmed eligible in a weekly snapshot (Seed or Series A, VC-backed, net-new workspace). They stay counted after they pay or raise again. The redemption denominator.',
-  redeemed: 'Eligible companies that redeemed the startup offer. Needs promo-code redemptions, which aren’t connected yet.',
+const STEP_TIP: Record<StepId, React.ReactNode> = {
+  portfolio: <Def d="Companies verified as backed by the selected firms, frozen when the week closed." src="Firm rosters, Harmonic, PitchBook, Crunchbase, Dealroom, portfolio pages" note="Companies found only by matching our own workspaces don’t count." />,
+  workspace: <Def d="Companies with at least one Clay workspace, free or paid, matched on exact domain." src="Snowflake, read by the Refresh Clay status workflow" note="Failed lookups show as unknown, never zero." />,
+  paying: <Def d="Companies with a workspace paying now. Churned ARR = last invoice, annualized, for companies that paid before and pay nothing now." src="Snowflake · CUSTOMERS" />,
+  eligible: <Def d="Companies ever confirmed eligible (Seed or Series A, VC-backed, net-new workspace). The redemption denominator." src="Weekly snapshots" />,
+  redeemed: <Def d="Eligible companies that redeemed the startup offer." note="Needs promo-code redemptions, not connected yet." />,
 }
 
 function Step({ id, label, value, sub, on, onClick, nc }: { id: StepId; label: string; value: React.ReactNode; sub: React.ReactNode; on: boolean; onClick: () => void; nc?: boolean }) {

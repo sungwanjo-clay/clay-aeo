@@ -43,9 +43,7 @@ export type TabSources = { sources: Source[]; queries: SourceQuery[]; notes?: st
 
 const SIGMA_NOTE = 'Runs through the Clay Sigma connector (Snowflake connection 2d269863…). The Snowflake version swaps Sigma’s table ids for warehouse paths.'
 
-const SLG_NOTE = 'S1, S2 and pipeline use the SLG Team Pulse definitions on the same dbt model (Sales KPI Dashboard → Marketing → Sales Funnel): S1 dated by LEAST(S1, S2) for S2 opps, S2 by the S2 enter date, pipeline = current amount; touchpoints since 2025-01-01; team = every channel except Partner Referral and Sales Outbound.'
-
-export function workspacesSources(sql: string | null, latest: string, slg: string | null = null): TabSources {
+export function workspacesSources(sql: string | null, latest: string): TabSources {
   return {
     sources: [
       { name: 'New workspaces, channel, quality, activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: '90-day window, first-touch attribution; one row per workspace' },
@@ -53,11 +51,9 @@ export function workspacesSources(sql: string | null, latest: string, slg: strin
       { name: 'Workspace domain and first invoice', where: 'DBT.PROD.CUSTOMERS', what: 'Domain → Salesforce tier; FIRST_INVOICE_UTC for new paid (FIRST_GTM_MOTION = PLG)' },
       { name: 'Sales tier', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'SALES_TIER_C by DOMAIN_C, live accounts, best tier per domain' },
       { name: 'Visitors', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'Distinct ANONYMOUS_ID on marketing_website + signup, excluding UTC and Asia/* time zones' },
-      { name: 'PLG-sourced S1, S2, pipeline', where: 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL', what: 'SLG Team Pulse base; sourcing touchpoint is a GTM Play HRE on a PLG play campaign (lib/plg/slg/sql.ts PLG_PLAYS)' },
     ],
     queries: [
       ...(sql ? [{ label: 'Dashboard query (current filters)', sql, note: SIGMA_NOTE }] : []),
-      ...(slg ? [{ label: 'PLG-sourced pipeline (current filters)', sql: slg, note: SLG_NOTE }] : []),
       { label: 'Latest complete day', sql: latest },
     ],
   }

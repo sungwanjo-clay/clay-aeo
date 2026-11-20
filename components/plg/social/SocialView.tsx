@@ -7,7 +7,7 @@ import WhatMoved from '../WhatMoved'
 import ProgressChart, { type ProgressMetric } from '../ProgressChart'
 import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, NO_ANALYTICS, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
 import { fmtShort } from '@/lib/plg/dates'
-import { Card, Delta, Eyebrow, H2, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned, fmtPp } from '../ui'
+import { Card, Def, Delta, deltaColor, Eyebrow, fmtInt, fmtK, fmtPct, fmtPctSigned, fmtPp, H2, InfoTip, Segmented, T } from '../ui'
 
 export type SocialChannel = 'all' | 'peter' | 'payton' | 'eric'
 
@@ -62,16 +62,16 @@ export function ChannelPills({ value, onChange }: { value: SocialChannel; onChan
   )
 }
 
-function KpiTile({ label, value, delta, badge, foot, muted }: {
+function KpiTile({ label, value, delta, badge, foot, muted, tip }: {
   label: string; value: React.ReactNode; delta: number | null; badge?: { label: string; cur: number | null; prev: number | null; title?: string } | null
-  foot?: React.ReactNode; muted?: boolean
+  foot?: React.ReactNode; muted?: boolean; tip?: React.ReactNode
 }) {
   const raw = badge && badge.cur != null && badge.prev != null ? (badge.cur - badge.prev) * 100 : null
   const bd = raw != null && Math.abs(raw) < 0.05 ? 0 : raw
   return (
     <div className="rounded-[22px] p-6 flex flex-col gap-3 min-w-0" style={{ background: T.tile }}>
       <div className="flex items-center justify-between gap-2">
-        <Eyebrow>{label}</Eyebrow>
+        <span className="flex items-center gap-2"><Eyebrow>{label}</Eyebrow>{tip && <InfoTip label={`About ${label}`}>{tip}</InfoTip>}</span>
         {badge && (
           <span title={badge.title} className="rounded-full px-2.5 py-1 text-[12px] whitespace-nowrap" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.mono }}>
             {badge.label} {fmtPct(badge.cur, 1)}{bd != null && <span style={{ color: deltaColor(bd) }}> {fmtPp(bd)}</span>}
@@ -100,8 +100,10 @@ function Kpis({ s }: { s: SV }) {
       <KpiTile label="Views" value={k.views.cur == null ? <NC inline why={NO_ANALYTICS} /> : fmtK(k.views.cur)} muted={k.views.cur == null} delta={k.views.delta}
         foot={<>{fmtInt(k.views.minutes / 60)} watch hours.{excl(k.views.excluded)}</>} />
       <KpiTile label="Referral visits" value={fmtInt(k.visits.cur)} delta={k.visits.delta}
+        tip={<Def d="Unique visitors to clay.com from a creator’s tracked link (its utm_campaign maps to a video in the description)." src="MARKETING_PAGEVIEWS" note="Untagged YouTube traffic is shown separately." />}
         foot={<>Visitors from the creators’ clay.com links.{k.visits.untagged != null && <> Plus {fmtInt(k.visits.untagged)} from untagged YouTube links.</>}</>} />
       <KpiTile label="Tier 1–3 workspaces" value={fmtInt(k.tier13.cur)} delta={k.tier13.delta}
+        tip={<Def d="New workspaces whose first touch was a creator’s link, at Tier 1–3 Salesforce accounts (business domains only)." src="FIRST_TOUCH_ATTRIBUTION → CUSTOMERS domain → Salesforce tier" />}
         foot={<>Of {fmtInt(k.newWs.cur)} new workspaces · {fmtInt(k.activated.cur)} activated · {fmtInt(k.paid.cur)} paying{k.tier13.untagged != null && <> · incl. untagged YouTube</>}</>} />
     </div>
   )

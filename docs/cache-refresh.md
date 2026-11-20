@@ -1,6 +1,6 @@
 # Daily refresh of the dashboard's saved default view
 
-Viewers without a Clay Sigma connection see the PLG dashboard (Workspaces, Media properties, Startup program, Tier 4 SLG) from a
+Viewers without a Clay Sigma connection see the PLG dashboard (Workspaces with its CRO and Tier 4 sections, Media properties, Startup program) from a
 saved copy in the artifact's database, collection `cache`. This job writes it every morning. Each tab's copy covers
 **every preset × comparison** (Last 7 / 28 / 90 days, quarter to date, year to date; previous period or same period last
 year) and the page applies the grain, so only custom dates need Sigma. One query per tab computes all of them: it joins a
@@ -34,7 +34,7 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    connector's `begin_session` once, then `query` with `{type: "connection", connectionId, sql}` using that SQL
    exactly. The single row's `max_day` (first 10 characters) is `DATAEND`.
 4. **Default-view SQL.** `node scripts/refresh-cache.mjs sql DATAEND W/yt/youtube > W/sql.json`.
-5. **Run the seven queries,** one at a time, for NAME in `main`, `startup`, `social`, `slg`, `tier4`, `tier4list`, `cro`:
+5. **Run the six queries,** one at a time, for NAME in `main`, `startup`, `social`, `tier4`, `tier4list`, `cro`:
    - Print the SQL: `node -e "process.stdout.write(require('W/sql.json').NAME)"` (use the real path).
    - Call Sigma `query` with that SQL **character for character** (connection type, same connectionId).
    - Large results are saved to a file and the tool returns its path: use that path. If the result comes back inline
@@ -42,6 +42,8 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    - `node scripts/refresh-cache.mjs pack NAME DATAEND <result path> W/sql.json W/out` writes the documents
      `W/out/NAME-0.json…` (parts) and `W/out/NAME.json` (header).
    - If a query errors, skip that NAME (its previous copy stays) and continue with the next.
+   - If `pack` exits with code 3 it printed `refused` and the data-contract problems: the result is broken (missing
+     ranges, no rows, impossible counts). Write nothing for that NAME, keep its previous copy, and report the problems.
 6. **Write to the dashboard.** `ArtifactData` `list` of collection `cache` (to read each document's `version`), then for
    each NAME: `set` each part `cache/NAME-<i>` from its file, in batches of at most 4 parts (a batch is capped at 1 MB),
    then the header `cache/NAME` last, in the final batch (readers use the header to find the parts, so it must go after

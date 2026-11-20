@@ -8,7 +8,7 @@ import WhatMoved from '../WhatMoved'
 import { STARTUP } from '@/lib/plg/startup/sql'
 import { fmtShort } from '@/lib/plg/dates'
 import ProgressChart, { type ProgressMetric } from '../ProgressChart'
-import { Card, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
+import { Card, Def, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp, fmtSigned } from '../ui'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
 const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
@@ -46,19 +46,19 @@ function Kpis({ s }: { s: SV }) {
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
       <Tile label="MQALs · Tier 1–3 domains" value={fmtInt(c.mqal)}
-        tip={<>Distinct Tier 1–3 company domains (Salesforce sales tier) among new workspaces created by startup-page visitors. Counts companies, so two workspaces from one company count once. Same basis as “New workspaces (Tier 1–3)” in the funnel.</>}>
+        tip={<Def d="Distinct Tier 1–3 company domains among new workspaces from startup-page visitors. Two workspaces from one company count once." src="CUSTOMERS domain → Salesforce tier" />}>
         {dl(c.mqal, p.mqal)}
       </Tile>
       <Tile label="Total new workspaces" value={fmtInt(c.newWs)}
-        tip={<>Workspaces created within {STARTUP.newWindowDays} days of a visit to the startup page, all tiers and email types.</>}>
+        tip={<Def d={<>Workspaces created within {STARTUP.newWindowDays} days of a startup-page visit, all tiers and emails.</>} src="Visitor cookie → workspace (COOKIE_TO_WORKSPACE_RELATIONSHIP)" />}>
         {dl(c.newWs, p.newWs)}<br /><span style={mono}>{fmtInt(c.newWsT13)}</span> at Tier 1–3
       </Tile>
       <Tile label="Redemptions" value={<NC why="No offer sent yet; promo-code redemptions aren’t connected" />} muted
-        tip={<>Count of startup offer redemptions in the range: workspaces that applied the startup discount, from Stripe promo-code redemptions. Not connected until the discount exists and is wired up.</>}>
+        tip={<Def d="Workspaces that applied the startup discount." src="Stripe promo-code redemptions" note="Not connected until the offer launches." />}>
         Not connected until the offer launches
       </Tile>
       <Tile label="Eligible workspaces" value={<NC why="Eligibility source isn’t in Snowflake yet" />} muted
-        tip={<>New workspaces from companies that pass the Startup Offer Eligibility rule: verified Seed or Series A, VC-backed (Pre-Seed doesn’t qualify), and a net-new workspace. Backing from a partner firm can change the offer tier but doesn’t make a company eligible on its own. Comes from the eligibility workflow’s weekly snapshot in Snowflake, which isn’t hooked up yet.</>}>
+        tip={<Def d="New workspaces from verified Seed or Series A, VC-backed companies (net-new workspace)." src="Eligibility workflow’s weekly snapshot" note="Not in Snowflake yet." />}>
         Source not hooked up yet
       </Tile>
     </div>

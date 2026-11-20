@@ -32,14 +32,39 @@ const CHANNEL_KEYS = new Set(['peter', 'payton', 'eric'])
 const checks = []
 const add = (id, level, ok, detail) => checks.push({ id, level, ok, detail })   // level: 'alert' (broken) or 'warn'
 
-// 1. Saved 7-day views (daily scheduled refresh, 5:37 AM PT): each copy no older than 30 hours, data no older than 3 days.
-for (const name of ['main', 'social', 'startup']) {
+// 1. Saved views (daily scheduled refresh, 5:37 AM PT). Each copy must be present and whole (every part), fresh (stored in
+// the last 30 hours, data no older than 3 days), cover every preset × comparison (a multi-range copy, not a single view a
+// page wrote), and pass its data contract (lib/plg/contracts.ts): the right shape, a row for every range, no impossible
+// counts. Anything less is what viewers without Sigma would see.
+const CACHES = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro']
+const RANGED = new Set(['main', 'social', 'startup', 'tier4', 'cro'])
+let contracts = null
+try {
+  const { build } = await import('esbuild')
+  const root = new URL('..', import.meta.url).pathname
+  const outFile = join(process.env.TMPDIR || '/tmp', `plg-contracts-${process.pid}.mjs`)
+  await build({ entryPoints: [join(root, 'lib/plg/contracts.ts')], bundle: true, platform: 'node', format: 'esm', outfile: outFile, logLevel: 'error' })
+  contracts = await import(outFile)
+} catch (e) { add('contracts_load', 'warn', false, `Couldn’t load the data contracts (${e.message}); contract checks skipped`) }
+for (const name of CACHES) {
   const h = read('cache', name)
   if (!h) { add(`cache_${name}`, 'alert', false, `Saved ${name} view is missing`); continue }
   const age = hours(h.storedAt)
   add(`cache_${name}`, 'alert', age <= 30, `Saved ${name} view refreshed ${age.toFixed(0)} h ago (data through ${h.dataEnd})`)
   if (h.dataEnd) add(`cache_${name}_data`, 'warn', days(h.dataEnd + 'T23:59:59Z') <= 3, `Saved ${name} view has data through ${h.dataEnd}`)
+  if (RANGED.has(name)) add(`cache_${name}_ranges`, 'alert', (h.ranges?.length ?? 0) >= 10,
+    h.ranges?.length ? `Saved ${name} view covers ${h.ranges.length} date ranges` : `Saved ${name} view covers only one view (a page overwrote the daily copy): presets other than the default are blank without Sigma`)
+  const parts = Array.from({ length: h.parts ?? 0 }, (_, i) => read('cache', `${name}-${i}`))
+  if (!h.parts || parts.some(p => !p || typeof p.s !== 'string')) { add(`cache_${name}_parts`, 'alert', false, `Saved ${name} view is missing parts (${parts.filter(Boolean).length} of ${h.parts ?? 0})`); continue }
+  let payload = null
+  try { payload = JSON.parse(parts.map(p => p.s).join('')) } catch { add(`cache_${name}_parse`, 'alert', false, `Saved ${name} view doesn’t parse`); continue }
+  if (contracts) {
+    const v = contracts.validate(name, payload, h.ranges ?? [])
+    add(`cache_${name}_contract`, 'alert', v.ok, v.ok ? `Saved ${name} view passes its data checks (${v.rows} rows)` : `Saved ${name} view fails its data checks: ${v.problems.slice(0, 3).join('; ')}`)
+  }
 }
+const ends = [...new Set(CACHES.map(n => read('cache', n)?.dataEnd).filter(Boolean))]
+add('cache_dates', 'warn', ends.length <= 1, ends.length <= 1 ? `Saved views agree on the data date (${ends[0] ?? '–'})` : `Saved views disagree on the data date: ${ends.join(', ')}`)
 
 // 1b. YouTube documents (Media properties tab), written by the YouTube sync step of the daily refresh. Only channels
 // with an owner sign-in or Viewer access are held to these (Payton's has neither, so it carries no dates).

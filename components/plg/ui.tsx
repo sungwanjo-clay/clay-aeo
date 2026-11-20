@@ -130,3 +130,17 @@ export function InfoTip({ children, label = 'Definition' }: { children: ReactNod
     </span>
   )
 }
+
+/**
+ * Tooltip body, one format everywhere: what the metric is, where it comes from, and the one caveat worth knowing.
+ * Only for metrics that aren't self-explanatory (no tooltips on views, clicks, click-through rates and the like).
+ */
+export function Def({ d, src, note }: { d: ReactNode; src?: ReactNode; note?: ReactNode }) {
+  return (
+    <span className="flex flex-col gap-1.5">
+      <span>{d}</span>
+      {src && <span style={{ color: 'rgba(255,255,255,0.7)' }}>Source: {src}</span>}
+      {note && <span style={{ color: 'rgba(255,255,255,0.7)' }}>{note}</span>}
+    </span>
+  )
+}

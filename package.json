@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:artifact": "node scripts/build-plg-artifact.mjs",
+    "test:audit": "esbuild scripts/audit-dashboard.ts --bundle --platform=node --format=esm --outfile=dist/audit.mjs --tsconfig=tsconfig.json --log-level=error && node dist/audit.mjs",
+    "test:e2e": "node scripts/build-plg-artifact.mjs && node scripts/e2e-dashboard.mjs \"$PWD/dist/plg-artifact.html\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",

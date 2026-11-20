@@ -2,7 +2,7 @@
  * What moved on the Workspaces tab (lib/plg/insights.ts rules), for the selected range vs the comparison range.
  * Same shape as the Media properties and Startup narratives: a channel summary first (which channel groups moved
  * the total, then which channels inside them), MCP platforms, the conversion rates with what moved them, then
- * emerging channels and anomalies. PLG-sourced SLG pipeline drivers are appended by the caller.
+ * emerging channels and anomalies.
  */
 import { b, chg, code, driverPara, headlineLine, ratePara, type Block, type Insight, type Item, type Para } from './insights'
 import type { DashboardPayload } from './plan'
@@ -10,7 +10,7 @@ import type { DashboardPayload } from './plan'
 const int = (n: number) => Math.round(n).toLocaleString('en-US')
 const pretty = (l: string) => (l === 'undefined' ? 'No channel recorded' : l === 'unattributable' ? 'Unattributable' : l)
 
-export function workspacesInsight(v: DashboardPayload, extra: Block[] = []): Insight {
+export function workspacesInsight(v: DashboardPayload): Insight {
   const k = v.kpis
   const rc = k.rates.cur, rp = k.rates.prev
   const headline: Para[] = [
@@ -55,7 +55,6 @@ export function workspacesInsight(v: DashboardPayload, extra: Block[] = []): Ins
       ratePara('Trial → paid', { cur: rc.paid, prev: rp.paid, noun: 'paying workspaces' }, { cur: k.hqTotal, prev: k.hqPrevTotal, noun: 'high-quality trials' }, 50),
     ].filter((p): p is Para => !!p))
   }
-  drivers.push(...extra)
 
   // Emerging: channels that are new or tripled, with real volume.
   const emerging: Para[] = []

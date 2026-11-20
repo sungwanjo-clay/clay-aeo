@@ -1,9 +1,8 @@
 /**
- * View models for the SLG pieces: PLG-sourced pipeline (Workspaces tab) and the Tier 4 tab.
+ * View model for the Tier 4 section (Workspaces tab).
  * Pure: Sigma rows (sql.ts, tier4sql.ts) in, render-ready numbers out. Rows are already relabelled to cur / prev.
  */
 import { b, code, driverPara, ratePara, type Block, type Insight, type Item, type Para } from '../insights'
-import { PLG_PLAYS, type PlgGroup } from './sql'
 import type { CompanyRow, Firm } from '../portfolio/data'
 
 type Tbl = { columns: string[]; rows: unknown[][] }
@@ -18,53 +17,6 @@ function objects(payload: unknown, nums: string[]): Record<string, unknown>[] {
   const cols = t.columns.map(c => String(c).toLowerCase())
   const isNum = new Set(nums.map(n => n.toLowerCase()))
   return t.rows.map(r => Object.fromEntries(cols.map((c, i) => [c, isNum.has(c) ? Number(r[i] ?? 0) || 0 : r[i] == null ? null : String(r[i])])))
-}
-
-// ── PLG-sourced pipeline ───────────────────────────────────────────────────
-
-export type SlgCounts = { mqal: number; s1: number; s2: number; pipe: number }
-const zero = (): SlgCounts => ({ mqal: 0, s1: 0, s2: 0, pipe: 0 })
-export type SlgPeriod = { team: SlgCounts; plg: SlgCounts; groups: Record<PlgGroup, SlgCounts> }
-export type SlgCampaign = { group: PlgGroup; campaign: string; cur: SlgCounts; prev: SlgCounts }
-export type SlgView = { cur: SlgPeriod; prev: SlgPeriod; campaigns: SlgCampaign[] }
-
-function add(c: SlgCounts, ev: string, n: number, amt: number) {
-  if (ev === 'mqal') c.mqal += n
-  else if (ev === 's1') c.s1 += n
-  else if (ev === 's2') { c.s2 += n; c.pipe += amt }
-}
-
-export function buildSlg(payload: unknown): SlgView {
-  const rows = objects(payload, ['n', 'amt'])
-  const period = (): SlgPeriod => ({ team: zero(), plg: zero(), groups: { signup: zero(), expansion: zero() } })
-  const P: Record<'cur' | 'prev', SlgPeriod> = { cur: period(), prev: period() }
-  const camps = new Map<string, SlgCampaign>()
-  for (const r of rows) {
-    const bk = r.b === 'cur' || r.b === 'prev' ? r.b : null
-    if (!bk) continue
-    const ev = String(r.ev), n = r.n as number, amt = r.amt as number
-    if (r.k === 'team') add(P[bk].team, ev, n, amt)
-    else if (r.k === 'plg') {
-      const [g, ...rest] = String(r.d ?? '').split('|')
-      const group = (g === 'expansion' ? 'expansion' : 'signup') as PlgGroup
-      const campaign = rest.join('|') || '(no campaign)'
-      add(P[bk].plg, ev, n, amt)
-      add(P[bk].groups[group], ev, n, amt)
-      const key = `${group}|${campaign}`
-      const c = camps.get(key) ?? { group, campaign, cur: zero(), prev: zero() }
-      add(c[bk], ev, n, amt)
-      camps.set(key, c)
-    }
-  }
-  const campaigns = [...camps.values()].sort((a, c) => c.cur.pipe - a.cur.pipe || c.cur.s2 - a.cur.s2 || c.cur.s1 - a.cur.s1 || c.cur.mqal - a.cur.mqal)
-  return { cur: P.cur, prev: P.prev, campaigns }
-}
-
-/** Drivers for the Workspaces tab's What moved: PLG-sourced S2 pipeline by play. */
-export function slgDrivers(s: SlgView): Block[] {
-  const items: Item[] = s.campaigns.map(c => ({ label: c.campaign, cur: c.cur.pipe, prev: c.prev.pipe, tags: [PLG_PLAYS[c.group].label] }))
-  const p = driverPara('PLG-sourced S2 pipeline', 'pipeline', { cur: s.cur.plg.pipe, prev: s.prev.plg.pipe }, items, { usd: true })
-  return p ? [p] : []
 }
 
 // ── Tier 4 tab ─────────────────────────────────────────────────────────────

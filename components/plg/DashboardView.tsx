@@ -12,12 +12,12 @@ import { DomainQuality, McpByPlatform } from './McpAndQuality'
 import { DataQualityStrip, RestatementBanner } from './Narrative'
 import WhatMoved from './WhatMoved'
 import { workspacesInsight } from '@/lib/plg/workspacesInsight'
-import type { Block } from '@/lib/plg/insights'
 import { Eyebrow, Pill, Segmented, T } from './ui'
 import StickyFilters from './StickyFilters'
+import Boundary from './Boundary'
 import { useRef } from 'react'
 
-export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio' | 'tier4'
+export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'social', label: 'Media properties' },
@@ -26,14 +26,13 @@ const TABS = [
 /** Workspaces tab sections, for the sticky bar's jump links. */
 const WS_SECTIONS = [
   { id: 'ws-overview', label: 'Overview' }, { id: 'ws-moved', label: 'What moved' }, { id: 'ws-channels', label: 'Channels' },
-  { id: 'ws-slg', label: 'SLG pipeline' }, { id: 'ws-cro', label: 'CRO' }, { id: 'ws-tier4', label: 'Tier 4' },
+  { id: 'ws-cro', label: 'CRO' }, { id: 'ws-tier4', label: 'Tier 4' },
 ]
 const HEAD = {
-  workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces &amp; pacing</>, sub: 'Blended attribution, cut by channel and tier' },
-  social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Video → offer → workspace</>, sub: '' },
-  startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer: visit → workspace → paid</>, sub: 'Offer page www.clay.com/clay-for-startups · no offer sent yet' },
-  portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>Portfolio penetration and redemption</>, sub: 'Verified portfolio companies → with a workspace → paying · eligible → redeemed' },
-  tier4: { eyebrow: 'PLG weekly metrics · Tier 4 SLG hand-raisers', title: <>Tier 4 hand-raisers → product → pipeline</>, sub: 'Tier 4 accounts never qualify for an SDR demo. This follows them into the product and back into sales.' },
+  workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces</>, sub: 'By channel and tier, with conversion and Tier 4 hand-raisers' },
+  social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Media properties</>, sub: '' },
+  startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer</>, sub: 'clay.com/clay-for-startups · no offer sent yet' },
+  portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>Portfolio partners</>, sub: 'Portfolio companies with a workspace, paying and redeemed' },
 } as const
 
 /** Next query params after a filter change (shared by the Next page and the artifact). */
@@ -113,7 +112,7 @@ function HealthBanner({ h }: { h: Health | null | undefined }) {
   )
 }
 
-export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, tier4, slg, slgDrivers, cro }: {
+export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, tier4, cro }: {
   /** Collapsed "Sources and SQL" panel for the active tab, shown at the bottom. */
   sources?: React.ReactNode
   /** Daily health check verdict; undefined while loading. */
@@ -142,9 +141,6 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   tier4?: React.ReactNode
   /** Workspaces tab: CRO section (landing pages, homepage launch). */
   cro?: React.ReactNode
-  /** Workspaces tab: PLG-sourced SLG pipeline card, and its What moved drivers. */
-  slg?: React.ReactNode
-  slgDrivers?: Block[]
 }) {
   const update = onChange
   const presetLabel = v.params.preset ? PRESETS.find(p => p.id === v.params.preset)?.label : 'Custom dates'
@@ -184,7 +180,7 @@ export default function DashboardView({ sources, health, v, loading, error, noti
       {program && onTab && <ProgramToggle value={active === 'portfolio' ? 'portfolio' : 'startup'} onChange={t => onTab(t)} />}
 
       {active !== 'portfolio' && <StickyFilters anchor={filterRef} state={fstate} label={v.range.label} prevLabel={v.range.prevLabel} onChange={update}
-        sections={active === 'workspaces' ? WS_SECTIONS.filter(x => (x.id !== 'ws-slg' || slg) && (x.id !== 'ws-cro' || cro) && (x.id !== 'ws-tier4' || tier4)) : undefined} />}
+        sections={active === 'workspaces' ? WS_SECTIONS.filter(x => (x.id !== 'ws-cro' || cro) && (x.id !== 'ws-tier4' || tier4)) : undefined} />}
 
       {active !== 'portfolio' && <div ref={filterRef}><FilterCard
         state={fstate}
@@ -195,33 +191,31 @@ export default function DashboardView({ sources, health, v, loading, error, noti
       <HealthBanner h={health} />
       {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
-      {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? <Boundary name="Media properties" resetKey={v}>{social}</Boundary> : active === 'startup' ? <Boundary name="Startup offer" resetKey={v}>{startup}</Boundary> : active === 'portfolio' ? <Boundary name="Portfolio partners">{portfolio}</Boundary> : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <div id="ws-overview" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
-          <KpiTiles v={v} />
+          <Boundary name="Headline tiles" resetKey={v}><KpiTiles v={v} /></Boundary>
           <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <CumulativeChart v={v} onZoom={(start, end) => update({ preset: null, start, end })} />
-            <TierPacing v={v} />
+            <Boundary name="Cumulative chart" resetKey={v}><CumulativeChart v={v} onZoom={(start, end) => update({ preset: null, start, end })} /></Boundary>
+            <Boundary name="Pacing by tier" resetKey={v}><TierPacing v={v} /></Boundary>
           </div>
         </div>
 
-        <div id="ws-moved" className="scroll-mt-20"><WhatMoved insight={workspacesInsight(v, slgDrivers)} /></div>
+        <div id="ws-moved" className="scroll-mt-20"><Boundary name="What moved" resetKey={v}><WhatMoved insight={workspacesInsight(v)} /></Boundary></div>
 
         <div id="ws-channels" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
-          <ChannelTable v={v} />
+          <Boundary name="Channel table" resetKey={v}><ChannelTable v={v} /></Boundary>
           <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-2">
-            <McpByPlatform v={v} />
-            <DomainQuality v={v} />
+            <Boundary name="MCP by platform" resetKey={v}><McpByPlatform v={v} /></Boundary>
+            <Boundary name="Domain quality" resetKey={v}><DomainQuality v={v} /></Boundary>
           </div>
         </div>
 
-        {slg && <div id="ws-slg" className="scroll-mt-20">{slg}</div>}
+        {cro && <SectionHead id="ws-cro" eyebrow="Conversion rate optimization" title="Conversion"
+          sub="New visitors to workspace and CTA clicks, by landing page, channel and device."><Boundary name="Conversion">{cro}</Boundary></SectionHead>}
 
-        {cro && <SectionHead id="ws-cro" eyebrow="Conversion rate optimization" title="Landing pages and the homepage launch"
-          sub="Visits, workspace conversion and CTA clicks by landing page type, with the homepage and pricing page over time.">{cro}</SectionHead>}
-
-        {tier4 && <SectionHead id="ws-tier4" eyebrow="SLG · Tier 4 hand-raisers" title="Tier 4 hand-raisers → product → pipeline"
-          sub="Tier 4 accounts never qualify for an SDR demo. This follows them into the product and back into sales.">{tier4}</SectionHead>}
+        {tier4 && <SectionHead id="ws-tier4" eyebrow="SLG · Tier 4 hand-raisers" title="Tier 4 hand-raisers"
+          sub="Tier 4 accounts don’t get an SDR demo. Where they go next, and who to nurture."><Boundary name="Tier 4 hand-raisers">{tier4}</Boundary></SectionHead>}
 
         <DataQualityStrip v={v} />
       </div>}

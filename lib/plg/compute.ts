@@ -397,6 +397,9 @@ function buildCumulative(i: DashboardInputs) {
   return { points, goalTotal }
 }
 
+/** Display name of a channel key; raw dbt placeholders never reach the page. */
+const channelLabel = (k: string) => CHANNEL_DISPLAY[k] ?? (k === 'undefined' || k === 'null' || !k ? 'No channel recorded' : k === 'unattributable' ? 'Unattributable' : k)
+
 export function buildChannelTable(cur: RangeSummary, prev: RangeSummary) {
   const c = aggregateChannels(cur)
   const p = aggregateChannels(prev)
@@ -408,7 +411,7 @@ export function buildChannelTable(cur: RangeSummary, prev: RangeSummary) {
       const a = c.get(k); const b = p.get(k)
       const category = a?.category ?? b?.category ?? 'undefined'
       if (groupForCategory(category) !== g.id) continue
-      children.push(mkRow(k, CHANNEL_DISPLAY[k] ?? k, a?.n ?? 0, b?.n ?? 0, a?.tiers ?? zeroTiers()))
+      children.push(mkRow(k, channelLabel(k), a?.n ?? 0, b?.n ?? 0, a?.tiers ?? zeroTiers()))
     }
     children.sort((x, y) => y.cur - x.cur || y.prev - x.prev || x.label.localeCompare(y.label))
     const row = mkRow(g.id, g.label,
@@ -424,7 +427,8 @@ export function buildChannelTable(cur: RangeSummary, prev: RangeSummary) {
 
 const MCP_PREFIX = 'OAuth: MCP: '
 function buildMcp(cur: RangeSummary, prev: RangeSummary, total: number, prevTotal: number) {
-  const by = (s: RangeSummary) => new Map(s.mcp.map(r => [r.s.startsWith(MCP_PREFIX) ? r.s.slice(MCP_PREFIX.length) : r.s, r.n]))
+  const name = (raw: string) => { const x = raw.startsWith(MCP_PREFIX) ? raw.slice(MCP_PREFIX.length) : raw; return !x || x === 'undefined' || x === 'null' ? 'Unknown platform' : x }
+  const by = (s: RangeSummary) => { const m = new Map<string, number>(); for (const r of s.mcp) m.set(name(r.s), (m.get(name(r.s)) ?? 0) + r.n); return m }
   const c = by(cur); const p = by(prev)
   const names = new Set([...c.keys(), ...p.keys()])
   const rows = [...names].map(name => ({ platform: name, cur: c.get(name) ?? 0, delta: (c.get(name) ?? 0) - (p.get(name) ?? 0) }))
@@ -503,7 +507,7 @@ export function buildCommentary(
   for (const k of new Set([...c.keys(), ...p.keys()])) {
     if (k === 'OAuth: MCP') continue
     const a = c.get(k)?.n ?? 0; const b = p.get(k)?.n ?? 0
-    movers.push({ label: CHANNEL_DISPLAY[k] ?? k, group: groupForCategory(c.get(k)?.category ?? p.get(k)?.category ?? null), delta: a - b, pct: pctChange(a, b) })
+    movers.push({ label: channelLabel(k), group: groupForCategory(c.get(k)?.category ?? p.get(k)?.category ?? null), delta: a - b, pct: pctChange(a, b) })
   }
   const mc = new Map(week.cur.mcp.map(r => [r.s, r.n])); const mp = new Map(week.prev.mcp.map(r => [r.s, r.n]))
   for (const k of new Set([...mc.keys(), ...mp.keys()])) {
@@ -576,7 +580,7 @@ export function buildCommentary(
       const tierCount = (x: ChannelAgg | undefined) => !x ? 0 : worst.idx < 3 ? x.tiers[worst.idx] : x.tiers[3] + x.tiers[4]
       const tierMovers = [...new Set([...c.keys(), ...p.keys()])].map(k => {
         const a = tierCount(c.get(k)); const b = tierCount(p.get(k))
-        return { label: CHANNEL_DISPLAY[k] ?? k, delta: a - b, cur: a }
+        return { label: channelLabel(k), delta: a - b, cur: a }
       }).sort((a, b) => a.delta - b.delta)
       const largest = [...tierMovers].sort((a, b) => b.cur - a.cur).slice(0, 2)
       const dropping = tierMovers.filter(m => m.delta < 0).slice(0, 2)

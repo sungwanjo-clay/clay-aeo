@@ -9,7 +9,7 @@
  *   MQAL      IS_NEW_BUSINESS_MQAL_OPP_CONVERSION_ELIGIBLE_90_DAY_REFRESH = 1, dated by the touchpoint
  *   Team      every channel except Partner Referral and Sales Outbound
  *
- * PLG-sourced = the subset whose sourcing touchpoint is a GTM play triggered by product behavior (PLG_PLAYS below): a
+ * Not shown on the dashboard (removed until attribution is agreed with the SLG team). PLG-sourced = the subset whose sourcing touchpoint is a GTM play triggered by product behavior (PLG_PLAYS below): a
  * workspace creator or self-serve account was added to the play's Salesforce campaign and responded. It is part of
  * the team number (Hybrid Outbound), never added to it, and moves no credit between channels.
  *

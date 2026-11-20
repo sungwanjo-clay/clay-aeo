@@ -5,7 +5,7 @@ import { NURTURE, RETIER, t4rate, tier4Csv, tier4Insight, type NurturePath, type
 import { TIER4 } from '@/lib/plg/slg/tier4sql'
 import { usd } from '@/lib/plg/insights'
 import WhatMoved from '../WhatMoved'
-import { Card, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
+import { Card, Def, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
 
 const mono = { fontFamily: T.mono } as const
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
@@ -46,19 +46,19 @@ export default function Tier4View({ v, loading, onExport }: { v: V; loading?: bo
     <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Tier 4 accounts raising a hand" value={fmtInt(c.accounts)}
-          tip={<>Salesforce accounts with an SLG touchpoint in the range while the account was Tier 4. Tier 4 never counts as an MQAL, so these don’t get an SDR demo. Aggregator accounts (gmail.com and the like) are left out.</>}>
+          tip={<Def d="Salesforce accounts with a sales touchpoint (demo form, webinar, event…) while Tier 4. Tier 4 is never an MQAL, so no SDR demo." src="INT_SLG_TOUCHPOINT_FUNNEL_DETAIL" note="Aggregator domains (gmail.com etc.) left out." />}>
           <Delta value={rel(c.accounts, p.accounts)}>{fmtPctSigned(rel(c.accounts, p.accounts))}</Delta> <span style={{ color: T.muted }}>vs period before ({fmtInt(p.accounts)})</span>
         </Tile>
         <Tile label="Created a workspace after" value={fmtPct(t4rate(c, 'newWs'), dp(t4rate(c, 'newWs')))}
-          tip={<>Share of those accounts where a work-domain workspace was created on or after their first Tier 4 touchpoint in the range.</>}>
+          tip={<Def d="Accounts where a work-domain workspace was created on or after their first Tier 4 touchpoint in the range." src="CUSTOMERS · domain match" />}>
           {fmtInt(c.newWs)} accounts · {ppLine(t4rate(c, 'newWs'), t4rate(p, 'newWs'))}
         </Tile>
         <Tile label="Paying now" value={fmtPct(t4rate(c, 'paying'), dp(t4rate(c, 'paying')))}
-          tip={<>Share of those accounts with a paying self-serve workspace on their domain today.</>}>
+          tip={<Def d="Accounts with a paying self-serve workspace on their domain today." src="CUSTOMERS" />}>
           {fmtInt(c.paying)} accounts · {ppLine(t4rate(c, 'paying'), t4rate(p, 'paying'))}
         </Tile>
         <Tile label="Moved up to Tier 1–3" value={fmtPct(t4rate(c, 'retiered'), 1)}
-          tip={<>Share of those accounts that are Tier 1–3 in Salesforce today, so a rep can now work them. Reached S2 counts any new-business S2 on the account after the touchpoint.</>}>
+          tip={<Def d="Accounts that are Tier 1–3 in Salesforce today, so a rep can work them." note="Reached S2 = any new-business S2 on the account after the touchpoint." />}>
           {fmtInt(c.retiered)} accounts · {fmtInt(c.s2)} reached S2<br />{ppLine(t4rate(c, 'retiered'), t4rate(p, 'retiered'))}
         </Tile>
       </div>

@@ -5,7 +5,8 @@
  *   node scripts/refresh-cache.mjs sql <dataEnd> <youtubeDir>  → {connectionId, ranges, main, social, startup, slg, tier4, tier4list}: one query per
  *        tab covering every preset × comparison (lib/plg/offline.ts)
  *   node scripts/refresh-cache.mjs pack <name> <dataEnd> <resultFile> <sql-json> <outDir>
- *        → db documents for collection `cache`: <outDir>/<name>-<i>.json parts and <outDir>/<name>.json header
+ *        → db documents for collection `cache`: <outDir>/<name>-<i>.json parts and <outDir>/<name>.json header.
+ *        Exits 3 (writing nothing) when the result breaks its data contract (lib/plg/contracts.ts).
  *
  * The page reads cache/<name> (header: parts, key, storedAt, dataEnd) and cache/<name>-<i> ({s: JSON text part}),
  * the same parts shape the page writes itself (artifact/plg/main.tsx). The header's `ranges` marks a multi-view copy,
@@ -48,6 +49,12 @@ else if (cmd === 'pack') {
   if (!key) throw new Error(`no SQL named ${name}`)
   const ranges = sqls.ranges?.[name]
   const payload = payloadOf(readFileSync(resultFile, 'utf8'))
+  // Data contract (lib/plg/contracts.ts): a result that breaks it is never stored over the current copy.
+  const verdict = (await lib()).validate(name, payload, ranges ?? [])
+  if (!verdict.ok) {
+    console.error(JSON.stringify({ name, refused: true, rows: verdict.rows, problems: verdict.problems }))
+    process.exit(3)
+  }
   const json = JSON.stringify(payload)
   const n = Math.max(1, Math.ceil(json.length / PART))
   mkdirSync(outDir, { recursive: true })

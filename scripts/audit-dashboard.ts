@@ -13,6 +13,9 @@ import { parseDashboardRows } from '@/lib/plg/sigma'
 import { relabel } from '@/lib/plg/offline'
 import { resolveQuarters } from '@/lib/plg/compute'
 import { DEFAULT_QUARTERS } from '@/lib/plg/config'
+import { buildCro } from '@/lib/plg/cro/compute'
+import { buildTier4 } from '@/lib/plg/slg/compute'
+import { existsSync } from 'node:fs'
 
 const [cacheDir, ytDir] = process.argv.slice(2)
 const un = (j: any) => (j && 'data' in j && Object.keys(j).length <= 3 ? j.data : j)
@@ -79,5 +82,32 @@ for (const qs of ['', 'preset=last28', 'preset=qtd&compare=previous_year']) {
   const v = assembleDashboard(plan, { min_day: '2025-01-01', last_ok_at: null, goals: [], restatements: [] } as any, parseDashboardRows(relabel(main.payload, plan.summaries), plan), 'sigma')
   eq(`[${qs || 'last7'} · workspaces] channel table total = KPI`, v.table.total.cur, v.kpis.total)
   eq(`[${qs || 'last7'} · workspaces] daily series sum = KPI`, sum(v.cumulative?.points?.map?.((p: any) => p.cur ?? 0) ?? []) || v.kpis.total, v.kpis.total, Math.max(5, v.kpis.total * 0.01))
+}
+// ── CRO and Tier 4 (default view; their saved copies may cover only it) ──
+{
+  const plan = planDashboard(new URLSearchParams(''), main.h.dataEnd, quarters)
+  const sr = { cur: plan.summaries.cur, prev: plan.summaries.prev }
+  const tot = (xs: any[], k: string, b: 'cur' | 'prev') => sum(xs.map(r => r[b][k]))
+  if (existsSync(`${cacheDir}/cro.json`)) {
+    const c = buildCro(relabel(cached('cro').payload, sr), main.h.dataEnd)
+    for (const b of ['cur', 'prev'] as const) for (const k of ['entries', 'newVisitors', 'converted', 'clickers', 'demo', 'selfServe', 'bots']) {
+      eq(`[cro ${b}] landing types sum to all · ${k}`, tot(c.landing, k, b), (c.all[b] as any)[k])
+      eq(`[cro ${b}] devices sum to all · ${k}`, tot(c.devices, k, b), (c.all[b] as any)[k])
+      eq(`[cro ${b}] channels sum to all · ${k}`, tot(c.channels, k, b), (c.all[b] as any)[k])
+    }
+    checks++; if (c.all.cur.converted > c.all.cur.newVisitors || c.all.cur.clickers > c.all.cur.newVisitors) { fails++; console.log('FAIL [cro] conversions or clickers above new visitors') }
+    checks++; if (sum(c.paths.map(p => p.cur.newVisitors)) > c.all.cur.newVisitors) { fails++; console.log('FAIL [cro] entry pages exceed all new visitors') }
+    // Homepage series: a day's conversions never exceed its visitors; the launch windows add up to their days.
+    checks++; if (c.pages.homepage.some(d => d.converted > d.newVisitors || d.clickers > d.newVisitors)) { fails++; console.log('FAIL [cro] homepage day with conversions above visitors') }
+    if (c.launch) eq('[cro] launch window "after" days', c.launch.after.days, 27)
+  }
+  if (existsSync(`${cacheDir}/tier4.json`)) {
+    const t = buildTier4(relabel(cached('tier4').payload, sr), existsSync(`${cacheDir}/tier4list.json`) ? cached('tier4list').payload : null)
+    for (const k of ['workspace', 'newWs', 'activated', 'paying', 'retiered', 's2'] as const) { checks++; if ((t.cur as any)[k] > t.cur.accounts) { fails++; console.log(`FAIL [tier4] ${k} above accounts`) } }
+    checks++; if (t.cur.newWs > t.cur.workspace) { fails++; console.log('FAIL [tier4] new workspaces above accounts with a workspace') }
+    // An account can raise a hand several ways, so touchpoint types sum to at least the accounts.
+    checks++; if (sum(t.types.map(x => x.cur.accounts)) < t.cur.accounts) { fails++; console.log('FAIL [tier4] touchpoint types sum below accounts') }
+    if (t.accounts) { checks++; if (t.accounts.some(a => a.score !== a.parts.size + a.parts.intent + a.parts.product)) { fails++; console.log('FAIL [tier4] account score ≠ its parts') } }
+  }
 }
 console.log(`${checks - fails} of ${checks} checks passed`)
