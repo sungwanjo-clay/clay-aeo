@@ -26,8 +26,6 @@ export default function WhatMoved({ insight: x }: { insight: Insight | null }) {
     <Card className="p-5 sm:p-8 flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <H2>{x.title ?? 'What moved'}</H2>
-        <p className="text-[14px]" style={{ color: T.muted }}>This period vs the period before, over the days both have. Describes what moved and where; it doesn’t assign follow-ups.</p>
-        {x.note && <p className="text-[14px]" style={{ color: T.muted }}>Note: {x.note}</p>}
       </div>
       {x.empty ? <p className="text-[15px]" style={{ color: T.muted }}>{x.empty}</p> : <>
         {x.drivers.length > 0 && <section className="flex flex-col gap-3">

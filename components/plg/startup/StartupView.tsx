@@ -96,46 +96,44 @@ function RateCards({ s }: { s: SV }) {
 }
 
 function Funnel({ s }: { s: SV }) {
-  const cell = (st: Extract<FunnelStep, { name: string }>) => {
-    if (!st.k) return { cur: null, prev: null, r: null, pr: null }
-    return { cur: s.T[st.k] as number, prev: s.P[st.k] as number, r: st.p ? s.rate(s.T, st.k, st.p) : null, pr: st.p ? s.rate(s.P, st.k, st.p) : null }
+  // Same layout as the Media properties funnel: each count, then its step rate on its own row (counts change in %, rates in pp).
+  // Rates whose inputs aren't connected yet still say what they will divide.
+  const RATE_DEF: Record<string, string> = { 'Application rate': 'Applications ÷ visits', 'Email open rate': 'Email opens ÷ email sends',
+    'Email click-through rate': 'Email clicks ÷ email opens', 'Redemption rate': 'Redeemed ÷ eligible workspaces offered', 'Share of all new workspaces': 'Eligible ÷ total new workspaces' }
+  type Row = { id: string; stage: string; kind: 'count' | 'rate'; label: string; def: string; cur: number | null; prev: number | null; nc?: string }
+  const rows: Row[] = []
+  let stage = ''
+  for (const st of STEPS) {
+    if ('h' in st) { stage = st.h; continue }
+    rows.push({ id: st.name, stage, kind: 'count', label: st.name, def: st.lever, cur: st.k ? (s.T[st.k] as number) : null, prev: st.k ? (s.P[st.k] as number) : null, nc: st.nc })
+    if (st.rl) rows.push({ id: `${st.name}-rate`, stage, kind: 'rate', label: st.rl, def: st.k && st.p ? `${st.name} ÷ ${String(STEPS.find(x => 'k' in x && x.k === st.p && 'name' in x) && (STEPS.find(x => 'k' in x && x.k === st.p) as { name: string }).name).toLowerCase()}` : RATE_DEF[st.rl] ?? st.lever,
+      cur: st.k && st.p ? s.rate(s.T, st.k, st.p) : null, prev: st.k && st.p ? s.rate(s.P, st.k, st.p) : null, nc: st.nc ?? (!st.k || !st.p ? 'No source yet' : undefined) })
   }
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Funnel</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each count, then its step rate on its own row. Counts change in %, rates in percentage points (pp). Steps without a source read “Not connected” (hover for what’s missing).</p>
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[880px] text-[15px]" style={{ color: T.ink }}>
+        <table className="w-full min-w-[700px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left`}>Step</th><th className={`${th} text-right`}>Count</th><th className={`${th} text-right`}>Change</th>
-            <th className={`${th} text-right`}>% change</th><th className={`${th} text-left`}>Conversion from previous step</th><th className={`${th} text-right`}>Rate change</th>
+            <th className={`${th} text-left`}>Step</th><th className={`${th} text-right`}>This period</th><th className={`${th} text-right`}>Period before</th><th className={`${th} text-right`}>Change</th>
           </tr></thead>
-          <tbody>{STEPS.map((st, i) => {
-            if ('h' in st) return (
-              <tr key={`h-${i}`}><td colSpan={6} className="px-3 pt-5 pb-1">
-                <span className="text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.h}</span>
-              </td></tr>
-            )
-            const c = cell(st)
-            const d = c.cur != null && c.prev != null ? c.cur - c.prev : null
-            return (
-              <tr key={st.name} style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td className="px-3 py-3">
-                  <p className="font-semibold">{st.name}</p>
-                  <p className="text-[13px]" style={{ color: T.muted }}>{st.lever}</p>
+          <tbody>{rows.map((r, i) => {
+            const isRate = r.kind === 'rate'
+            const fmt = (v: number | null) => (v == null ? '–' : isRate ? fmtPct(v, dp(v)) : fmtInt(v))
+            const d = r.cur == null || r.prev == null ? null : isRate ? (r.cur - r.prev) * 100 : r.prev ? (r.cur - r.prev) / r.prev : null
+            return [
+              (i === 0 || rows[i - 1].stage !== r.stage) && <tr key={`h-${r.id}`}><td colSpan={4} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{r.stage}</td></tr>,
+              <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}`, background: isRate ? '#FAF9F6' : undefined }}>
+                <td className={isRate ? 'px-3 py-2 pl-8' : 'px-3 py-3'}>
+                  <p className={isRate ? 'text-[14px]' : 'font-semibold'}>{isRate && <span style={{ color: T.faint }}>↳ </span>}{r.label}</p>
+                  <p className="text-[13px]" style={{ color: T.muted }}>{r.def}</p>
                 </td>
-                <td className={num} style={mono}>{st.nc ? <NC why={st.nc} /> : fmtInt(c.cur)}</td>
-                <td className={num} style={{ ...mono, color: deltaColor(d) }}>{d == null ? '–' : fmtSigned(d)}</td>
-                <td className={num} style={{ ...mono, color: deltaColor(d) }}>{c.prev ? fmtPctSigned((c.cur! - c.prev) / c.prev) : '–'}</td>
-                <td className="px-3 py-3 whitespace-nowrap">
-                  {st.nc && st.rl ? <span className="text-[14px]">{st.rl} <NC why={st.nc} /></span>
-                    : c.r != null ? <span className="text-[14px]">
-                      <span className="rounded-full px-2.5 py-1" style={st.key ? { background: '#E8F6F8' } : undefined}>{st.rl} <b style={mono}>{fmtPct(c.r, dp(c.r))}</b></span>
-                      {c.pr != null && <span className="ml-2 text-[13px]" style={{ color: T.muted, ...mono }}>{fmtPct(c.pr, dp(c.pr))} prev. period</span>}
-                    </span> : <span style={{ color: T.faint }}>–</span>}
-                </td>
-                <td className={num}>{c.r != null && c.pr != null ? ppTxt(c.r, c.pr) : '–'}</td>
-              </tr>
-            )
+                <td className={num} style={mono}>{r.nc ? <NC why={r.nc} /> : fmt(r.cur)}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{r.nc ? '' : fmt(r.prev)}</td>
+                <td className={num} style={{ ...mono, color: deltaColor(d) }}>{r.nc ? '' : d == null ? '–' : isRate ? fmtPp(Math.abs(d) < 0.05 ? 0 : d) : fmtPctSigned(d)}</td>
+              </tr>,
+            ]
           })}</tbody>
         </table>
       </div>

@@ -55,7 +55,7 @@ const NO_LIFECYCLE = 'No offer sent yet, and lifecycle email isn’t in Snowflak
 export const STEPS: FunnelStep[] = [
   { h: 'Site' },
   { k: 'visits', name: 'Visits', lever: 'Snowflake · MARKETING_PAGEVIEWS (www.clay.com/clay-for-startups)' },
-  { k: null, rl: 'Visit → application', key: true, name: 'Applications', lever: 'Typeform', nc: NO_TYPEFORM },
+  { k: null, rl: 'Application rate', key: true, name: 'Applications', lever: 'Typeform', nc: NO_TYPEFORM },
   { h: 'Workspaces' },
   { k: 'newWs', p: 'visits', rl: 'Visit → workspace', name: 'Total new workspaces (all tiers)', lever: `Snowflake · CUSTOMERS · created within ${STARTUP.newWindowDays} days of the visit` },
   { k: 'newWsT13', p: 'newWs', rl: 'Share of all new workspaces', key: true, name: 'New workspaces (Tier 1–3)', lever: 'Snowflake · CUSTOMERS → Salesforce sales tier' },
@@ -63,10 +63,10 @@ export const STEPS: FunnelStep[] = [
     nc: 'Eligibility comes from the eligibility workflow’s weekly snapshot in Snowflake, which isn’t hooked up yet' },
   { h: 'Email' },
   { k: null, name: 'Email sends', lever: 'Lifecycle (Inflection) · offer emails sent', nc: NO_LIFECYCLE },
-  { k: null, rl: 'Email open rate', name: 'Email opens', lever: 'Email opens ÷ email sends', nc: NO_LIFECYCLE },
-  { k: null, rl: 'Email click-through rate', name: 'Email clicks', lever: 'Email clicks ÷ email opens', nc: NO_LIFECYCLE },
+  { k: null, rl: 'Email open rate', name: 'Email opens', lever: 'Lifecycle (Inflection) · offer emails opened', nc: NO_LIFECYCLE },
+  { k: null, rl: 'Email click-through rate', name: 'Email clicks', lever: 'Lifecycle (Inflection) · clicks in offer emails', nc: NO_LIFECYCLE },
   { h: 'Outcome' },
-  { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Redeemed ÷ eligible workspaces offered · Stripe discount', nc: 'No offer sent yet' },
+  { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Stripe discount applied', nc: 'No offer sent yet' },
   { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated workspaces', lever: 'Snowflake · first table run within 7 days' },
   { k: 'paid', p: 'newWs', rl: 'Paid rate', name: 'Paying workspaces', lever: 'Snowflake · CUSTOMERS first invoice (the discounted price once the offer launches)' },
 ]

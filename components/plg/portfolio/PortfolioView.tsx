@@ -65,7 +65,7 @@ function Head({ cols, sort, onSort }: { cols: Col[]; sort?: Sort; onSort?: (s: S
   return <thead><tr style={head}>{cols.map(c => {
     const on = !!sort && !!c.sort && sort.key === c.sort
     return (
-      <th key={c.h} className={`${th} ${c.num ? 'text-right' : 'text-left'}`} aria-sort={on ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}>
+      <th key={c.h} className={`${th} ${c.num ? 'text-right' : 'text-left'} sticky top-0 z-10`} style={{ background: T.card }} aria-sort={on ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}>
         {c.sort && sort && onSort
           ? <button type="button" onClick={() => onSort(nextSort(sort, c.sort!, !!c.num || DESC_FIRST.has(c.sort!)))} className="uppercase inline-flex items-center gap-1"
               style={{ color: on ? T.ink : T.muted, letterSpacing: 'inherit' }}>
@@ -200,7 +200,7 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
     sort.key === 'firm' ? firmName(a) : sort.key === 'last' ? lastRun(a) ?? null : sort.key === 'total' ? total(a) : cell.get(`${a}|${sort.key}`)?.companies ?? null,
     sort.key === 'firm' ? firmName(b) : sort.key === 'last' ? lastRun(b) ?? null : sort.key === 'total' ? total(b) : cell.get(`${b}|${sort.key}`)?.companies ?? null, sort.dir) || firmName(a).localeCompare(firmName(b)))
   const sortTh = (key: string, label: string, right: boolean, numeric: boolean, tip?: string) => (
-    <th key={key} title={tip} className={`px-3 py-2 text-[12px] uppercase whitespace-nowrap ${right ? 'text-right' : 'text-left'}`} style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}
+    <th key={key} title={tip} className={`px-3 py-2 text-[12px] uppercase whitespace-nowrap sticky top-0 z-10 ${right ? 'text-right' : 'text-left'}`} style={{ color: T.muted, letterSpacing: '0.12em', ...mono, background: T.card }}
       aria-sort={sort.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
       <button type="button" onClick={() => setSort(nextSort(sort, key, numeric || DESC_FIRST.has(key)))} className="uppercase inline-flex items-center gap-1" style={{ color: sort.key === key ? T.ink : T.muted, letterSpacing: 'inherit' }}>
         {label}<span aria-hidden style={{ opacity: sort.key === key ? 1 : 0.35 }}>{sort.key === key ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</span>
@@ -214,7 +214,7 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
         Total companies is each firm’s unique verified companies. Each source column is how many of them that source found, with how many only that source found in brackets; most companies are found by several sources, so the columns add up to more than the total. Every candidate is checked
         against public evidence before it counts, whichever source found it. A source in orange or red had a partial or failed run this week (hover for detail).
       </p>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-[15px]" style={{ color: T.ink }}>
+      <div className="overflow-auto max-h-[620px]" style={{ overscrollBehavior: 'contain' }}><table className="w-full min-w-[1080px] text-[15px]" style={{ color: T.ink }}>
         <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
           {sortTh('firm', 'Firm', false, false)}
           {sortTh('total', 'Total companies', true, true, 'Unique verified companies across all sources. Sources overlap (most companies are found by several), so the source columns add up to more than this.')}
@@ -495,7 +495,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[15px]" style={{ color: T.muted }}>Click a firm to filter the numbers and companies to it. A company backed by two firms counts in both rows, once in the totals.</p>
           </div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-[15px]" style={{ color: T.ink }}>
+          <div className="overflow-auto max-h-[620px]" style={{ overscrollBehavior: 'contain' }}><table className="w-full min-w-[1280px] text-[15px]" style={{ color: T.ink }}>
             <Head cols={firmCols} sort={firmSort} onSort={setFirmSort} />
             <tbody>
               {sortedFirmRows.length ? sortedFirmRows.slice(0, firmShown).map(r => {
@@ -527,7 +527,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               const t = c
               const rowSum = sortedFirmRows.reduce((n, r) => n + (r.paying_arr_usd ?? 0), 0)
               return (
-                <tfoot><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2' }}>
+                <tfoot className="sticky bottom-0 z-10"><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2', boxShadow: `0 -1px 0 ${T.ink}` }}>
                   <td className="px-3 py-3 font-semibold whitespace-nowrap" colSpan={3}>
                     Total · each company once
                     {meta.arrConnected && Math.round(rowSum) !== Math.round(t.paying_arr_usd ?? 0) &&
@@ -596,7 +596,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
             {meta.churnConnected && listArr.churned > 0 && <> · {fmtInt(listArr.churned)} churned · <b style={{ color: T.ink }}>{fmtUsd(listArr.churnArr)}</b> churned ARR</>}
           </p>
           {exportMsg && <p className="text-[13px]" style={{ color: T.neg }}>{exportMsg}</p>}
-          <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-[15px]" style={{ color: T.ink }}>
+          <div className="overflow-auto max-h-[620px]" style={{ overscrollBehavior: 'contain' }}><table className="w-full min-w-[1120px] text-[15px]" style={{ color: T.ink }}>
             <Head cols={COMPANY_COLS} sort={coSort} onSort={s => { setCoSort(s); setShown(PAGE) }} />
             <tbody>
               {list.length ? list.slice(0, shown).map(r => (
@@ -629,7 +629,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               )) : <tr><td colSpan={COMPANY_COLS.length} className="px-3 py-4 text-[14px]" style={{ color: T.muted }}>No companies match these filters.</td></tr>}
             </tbody>
             {meta.arrConnected && listArr.n > 0 && (
-              <tfoot><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2' }}>
+              <tfoot className="sticky bottom-0 z-10"><tr style={{ borderTop: `2px solid ${T.ink}`, background: '#F7F6F2', boxShadow: `0 -1px 0 ${T.ink}` }}>
                 <td className="px-3 py-3 font-semibold" colSpan={4}>Total · {fmtInt(listArr.n)} {listArr.n === 1 ? 'company' : 'companies'}{list.length > shown ? ' (all pages)' : ''}</td>
                 <td className={`${num} font-semibold`} style={mono}>{fmtUsd(listArr.arr)}</td>
                 <td className={`${num} font-semibold`} style={mono}>{meta.churnConnected ? fmtUsd(listArr.churnArr) : '–'}</td>
