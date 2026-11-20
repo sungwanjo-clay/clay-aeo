@@ -28,6 +28,8 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
   const need = (cs: string[]) => { const miss = cs.filter(c => ix(c) < 0); if (miss.length) problems.push(`missing columns ${miss.join(', ')}`); return !miss.length }
   const rows = payload.rows
   if (!rows.length) problems.push('no rows')
+  // Sigma caps a query result at 10,000 rows and drops the rest without an error.
+  if (rows.length >= 10000) problems.push(`${rows.length} rows: the result hit Sigma's 10,000-row limit and is truncated`)
   const v = (r: unknown[], c: string) => r[ix(c)]
   const num = (r: unknown[], c: string) => Number(v(r, c) ?? 0)
   const str = (r: unknown[], c: string) => String(v(r, c) ?? '')

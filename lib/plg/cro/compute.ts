@@ -70,7 +70,8 @@ export function buildCro(payload: unknown, dataEnd: ISODate): CroView {
     if (r.d === 'homepage' || r.d === 'pricing') pages[r.d].push({ day, newVisitors: r.n, converted: r.a, clickers: r.p, selfServe: r.x, demo: r.c, views: r.y })
   }
   for (const k of ['homepage', 'pricing'] as const) pages[k].sort((a, c) => a.day.localeCompare(c.day))
-  const hz = rows.filter(r => r.k === 'hz').map(r => { const [motion, zone] = r.d.split('|'); return { day: r.b.slice(0, 10) as ISODate, motion, zone, clicks: r.n, clickers: r.a } })
+  // d = zone (older copies: motion|zone)
+  const hz = rows.filter(r => r.k === 'hz').map(r => { const parts = r.d.split('|'); return { day: r.b.slice(0, 10) as ISODate, motion: parts.length > 1 ? parts[0] : '', zone: parts.at(-1)!, clicks: r.n, clickers: r.a } })
 
   const win = (label: string, from: ISODate, to: ISODate): Window => {
     const ds = pages.homepage.filter(x => x.day >= from && x.day <= to)

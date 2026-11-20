@@ -15,13 +15,13 @@
  *
  * Rows: k, b, d, n, a, p, x, c, y, z
  *   Breakdowns for each range (b = "<start>~<end>"), from first-ever sessions:
- *     all  d = '' · lp d = landing page type · ch d = channel · dev d = device · path d = entry path (25+ new entries)
+ *     all  d = '' · lp d = landing page type · ch d = channel · dev d = device · path d = entry path (top 40 with 25+ new visitors)
  *     n entry sessions (bots included), a new-visitor entries, p converted within 1 day, x CTA clickers within 1 day,
  *     c demo clickers, z self-serve clickers, y likely-bot entries
  *   cta  site-wide CTA clicks by new visitors within 1 day of their entry: b = range, d = zone|motion: n clicks, a clickers
  *   pg   key pages by day (b = day, d = homepage | pricing), first view of the page: n new visitors, a converted within
  *        1 day, p CTA clickers on the page, x self-serve clickers, c demo clickers, y pageviews
- *   hz   homepage clicks by new visitors by day: b = day, d = motion|zone: n clicks, a unique clickers
+ *   hz   homepage clicks by new visitors by day: b = day, d = zone: n clicks, a unique clickers
  */
 import type { ISODate } from '../dates'
 import { rangeTable } from '../offline'
@@ -43,6 +43,8 @@ export const CRO = {
   launchNote: 'New homepage live 2026-06-23 about 15:00 UTC (hero button ids switch in the click data); 2026-06-24 is the first full day.',
   /** Daily series start: four weeks before launch. */
   seriesStart: '2026-05-27' as ISODate,
+  /** Entry pages kept per date range (by new visitors), so the saved copy stays under Sigma's 10,000-row limit. */
+  topPaths: 40,
   /** Prior-workspace detection widened on this day, shrinking the new-visitor denominator. */
   detectionChange: '2026-09-15' as ISODate,
   pages: [{ id: 'homepage', path: '/', label: 'Homepage' }, { id: 'pricing', path: '/pricing', label: 'Pricing' }] as const,
@@ -151,17 +153,21 @@ sf AS (
          COALESCE(nesk."dm", 0) AS "dm", COALESCE(nesk."ss", 0) AS "ss"
   FROM ty JOIN rng ON ty."day" BETWEEN rng."rs" AND rng."re"
   LEFT JOIN necv ON necv."sid" = ty."sid" LEFT JOIN nesk ON nesk."sid" = ty."sid"
-)
+),
+pa AS (SELECT "b", "p", COUNT(*) AS "n", SUM("isnew") AS "a", SUM("cv") AS "pp", SUM("ck") AS "x", SUM("dm") AS "c", SUM("bot") AS "y", SUM("ss") AS "z" FROM sf GROUP BY "b", "p"),
+pth AS (SELECT pa.*, ROW_NUMBER() OVER (PARTITION BY "b" ORDER BY "a" DESC, "p") AS "rk" FROM pa WHERE "a" >= 25)
 SELECT 'pg' AS "k", CAST(pgd."day" AS string) AS "b", pgd."pg" AS "d", pgd."n", pgd."a", pgd."p", pgd."x", pgd."c", COALESCE(tr."views", 0) AS "y", 0 AS "z"
 FROM pgd LEFT JOIN traffic tr ON tr."pg" = pgd."pg" AND tr."day" = pgd."day"
 UNION ALL
-SELECT 'hz', CAST("day" AS string), "motion" || '|' || "zone", COUNT(DISTINCT "kid"), COUNT(DISTINCT "aid"), 0, 0, 0, 0, 0
-FROM ck WHERE "pg" = 'homepage' GROUP BY "day", "motion", "zone"
-${(['all', 'lp', 'ch', 'dev', 'path'] as const).map(k => {
-    const col = k === 'all' ? "''" : k === 'lp' ? '"lpt"' : k === 'path' ? '"p"' : `"${k}"`
+SELECT 'hz', CAST("day" AS string), "zone", COUNT(DISTINCT "kid"), COUNT(DISTINCT "aid"), 0, 0, 0, 0, 0
+FROM ck WHERE "pg" = 'homepage' GROUP BY "day", "zone"
+UNION ALL
+SELECT 'path', "b", "p", "n", "a", "pp", "x", "c", "y", "z" FROM pth WHERE "rk" <= ${CRO.topPaths}
+${(['all', 'lp', 'ch', 'dev'] as const).map(k => {
+    const col = k === 'all' ? "''" : k === 'lp' ? '"lpt"' : `"${k}"`
     return `UNION ALL
 SELECT '${k}', "b", ${col}, COUNT(*), SUM("isnew"), SUM("cv"), SUM("ck"), SUM("dm"), SUM("bot"), SUM("ss")
-FROM sf GROUP BY "b"${k === 'all' ? '' : `, ${col}`}${k === 'path' ? ' HAVING SUM("isnew") >= 25' : ''}`
+FROM sf GROUP BY "b"${k === 'all' ? '' : `, ${col}`}`
   }).join('\n')}
 UNION ALL
 SELECT 'cta', rng."lbl", neclk."zone" || '|' || neclk."motion", COUNT(DISTINCT neclk."kid"), COUNT(DISTINCT neclk."sid"), 0, 0, 0, 0, 0

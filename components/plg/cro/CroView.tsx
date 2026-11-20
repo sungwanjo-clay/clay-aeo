@@ -67,7 +67,7 @@ export default function CroView({ v, loading }: { v: V; loading?: boolean }) {
         <SegTable title="By device" sub="Operating system of the first session." rows={v.devices} compact />
       </div>
 
-      <SegTable title="Top entry pages" sub="Entry paths with at least 25 new visitors in the period. Use it to find pages that bring traffic but don’t convert." rows={v.paths} paths />
+      <SegTable title="Top entry pages" sub="The 40 entry pages with the most new visitors in the period (25 or more). Use it to find pages that bring traffic but don’t convert." rows={v.paths} paths />
 
       <CtaZones v={v} />
 
