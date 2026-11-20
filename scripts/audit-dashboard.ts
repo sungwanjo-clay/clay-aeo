@@ -113,7 +113,8 @@ for (const qs of ['', 'preset=last28', 'preset=qtd&compare=previous_year']) {
       // Entry pages classify into the same types in TypeScript as in SQL.
       const tr = trend(v, ['Homepage'], 'day'); checks++; if (!tr.length) { fails++; console.log('FAIL [cro] empty homepage trend') }
     }
-    for (const p of all.paths) { if (p.type && p.label.startsWith('/') && !p.label.startsWith('/fr')) { checks++; const t = pageTypeOf('marketing_website', p.label); if (t !== p.type && p.type !== 'Conversion pages' && p.type !== 'Landing pages' && p.type !== 'University' && p.type !== 'Guides') { fails++; console.log(`FAIL [cro] ${p.label}: SQL type ${p.type} vs TS ${t}`) } } }
+    // Only clay.com paths (other sites are prefixed site:path and the old copies didn't prefix, so skip type Other there).
+    for (const p of all.paths) { if (p.type && p.type !== 'Other' && p.label.startsWith('/') && !p.label.startsWith('/fr')) { checks++; const t = pageTypeOf('marketing_website', p.label); if (t !== p.type && p.type !== 'Conversion pages' && p.type !== 'Landing pages' && p.type !== 'University' && p.type !== 'Guides') { fails++; console.log(`FAIL [cro] ${p.label}: SQL type ${p.type} vs TS ${t}`) } } }
   }
   if (existsSync(`${cacheDir}/tier4.json`)) {
     const t = buildTier4(relabel(cached('tier4').payload, sr), existsSync(`${cacheDir}/tier4list.json`) ? cached('tier4list').payload : null)

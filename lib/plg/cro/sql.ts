@@ -16,7 +16,8 @@
  *   ld    d = page type|device
  *   lz    d = page type|zone          n clicks, a clickers (motion split only in cta)
  *   cta   d = zone|motion             n clicks, a clickers, all page types
- *   path  d = page type|path          like all, top 40 entry paths per range by new visitors (25 or more)
+ *   path  d = page type|path          like all, top 40 entry paths per range by new visitors (25 or more); paths on
+ *                                     sites other than clay.com are prefixed with the site (signup:/, ploy-lp:/…)
  * croTrendSql rows (b = day): k = 'day', d = page type, same columns as all; the last 26 weeks to the data end.
  */
 import { addDays, type ISODate } from '../dates'
@@ -87,7 +88,8 @@ neclk AS (
 ),
 nesk AS (SELECT "sid", MAX(CASE WHEN "motion" = 'demo' THEN 1 ELSE 0 END) AS "dm", MAX(CASE WHEN "motion" = 'self_serve' THEN 1 ELSE 0 END) AS "ss" FROM neclk GROUP BY "sid"),
 sx AS (
-  SELECT ty."sid", ty."day", ty."lpt", ty."ch", ty."dev", ty."p", ty."isnew", ty."bot",
+  SELECT ty."sid", ty."day", ty."lpt", ty."ch", ty."dev",
+         CASE WHEN ty."site" = 'marketing_website' THEN ty."p" ELSE COALESCE(ty."site", 'unknown') || ':' || COALESCE(ty."p", '') END AS "p", ty."isnew", ty."bot",
          CASE WHEN necv."sid" IS NULL THEN 0 ELSE 1 END AS "cv", CASE WHEN nesk."sid" IS NULL THEN 0 ELSE 1 END AS "ck",
          COALESCE(nesk."dm", 0) AS "dm", COALESCE(nesk."ss", 0) AS "ss"
   FROM ty LEFT JOIN necv ON necv."sid" = ty."sid" LEFT JOIN nesk ON nesk."sid" = ty."sid"
