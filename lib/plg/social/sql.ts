@@ -22,7 +22,8 @@
  *              workspaces also governed blended YouTube attribution with a session but no video
  *   survey     new workspaces the governed blended attribution gives to YouTube from the "how did you hear about us"
  *              answer only: YouTube worked, but no creator or video can be named
- *   bots       referral visits exclude likely bots (MARKETING_IP_CRAWLER_CLASSIFICATION, no Clay user id) and other sites
+ *   bots       referral visits exclude likely bots (MARKETING_IP_CRAWLER_CLASSIFICATION, no Clay user id); every site is
+ *              kept, because people who already have a workspace often land on signup or login from a creator's link
  *   existing   users identified by the pageview's user id or COOKIE_TO_USER_RELATIONSHIP, roles from USER_WORKSPACE_ROLES
  *   tier       the Marketing Q4 Tier 1–3 tile's rule (lib/plg/tier.ts): CUSTOMERS.DOMAIN → live Salesforce account,
  *              best tier per domain, personal emails excluded; no Salesforce account → Untiered
@@ -122,7 +123,7 @@ pv AS (
   LEFT JOIN vmap vm ON vm."camp" = LOWER(TRIM(COALESCE(p."UTM_CAMPAIGN", ''))) AND (vm."src" = '' OR p."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
   LEFT JOIN ${t(T.crawler)} bc ON bc."IP_ADDRESS" = p."IP_ADDRESS"
   WHERE CAST(p."TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
-    AND p."SITE" = 'marketing_website' AND NOT ${bot('bc."BINARY_BOT_EXCLUSION"', 'p."USER_ID"')}
+    AND NOT ${bot('bc."BINARY_BOT_EXCLUSION"', 'p."USER_ID"')}
     AND (p."REFERRER_RAW" ILIKE '%youtu%' OR p."UTM_SOURCE" ILIKE '%youtu%' OR vm."vid" IS NOT NULL OR ${fbAny('p')})
 ),
 cu AS (

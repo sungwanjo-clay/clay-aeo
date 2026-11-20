@@ -68,7 +68,7 @@ export function socialSources(sql: string | null): TabSources {
       { name: 'Views, watch time', where: 'YouTube Analytics API v2 (reports, per channel and per video)', what: 'Daily; needs the channel owner’s sign-in or Viewer access' },
       { name: 'Impressions, thumbnail clicks', where: 'YouTube Reporting API, channel_reach_basic_a1', what: 'Daily files about 1–2 days late; thumbnail clicks = impressions × video_thumbnail_impressions_ctr' },
       { name: 'Videos, links, thumbnails', where: 'YouTube Data API v3 (channels, playlistItems, videos)', what: 'Descriptions are parsed for clay.com links; utm_campaign maps a visit to a video' },
-      { name: 'Referral visits', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'marketing_website, likely bots excluded; YouTube referrer or utm_source; campaign → video; creator fallbacks in lib/plg/social/config.ts' },
+      { name: 'Referral visits', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'Likely bots excluded; YouTube referrer or utm_source; campaign → video; creator fallbacks in lib/plg/social/config.ts' },
       { name: 'New workspaces', where: 'DBT.PROD.FIRST_TOUCH_ATTRIBUTION, DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'First-touch campaign → video; plus blended attribution platform youtube (session → untagged, survey answer only → survey)' },
       { name: 'Activated, paid, expanded, churned', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION, DBT.PROD.CUSTOMERS, DBT.PROD.CREDIT_PACK_INVOICES', what: 'Activated = first table within 7 days' },
       { name: 'Tier', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'Marketing Q4 tile rule: live account on the email domain, best tier, personal emails excluded' },
