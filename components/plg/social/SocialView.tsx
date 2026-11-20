@@ -332,91 +332,132 @@ function VideoSummary({ v, p, onDeep }: { v: SVVideo; p: SVPeriod; onDeep: () =>
   )
 }
 
-/** One video, in full: headline tiles, its trend, its funnel, links and parameters, launch numbers, day by day, device and geo. */
-function VideoDeepDive({ s, id, setId, thumbs }: { s: SV; id: string | null; setId: (id: string) => void; thumbs?: Record<string, string> | null }) {
-  const vids = [...s.videos].sort((a, b) => (s.videoPeriod[b.id]?.views ?? 0) - (s.videoPeriod[a.id]?.views ?? 0))
+type DeepSel = { channels: string[]; videos: string[] }
+
+/**
+ * The deep dive: everything for one selection (any mix of creators and videos), under a filter bar that pins to the
+ * top once the section starts. All channels on the All tab; on a creator tab, that creator's videos.
+ */
+function DeepDive({ s, sel, setSel, thumbs }: { s: SV; sel: DeepSel; setSel: (x: DeepSel) => void; thumbs?: Record<string, string> | null }) {
   const [dayCols, setDayCols] = useState<'reach' | 'traffic'>('reach')
   const [daySort, setDaySort] = useState<SortState>({ key: 'd', dir: -1 })
-  const v = vids.find(x => x.id === id) ?? vids[0]
-  if (!v) return null
-  const D = s.videoDeep[v.id], T0 = D?.totals.cur, T1 = D?.totals.prev
+  const live = s.channelRows.filter((r): r is Extract<(typeof s.channelRows)[number], { connected: true }> => r.connected)
+  const chOptions = s.scope === 'all' ? live : []
+  const chLabels = new Set(sel.channels.length ? live.filter(r => sel.channels.includes(r.id)).map(r => r.label) : live.map(r => r.label))
+  const vidOptions = [...s.videos].filter(v => chLabels.has(v.channel)).sort((a, b) => (s.videoPeriod[b.id]?.views ?? 0) - (s.videoPeriod[a.id]?.views ?? 0))
+  const d = s.deep(sel)
+  const one = d.byVideo && d.videoIds.length === 1 ? s.videos.find(v => v.id === d.videoIds[0]) ?? null : null
+  const T0 = d.T0, T1 = d.T1
   const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`
   const rel = (a: number | null | undefined, b: number | null | undefined) => (a != null && b ? (a - b) / b : null)
-  const ctr = (t?: typeof T0) => (t?.impr ? (t.clk ?? 0) / t.impr : null)
-  const avd = (t?: typeof T0) => (t?.views && t.minutes != null ? (t.minutes * 60) / t.views : null)
-  const tile = (label: string, val: React.ReactNode, d: number | null, unit: 'pct' | 'pp' = 'pct') => (
+  const rr = (a?: number | null, b?: number | null) => (a != null && b ? a / b : null)
+  const ctr = (t: typeof T0) => rr(t.clk, t.impr)
+  const avd = (t: typeof T0) => (t.views && t.minutes != null ? (t.minutes * 60) / t.views : null)
+  const t13 = (t: number[]) => t[0] + t[1] + t[2]
+  const label = d.byVideo ? (one ? one.title : `${d.videoIds.length} videos`) : sel.channels.length ? d.channels.join(' + ') : s.scope === 'all' ? 'All channels' : (s.channel?.label ?? '')
+  const toggleCh = (id: string) => setSel({ channels: sel.channels.includes(id) ? sel.channels.filter(x => x !== id) : [...sel.channels, id], videos: [] })
+  const toggleVid = (id: string) => setSel({ ...sel, videos: sel.videos.includes(id) ? sel.videos.filter(x => x !== id) : [...sel.videos, id] })
+  const chip = (on: boolean) => ({ background: on ? T.ink : '#fff', color: on ? '#fff' : T.ink, border: `1px solid ${on ? T.ink : T.border}` })
+  const tile = (lab: string, val: React.ReactNode, dd: number | null, unit: 'pct' | 'pp' = 'pct') => (
     <div className="rounded-2xl p-4 flex flex-col gap-1.5" style={{ background: T.tile }}>
-      <Eyebrow>{label}</Eyebrow>
+      <Eyebrow>{lab}</Eyebrow>
       <span className="text-[26px] leading-none" style={mono}>{val}</span>
-      <span className="text-[13px]" style={{ color: T.muted }}>{d == null ? '– vs the period before' : <><span style={{ color: deltaColor(Math.abs(d) < 0.0005 ? 0 : d), ...mono }}>{Math.abs(d) < 0.0005 ? '—' : d > 0 ? '▲' : '▼'}{unit === 'pp' ? `${Math.abs(d * 100).toFixed(1)}pp` : `${Math.abs(d * 100).toFixed(Math.abs(d) < 0.1 ? 1 : 0)}%`}</span> vs the period before</>}</span>
+      <span className="text-[13px]" style={{ color: T.muted }}>{dd == null ? '– vs the period before' : <><span style={{ color: deltaColor(Math.abs(dd) < 0.0005 ? 0 : dd), ...mono }}>{Math.abs(dd) < 0.0005 ? '—' : dd > 0 ? '▲' : '▼'}{unit === 'pp' ? `${Math.abs(dd * 100).toFixed(1)}pp` : `${Math.abs(dd * 100).toFixed(Math.abs(dd) < 0.1 ? 1 : 0)}%`}</span> vs the period before</>}</span>
     </div>
   )
-  const fmtShortD = (d: string) => fmtShort(d)
-  const pts = (k: 'views' | 'impr' | 'visits' | 'ws' | 'minutes') => (xs: typeof D.cur) => xs.map(x => ({ label: fmtShortD(x.d), v: x[k] as number | null }))
-  const ctrPts = (xs: typeof D.cur) => xs.map(x => ({ label: fmtShortD(x.d), v: x.impr ? (x.clk ?? 0) / x.impr : null }))
-  const metrics: ProgressMetric[] = D ? [
-    { id: 'views', label: 'Views', fmt: fmtInt, points: pts('views')(D.cur), prev: pts('views')(D.prev) },
-    { id: 'impr', label: 'Impressions', fmt: fmtInt, points: pts('impr')(D.cur), prev: pts('impr')(D.prev), empty: 'Impressions need the channel owner’s sign-in.' },
-    { id: 'ctr', label: 'Thumbnail CTR', fmt: (n: number) => fmtPct(n, 1), points: ctrPts(D.cur), prev: ctrPts(D.prev) },
-    { id: 'visits', label: 'Referral visits', fmt: fmtInt, points: pts('visits')(D.cur), prev: pts('visits')(D.prev), empty: 'No tracked link, so visits can’t be tied to this video.' },
-    { id: 'ws', label: 'New workspaces', fmt: fmtInt, points: pts('ws')(D.cur), prev: pts('ws')(D.prev) },
-    { id: 'minutes', label: 'Watch time (minutes)', fmt: fmtInt, points: pts('minutes')(D.cur), prev: pts('minutes')(D.prev) },
-  ].map(m => ({ ...m, points: m.points.some(p => p.v) ? m.points : [] })) : []
-  // The video's own funnel, counts then step rates.
-  const step = (label: string, cur: number | null | undefined, prev: number | null | undefined, rate?: { label: string; cur: number | null; prev: number | null }) => ({ label, cur: cur ?? null, prev: prev ?? null, rate })
-  const rr = (a?: number | null, b?: number | null) => (a != null && b ? a / b : null)
-  const funnel = T0 ? [
-    step('Impressions', T0.impr, T1?.impr),
-    step('Views', T0.views, T1?.views, { label: 'Thumbnail CTR', cur: ctr(T0), prev: ctr(T1) }),
-    step('Referral visits', v.tagged ? T0.visits : null, v.tagged ? T1?.visits : null, { label: 'CTA CTR', cur: v.tagged ? rr(T0.visits, T0.views) : null, prev: v.tagged ? rr(T1?.visits, T1?.views) : null }),
-    ...(v.offerPage ? [step('Email captures', T0.captures, T1?.captures, { label: 'Email capture rate', cur: rr(T0.captures, T0.visits), prev: rr(T1?.captures, T1?.visits) })] : []),
-    step('New workspaces', v.tagged ? T0.newWs : null, v.tagged ? T1?.newWs : null, { label: 'Visit → workspace', cur: v.tagged ? rr(T0.newWs, v.offerPage ? T0.captures : T0.visits) : null, prev: v.tagged ? rr(T1?.newWs, v.offerPage ? T1?.captures : T1?.visits) : null }),
-    step('Activated workspaces', v.tagged ? T0.activated : null, v.tagged ? T1?.activated : null, { label: 'Activation rate', cur: rr(T0.activated, T0.newWs), prev: rr(T1?.activated, T1?.newWs) }),
-    step('Paying workspaces', v.tagged ? T0.paid : null, v.tagged ? T1?.paid : null, { label: 'Paid rate', cur: rr(T0.paid, T0.newWs), prev: rr(T1?.paid, T1?.newWs) }),
-  ] : []
-  const when = v.publishedAt ? new Date(v.publishedAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short' }) : fmtShort(v.published)
-  const eng = v.likes != null && v.lifetimeViews ? (v.likes + (v.comments ?? 0)) / v.lifetimeViews : null
+  const pts = (k: 'views' | 'impr' | 'visits' | 'ws' | 'minutes') => (xs: typeof d.cur) => xs.map(x => ({ label: fmtShort(x.d), v: x[k] as number | null }))
+  const ctrPts = (xs: typeof d.cur) => xs.map(x => ({ label: fmtShort(x.d), v: x.impr ? (x.clk ?? 0) / x.impr : null }))
+  const metrics: ProgressMetric[] = [
+    { id: 'views', label: 'Views', fmt: fmtInt, points: pts('views')(d.cur), prev: pts('views')(d.prev) },
+    { id: 'impr', label: 'Impressions', fmt: fmtInt, points: pts('impr')(d.cur), prev: pts('impr')(d.prev), empty: 'Impressions need the channel owner’s sign-in.' },
+    { id: 'ctr', label: 'Thumbnail CTR', fmt: (n: number) => fmtPct(n, 1), points: ctrPts(d.cur), prev: ctrPts(d.prev) },
+    { id: 'visits', label: 'Referral visits', fmt: fmtInt, points: pts('visits')(d.cur), prev: pts('visits')(d.prev), empty: 'No tracked link in this selection, so visits can’t be tied to it.' },
+    { id: 'ws', label: 'New workspaces', fmt: fmtInt, points: pts('ws')(d.cur), prev: pts('ws')(d.prev) },
+    { id: 'minutes', label: 'Watch time (minutes)', fmt: fmtInt, points: pts('minutes')(d.cur), prev: pts('minutes')(d.prev) },
+  ].map(m => ({ ...m, points: m.points.some(p => p.v) ? m.points : [] }))
+  type FStep = { label: string; cur: number | null; prev: number | null; rate?: { label: string; cur: number | null; prev: number | null } }
+  const tr = d.tracked
+  const funnel: FStep[] = [
+    { label: 'Impressions', cur: T0.impr, prev: T1.impr },
+    { label: 'Views', cur: T0.views, prev: T1.views, rate: { label: 'Thumbnail CTR', cur: ctr(T0), prev: ctr(T1) } },
+    { label: 'Referral visits', cur: tr ? T0.visits : null, prev: tr ? T1.visits : null, rate: { label: 'CTA CTR', cur: tr ? rr(T0.visits, T0.views) : null, prev: tr ? rr(T1.visits, T1.views) : null } },
+    ...(d.offerPage ? [{ label: 'Email captures', cur: T0.captures, prev: T1.captures, rate: { label: 'Email capture rate', cur: rr(T0.captures, T0.visits), prev: rr(T1.captures, T1.visits) } }] : []),
+    { label: 'New workspaces', cur: tr ? T0.newWs : null, prev: tr ? T1.newWs : null, rate: { label: 'Visit → workspace', cur: tr ? rr(T0.newWs, d.offerPage ? T0.captures : T0.visits) : null, prev: tr ? rr(T1.newWs, d.offerPage ? T1.captures : T1.visits) : null } },
+    { label: 'Tier 1–3 workspaces', cur: tr ? t13(T0.tiersNew) : null, prev: tr ? t13(T1.tiersNew) : null },
+    { label: 'Activated workspaces', cur: tr ? T0.activated : null, prev: tr ? T1.activated : null, rate: { label: 'Activation rate', cur: rr(T0.activated, T0.newWs), prev: rr(T1.activated, T1.newWs) } },
+    { label: 'Paying workspaces', cur: tr ? T0.paid : null, prev: tr ? T1.paid : null, rate: { label: 'Paid rate', cur: rr(T0.paid, T0.newWs), prev: rr(T1.paid, T1.newWs) } },
+  ]
+  const days = [...d.cur].sort((a, b) => {
+    const val = (x: typeof a) => daySort.key === 'd' ? x.d : daySort.key === 'ctr' ? (x.impr ? (x.clk ?? 0) / x.impr : null) : daySort.key === 'avd' ? (x.views && x.minutes != null ? x.minutes / x.views : null)
+      : daySort.key === 'cta' ? (x.views ? x.visits / x.views : null) : (x[daySort.key as 'views' | 'impr' | 'subs' | 'visits' | 'ws'] as number | null)
+    return cmpVals(val(a), val(b), daySort.dir)
+  })
+  // The sections below reuse the page components with this selection's numbers.
+  const ss = { ...s, persona: d.persona, tiers: d.tiers, afterSignup: d.afterSignup, signupMonths: d.signupMonths, cuts: d.cuts,
+    videos: s.videos.filter(v => chLabels.has(v.channel) && (!d.byVideo || d.videoIds.includes(v.id))) } as SV
+  const when = one?.publishedAt ? new Date(one.publishedAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short' }) : one ? fmtShort(one.published) : ''
+  const eng = one && one.likes != null && one.lifetimeViews ? (one.likes + (one.comments ?? 0)) / one.lifetimeViews : null
   return (
-    <section id="video-deep-dive" className="flex flex-col gap-5 scroll-mt-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <H2>Video deep dive</H2>
-        <label className="flex items-center gap-3 text-[15px]" style={{ color: T.muted }}>Video
-          <select value={v.id} onChange={e => setId(e.target.value)} className="rounded-xl px-3 py-2 text-[15px] max-w-[460px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
-            {vids.map(x => <option key={x.id} value={x.id}>{x.title}{s.scope === 'all' ? ` · ${x.channel}` : ''}</option>)}
-          </select>
-        </label>
-      </div>
-      <Card className="p-5 sm:p-8 flex flex-col gap-6">
-        <div className="flex flex-wrap items-start gap-6">
-          {thumbs?.[v.id] && <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="rounded-xl overflow-hidden shrink-0" style={{ maxWidth: '100%' }}>
-            <img src={thumbs[v.id]} alt={v.title} width={320} height={180} style={{ width: 320, maxWidth: '100%', height: 'auto', display: 'block' }} /></a>}
-          <div className="flex flex-col gap-2 min-w-0 flex-1">
-            <p className="text-[22px] font-bold leading-snug" style={{ color: T.ink, letterSpacing: '-0.01em' }}>{v.title}</p>
-            <p className="text-[14px]" style={{ color: T.muted }}>{v.channel} · {when} · {dur(v.durationSec)} · {v.live ? 'Live stream' : v.durationSec <= 60 ? 'Short' : 'Video'}{!v.cohortComplete && ` · day ${v.cohortDay} of ${COHORT_DAYS}`}</p>
-            <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="text-[14px] underline self-start" style={{ color: T.ink }}>Watch on YouTube ↗</a>
-            <p className="text-[13px]" style={{ color: T.muted }}>{v.campaign ? `Matched to visits by utm_campaign ${v.campaign}.` : v.tagged ? 'Matched to visits by the channel’s link rule.' : 'No clay.com link this dashboard can tie to the video, so visits and workspaces aren’t attributed to it.'}</p>
+    <section id="video-deep-dive" className="flex flex-col gap-5">
+      <H2>Deep dive</H2>
+      {/* Filter bar: pins to the top while the deep dive is on screen. */}
+      <div className="sticky top-0 z-30 -mx-4 sm:-mx-10 xl:-mx-16 px-4 sm:px-10 xl:px-16 py-3 flex flex-wrap items-center gap-3" style={{ background: T.page, borderBottom: `1px solid ${T.border}` }}>
+        {chOptions.length > 0 && <div className="flex flex-wrap gap-1.5" role="group" aria-label="Creators">
+          <button type="button" aria-pressed={!sel.channels.length} onClick={() => setSel({ channels: [], videos: [] })} className="rounded-full px-3 py-1.5 text-[13px]" style={chip(!sel.channels.length)}>All channels</button>
+          {chOptions.map(c => <button key={c.id} type="button" aria-pressed={sel.channels.includes(c.id)} onClick={() => toggleCh(c.id)} className="rounded-full px-3 py-1.5 text-[13px]" style={chip(sel.channels.includes(c.id))}>{c.label}</button>)}
+        </div>}
+        <details className="relative">
+          <summary className="list-none cursor-pointer rounded-full px-4 py-1.5 text-[13px] select-none" style={chip(sel.videos.length > 0)}>
+            {sel.videos.length ? `${sel.videos.length} ${sel.videos.length === 1 ? 'video' : 'videos'} selected` : 'All videos'} ▾
+          </summary>
+          <div className="absolute z-40 mt-2 w-[min(560px,90vw)] max-h-[360px] overflow-auto rounded-xl p-2 flex flex-col" style={{ background: '#fff', border: `1px solid ${T.border}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
+            {sel.videos.length > 0 && <button type="button" onClick={() => setSel({ ...sel, videos: [] })} className="self-start rounded-full px-3 py-1 text-[13px] mb-1" style={chip(false)}>Clear: all videos</button>}
+            {vidOptions.map(v => (
+              <label key={v.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg cursor-pointer text-[14px] hover:bg-[#F4F3EF]">
+                <input type="checkbox" checked={sel.videos.includes(v.id)} onChange={() => toggleVid(v.id)} />
+                {thumbs?.[v.id] ? <img src={thumbs[v.id]} alt="" width={48} height={27} className="rounded shrink-0" style={{ width: 48, height: 27, objectFit: 'cover' }} /> : null}
+                <span className="min-w-0 flex-1 truncate" style={{ color: T.ink }}>{v.title}</span>
+                <span className="shrink-0 text-[12px]" style={{ color: T.muted, ...mono }}>{fmtInt(s.videoPeriod[v.id]?.views ?? null)} views</span>
+              </label>))}
           </div>
-        </div>
+        </details>
+        <span className="text-[14px] min-w-0 truncate" style={{ color: T.muted }}>Showing <b style={{ color: T.ink }}>{label}</b>{!d.byVideo && s.scope === 'all' && !sel.channels.length ? ' (untagged YouTube traffic is left out)' : ''}</span>
+      </div>
+
+      <Card className="p-5 sm:p-8 flex flex-col gap-6">
+        {one && <div className="flex flex-wrap items-start gap-6">
+          {thumbs?.[one.id] && <a href={`https://www.youtube.com/watch?v=${one.id}`} target="_blank" rel="noreferrer" className="rounded-xl overflow-hidden shrink-0" style={{ maxWidth: '100%' }}>
+            <img src={thumbs[one.id]} alt={one.title} width={320} height={180} style={{ width: 320, maxWidth: '100%', height: 'auto', display: 'block' }} /></a>}
+          <div className="flex flex-col gap-2 min-w-0 flex-1">
+            <p className="text-[22px] font-bold leading-snug" style={{ color: T.ink }}>{one.title}</p>
+            <p className="text-[14px]" style={{ color: T.muted }}>{one.channel} · {when} · {dur(one.durationSec)} · {one.live ? 'Live stream' : one.durationSec <= 60 ? 'Short' : 'Video'}{!one.cohortComplete && ` · day ${one.cohortDay} of ${COHORT_DAYS}`}</p>
+            <a href={`https://www.youtube.com/watch?v=${one.id}`} target="_blank" rel="noreferrer" className="text-[14px] underline self-start" style={{ color: T.ink }}>Watch on YouTube ↗</a>
+            <p className="text-[13px]" style={{ color: T.muted }}>{one.campaign ? `Matched to visits by utm_campaign ${one.campaign}.` : one.tagged ? 'Matched to visits by the channel’s link rule.' : 'No clay.com link this dashboard can tie to the video, so visits and workspaces aren’t attributed to it.'}</p>
+          </div>
+        </div>}
+        {!d.tracked && !one && <p className="text-[14px]" style={{ color: T.muted }}>None of these videos has a tracked clay.com link, so referral visits and workspaces can’t be tied to them.</p>}
         <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-          {tile('Views', fmtInt(T0?.views ?? null), rel(T0?.views, T1?.views))}
-          {tile('Impressions', T0?.impr != null ? fmtInt(T0.impr) : '–', rel(T0?.impr, T1?.impr))}
+          {tile('Impressions', T0.impr != null ? fmtInt(T0.impr) : '–', rel(T0.impr, T1.impr))}
           {tile('Thumbnail CTR', ctr(T0) != null ? fmtPct(ctr(T0), 1) : '–', ctr(T0) != null && ctr(T1) != null ? ctr(T0)! - ctr(T1)! : null, 'pp')}
+          {tile('Views', fmtInt(T0.views), rel(T0.views, T1.views))}
           {tile('Avg view duration', avd(T0) != null ? dur(avd(T0)!) : '–', rel(avd(T0), avd(T1)))}
-          {tile('Referral visits', v.tagged ? fmtInt(T0?.visits ?? 0) : '–', v.tagged ? rel(T0?.visits, T1?.visits) : null)}
-          {tile('New workspaces', v.tagged ? fmtInt(T0?.newWs ?? 0) : '–', v.tagged ? rel(T0?.newWs, T1?.newWs) : null)}
+          {tile('Referral visits', tr ? fmtInt(T0.visits) : '–', tr ? rel(T0.visits, T1.visits) : null)}
+          {tile('New workspaces', tr ? fmtInt(T0.newWs) : '–', tr ? rel(T0.newWs, T1.newWs) : null)}
         </div>
       </Card>
-      {metrics.length > 0 && <ProgressChart title="Trend" metrics={metrics} curLabel="These dates" prevLabel="Period before" />}
+
+      {metrics.some(m => m.points.length) && <ProgressChart title="Trend" metrics={metrics} curLabel="These dates" prevLabel="Period before" />}
+
       <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
         <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
-          <H2>Funnel for this video</H2>
+          <H2>Funnel</H2>
           <table className="w-full text-[15px]" style={{ color: T.ink }}>
             <thead><tr style={head}><th className={`${th} text-left`}>Step</th><th className={`${th} text-right`}>These dates</th><th className={`${th} text-right`}>Before</th><th className={`${th} text-right`}>Change</th></tr></thead>
             <tbody>{funnel.flatMap(f => {
-              const d = f.cur != null && f.prev ? (f.cur - f.prev) / f.prev : null
+              const dd = f.cur != null && f.prev ? (f.cur - f.prev) / f.prev : null
               const out = [<tr key={f.label} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-2.5 font-semibold">{f.label}</td><td className={num} style={mono}>{fmtInt(f.cur)}</td>
-                <td className={num} style={{ ...mono, color: T.muted }}>{fmtInt(f.prev)}</td><td className={num} style={{ ...mono, color: deltaColor(d) }}>{fmtPctSigned(d)}</td></tr>]
+                <td className={num} style={{ ...mono, color: T.muted }}>{fmtInt(f.prev)}</td><td className={num} style={{ ...mono, color: deltaColor(dd) }}>{fmtPctSigned(dd)}</td></tr>]
               if (f.rate) {
                 const pp = f.rate.cur != null && f.rate.prev != null ? (f.rate.cur - f.rate.prev) * 100 : null
                 out.unshift(<tr key={`${f.label}-r`} style={{ borderBottom: `1px solid ${T.border}`, background: '#FAF9F6' }}>
@@ -428,10 +469,10 @@ function VideoDeepDive({ s, id, setId, thumbs }: { s: SV; id: string | null; set
           </table>
           <p className="text-[13px]" style={{ color: T.muted }}>Each rate row sits above the step it leads to. Rates change in percentage points.</p>
         </Card>
-        <div className="flex flex-col gap-6 min-w-0">
+        {one ? <div className="flex flex-col gap-6 min-w-0">
           <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
             <H2>Links and tracking</H2>
-            {(v.links ?? []).length ? v.links!.map(l => {
+            {(one.links ?? []).length ? one.links!.map(l => {
               const params = Object.entries(l.params ?? {}).sort(([a], [b]) => (a in PARAM_LABEL ? Object.keys(PARAM_LABEL).indexOf(a) : 99) - (b in PARAM_LABEL ? Object.keys(PARAM_LABEL).indexOf(b) : 99))
               return (
                 <div key={l.full ?? l.url} className="flex flex-col gap-1.5 min-w-0">
@@ -446,15 +487,16 @@ function VideoDeepDive({ s, id, setId, thumbs }: { s: SV; id: string | null; set
           <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
             <H2>Launch and lifetime</H2>
             <dl className="grid gap-x-6 gap-y-1.5 text-[15px]" style={{ gridTemplateColumns: 'auto 1fr', color: T.ink }}>
-              {([[`Views, first ${COHORT_DAYS} days`, v.views != null ? fmtInt(v.views) : '–'], [`Avg viewed, first ${COHORT_DAYS} days`, v.avgViewPct != null ? fmtPct(v.avgViewPct, 0) : '–'],
-                [`Subscribers, first ${COHORT_DAYS} days`, v.subsGained ? `+${fmtInt(v.subsGained)}` : '–'], ['Lifetime views', fmtInt(v.lifetimeViews)],
-                ['Likes · comments', v.likes != null ? `${fmtInt(v.likes)} · ${fmtInt(v.comments ?? 0)}` : '–'], ['Engagement rate', eng != null ? fmtPct(eng, 1) : '–']] as [string, string][])
+              {([[`Views, first ${COHORT_DAYS} days`, one.views != null ? fmtInt(one.views) : '–'], [`Avg viewed, first ${COHORT_DAYS} days`, one.avgViewPct != null ? fmtPct(one.avgViewPct, 0) : '–'],
+                [`Subscribers, first ${COHORT_DAYS} days`, one.subsGained ? `+${fmtInt(one.subsGained)}` : '–'], ['Lifetime views', fmtInt(one.lifetimeViews)],
+                ['Likes · comments', one.likes != null ? `${fmtInt(one.likes)} · ${fmtInt(one.comments ?? 0)}` : '–'], ['Engagement rate', eng != null ? fmtPct(eng, 1) : '–']] as [string, string][])
                 .flatMap(([k, val]) => [<dt key={`${k}-k`} style={{ color: T.muted }}>{k}</dt>, <dd key={`${k}-v`} style={mono}>{val}</dd>])}
             </dl>
           </Card>
-        </div>
+        </div> : <AfterSignup s={ss} />}
       </div>
-      {D && <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
+
+      <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <H2>Day by day</H2>
           <Segmented ariaLabel="Day-by-day columns" value={dayCols} onChange={setDayCols} options={[{ id: 'reach', label: 'Reach' }, { id: 'traffic', label: 'Traffic and signups' }]} />
@@ -464,11 +506,7 @@ function VideoDeepDive({ s, id, setId, thumbs }: { s: SV; id: string | null; set
             {dayCols === 'reach' ? <><SortTh label="Impressions" k="impr" sort={daySort} set={setDaySort} /><SortTh label="Thumbnail CTR" k="ctr" sort={daySort} set={setDaySort} /><SortTh label="Views" k="views" sort={daySort} set={setDaySort} /><SortTh label="Avg view duration" k="avd" sort={daySort} set={setDaySort} /><SortTh label="Subscribers" k="subs" sort={daySort} set={setDaySort} /></>
               : <><SortTh label="Views" k="views" sort={daySort} set={setDaySort} /><SortTh label="Referral visits" k="visits" sort={daySort} set={setDaySort} /><SortTh label="CTA CTR" k="cta" sort={daySort} set={setDaySort} /><SortTh label="New workspaces" k="ws" sort={daySort} set={setDaySort} /></>}
           </tr></thead>
-          <tbody>{[...D.cur].sort((a, b) => {
-            const val = (x: typeof a) => daySort.key === 'd' ? x.d : daySort.key === 'ctr' ? (x.impr ? (x.clk ?? 0) / x.impr : null) : daySort.key === 'avd' ? (x.views && x.minutes != null ? x.minutes / x.views : null)
-              : daySort.key === 'cta' ? (x.views ? x.visits / x.views : null) : (x[daySort.key as 'views' | 'impr' | 'subs' | 'visits' | 'ws'] as number | null)
-            return cmpVals(val(a), val(b), daySort.dir)
-          }).map(x => (
+          <tbody>{days.map(x => (
             <tr key={x.d} style={{ borderBottom: `1px solid ${T.border}` }}>
               <td className="px-3 py-2.5" style={mono}>{fmtShort(x.d)}</td>
               {dayCols === 'reach' ? <>
@@ -479,14 +517,17 @@ function VideoDeepDive({ s, id, setId, thumbs }: { s: SV; id: string | null; set
                 <td className={num} style={mono}>{x.subs != null ? fmtInt(x.subs) : '–'}</td>
               </> : <>
                 <td className={num} style={mono}>{x.views != null ? fmtInt(x.views) : <span style={{ color: T.faint }}>not reported yet</span>}</td>
-                <td className={num} style={mono}>{v.tagged ? fmtInt(x.visits) : '–'}</td>
-                <td className={num} style={mono}>{v.tagged && x.views ? fmtPct(x.visits / x.views, 1) : '–'}</td>
-                <td className={num} style={mono}>{v.tagged ? fmtInt(x.ws) : '–'}</td>
+                <td className={num} style={mono}>{tr ? fmtInt(x.visits) : '–'}</td>
+                <td className={num} style={mono}>{tr && x.views ? fmtPct(x.visits / x.views, 1) : '–'}</td>
+                <td className={num} style={mono}>{tr ? fmtInt(x.ws) : '–'}</td>
               </>}
             </tr>))}</tbody>
         </table></div>
-      </Card>}
-      {v.tagged && <section className="flex flex-col gap-4"><Cuts s={s} sel={v.id} onClear={() => {}} /></section>}
+      </Card>
+
+      {tr && <Cuts s={ss} sel={null} onClear={() => {}} title="Device and geo" />}
+      {tr && <TierMix s={ss} />}
+      {one && tr && <AfterSignup s={ss} />}
     </section>
   )
 }
@@ -518,7 +559,7 @@ const VIDEO_FILTERS: { id: VideoFilter; label: string; title: string }[] = [
 
 function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: string | null; setSel: (id: string | null) => void; thumbs?: Record<string, string> | null; onDeep: (id: string) => void; deep: string | null }) {
   const [sort, setSort] = useState<SortState>({ key: 'ws', dir: -1 })
-  const [vf, setVf] = useState<VideoFilter>('all')
+  const [showAll, setShowAll] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const creator = s.scope !== 'all'
   const cols = 10 + (s.videos.some(v => v.offerPage && v.tagged) ? 1 : 0)
@@ -526,7 +567,6 @@ function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: stri
   const P = (id: string) => s.videoPeriod[id]
   const ctr = (id: string) => { const p = P(id); return p?.visits != null && p.views ? p.visits / p.views : null }
   const wsr = (id: string, offer: boolean) => { const p = P(id); const den = offer ? p?.captures : p?.visits; return p?.newWs != null && den ? p.newWs / den : null }
-  const keep = (v: SVVideo) => vf === 'all' ? true : vf === 'tracked' ? v.tagged : vf === 'untracked' ? !v.tagged : vf === 'ws' ? (P(v.id)?.newWs ?? 0) > 0 : !v.cohortComplete
   const val = (v: SVVideo): number | string | null => {
     const p = P(v.id)
     switch (sort.key) {
@@ -541,7 +581,8 @@ function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: stri
       default: return p?.newWs ?? null
     }
   }
-  const rows = [...s.videos].filter(keep).sort((a, b) => cmpVals(val(a), val(b), sort.dir) || (P(b.id)?.views ?? 0) - (P(a.id)?.views ?? 0))
+  const sortedAll = [...s.videos].sort((a, b) => cmpVals(val(a), val(b), sort.dir) || (P(b.id)?.views ?? 0) - (P(a.id)?.views ?? 0))
+  const rows = showAll ? sortedAll : sortedAll.slice(0, 15)
   const showCapture = s.videos.some(v => v.offerPage && v.tagged)
   const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
   const rateCell = (r: number | null, goal: number) => (
@@ -552,15 +593,9 @@ function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: stri
       <H2>Videos</H2>
       <p className="text-[15px]" style={{ color: T.muted }}>The selected dates, the same metrics as the tiles. A channel’s video rows plus its older-videos row add up to its total. CTA CTR in orange is below the 50% goal. Select a video for its headline numbers and the deep dive below.</p>
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter videos">
-          {VIDEO_FILTERS.map(f => {
-            const n = f.id === 'all' ? s.videos.length : s.videos.filter(v => f.id === 'tracked' ? v.tagged : f.id === 'untracked' ? !v.tagged : f.id === 'ws' ? (P(v.id)?.newWs ?? 0) > 0 : !v.cohortComplete).length
-            return <button key={f.id} type="button" title={f.title} aria-pressed={vf === f.id} onClick={() => setVf(f.id)} className="rounded-full px-3 py-1.5 text-[13px]"
-              style={{ background: vf === f.id ? T.ink : '#fff', color: vf === f.id ? '#fff' : T.ink, border: `1px solid ${vf === f.id ? T.ink : T.border}` }}>{f.label} <span style={{ opacity: 0.6 }}>{n}</span></button>
-          })}
-        </div>
+
       </div>
-      <Card className="overflow-x-auto">
+      <Card className="overflow-auto max-h-[720px]" style={{ overscrollBehavior: 'contain' }}>
         <table className="w-full min-w-[1080px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
             <SortTh label="Video" k="title" sort={sort} set={setSort} right={false} />
@@ -622,11 +657,13 @@ function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: stri
             ))}</tbody>
         </table>
       </Card>
+      {sortedAll.length > 15 && <button type="button" onClick={() => setShowAll(!showAll)} className="self-start rounded-full px-4 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }}>
+        {showAll ? 'Show the top 15' : `Show all ${sortedAll.length} videos`}</button>}
     </section>
   )
 }
 
-function Cuts({ s, sel, onClear }: { s: SV; sel: string | null; onClear: () => void }) {
+function Cuts({ s, sel, onClear, title }: { s: SV; sel: string | null; onClear: () => void; title?: string }) {
   const v = sel ? s.videos.find(x => x.id === sel) ?? null : null
   const device = v ? v.device : s.cuts.device
   const geo = v ? v.geo : s.cuts.geo
@@ -637,7 +674,7 @@ function Cuts({ s, sel, onClear }: { s: SV; sel: string | null; onClear: () => v
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-        <H2>Device and geo · {v ? v.title : s.channel ? `${s.channel.label}’s channel` : 'All channels'}</H2>
+        <H2>{title ?? `Device and geo · ${v ? v.title : s.channel ? `${s.channel.label}’s channel` : 'All channels'}`}</H2>
         {v && <button type="button" onClick={onClear} className="rounded-full px-4 py-2 text-[14px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>Show whole channel</button>}
       </div>
       <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
@@ -745,13 +782,13 @@ function TierMix({ s }: { s: SV }) {
 }
 
 /**
- * Same layout on All channels and each creator: four tiles, the trend, rate tiles, what moved, then the channels table
- * (All) or the funnel (creator), videos, persona and tier mix, after signup, device and geo.
+ * Same layout on All channels and each creator: four tiles, the trend, rate tiles, what moved, the channels table (All) or
+ * the funnel (creator), the top videos, then the deep dive for any selection of creators and videos.
  */
 export default function SocialView({ s, loading, thumbs }: { s: SV; loading: boolean; thumbs?: Record<string, string> | null }) {
   const [sel, setSel] = useState<string | null>(null)
-  const [deep, setDeep] = useState<string | null>(null)
-  const openDeep = (id: string) => { setDeep(id); setTimeout(() => document.getElementById('video-deep-dive')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0) }
+  const [deepSel, setDeepSel] = useState<DeepSel>({ channels: [], videos: [] })
+  const openDeep = (id: string) => { setDeepSel({ channels: [], videos: [id] }); setTimeout(() => document.getElementById('video-deep-dive')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0) }
   return (
     <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
       <Kpis s={s} />
@@ -759,11 +796,8 @@ export default function SocialView({ s, loading, thumbs }: { s: SV; loading: boo
       <RateTiles s={s} />
       <WhatMoved insight={s.insight} />
       {s.scope === 'all' ? <ChannelsTable s={s} /> : <Funnel s={s} />}
-      <VideoTable s={s} sel={sel} setSel={setSel} thumbs={thumbs} onDeep={openDeep} deep={deep} />
-      <VideoDeepDive s={s} id={deep} setId={setDeep} thumbs={thumbs} />
-      <TierMix s={s} />
-      <AfterSignup s={s} />
-      <section className="flex flex-col gap-4"><Cuts s={s} sel={sel} onClear={() => setSel(null)} /></section>
+      <VideoTable s={s} sel={sel} setSel={setSel} thumbs={thumbs} onDeep={openDeep} deep={deepSel.videos.length === 1 ? deepSel.videos[0] : null} />
+      <DeepDive s={s} sel={deepSel} setSel={setDeepSel} thumbs={thumbs} />
     </div>
   )
 }

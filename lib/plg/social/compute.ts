@@ -552,6 +552,68 @@ export function buildSocial(o: {
     return { visits: vis.n, newWs: ws.n, activated: ws.a, paid: ws.p, tiersNew: ws.t, existing: ex.n, tiersExisting: ex.t, views: (() => { const d = o.yt.find(x => x.channelId === scopeChannel.youtubeId); return d && d.analyticsAccess !== false ? sum(d.daily.filter(r => r[0] >= o.cur[0] && r[0] <= ytCurEnd).map(r => r[1])) : null })() }
   })() : null
 
+  // ── Deep dive for any selection: channels (empty = every channel in scope) and/or specific videos ──
+  // Videos selected → their own YouTube numbers and visits; otherwise the channels' totals (older videos included) and
+  // every key the channels own (videos and channel-wide links). Visitors are summed across keys, as everywhere else.
+  const deep = (sel: { channels: string[]; videos: string[] }) => {
+    const chs = inScope.filter(c => !sel.channels.length || sel.channels.includes(c.ch.id))
+    const vidIds = sel.videos.filter(id => chs.some(c => c.videos.some(v => v.id === id)))
+    const byVideo = vidIds.length > 0
+    const keys = byVideo ? vidIds : chs.flatMap(c => [...c.keys])
+    const keySet = new Set(keys)
+    const nDays = daysBetween(o.cur[0], o.cur[1])
+    const ytVideos = (c: Ch) => (byVideo ? c.doc!.videos.filter(v => vidIds.includes(v.id)) : null)
+    type Day = { d: ISODate; views: number | null; minutes: number | null; subs: number | null; impr: number | null; clk: number | null; visits: number; ws: number }
+    const series = (start: ISODate, ytEnd: ISODate): Day[] => Array.from({ length: nDays }, (_, i) => {
+      const d = addDays(start, i), yt = d <= ytEnd
+      let views: number | null = null, minutes: number | null = null, subs: number | null = null, impr: number | null = null, clk: number | null = null
+      for (const c of chs) {
+        if (c.analytics && yt) {
+          const vs = ytVideos(c)
+          const rs = vs ? vs.map(v => v.daily.find(r => r[0] === d)) : [c.doc!.daily.find(r => r[0] === d)]
+          views = (views ?? 0) + sum(rs.map(r => r?.[1] ?? 0)); minutes = (minutes ?? 0) + sum(rs.map(r => r?.[2] ?? 0))
+          subs = (subs ?? 0) + sum(rs.map(r => (vs ? r?.[4] : (r as [ISODate, number, number, number, number, number] | undefined)?.[3] ?? 0) ?? 0))
+        }
+        if (c.imprState === 'live' && yt && c.imprDays.has(d)) {
+          const vs = ytVideos(c)
+          const rs = vs ? vs.map(v => v.impressions?.find(r => r[0] === d)) : [c.doc!.impressionsDaily!.find(r => r[0] === d)]
+          impr = (impr ?? 0) + sum(rs.map(r => r?.[1] ?? 0)); clk = (clk ?? 0) + sum(rs.map(r => r?.[2] ?? 0))
+        }
+      }
+      const dk = (k: string) => sum(rows.filter(r => r.k === k && r.d === d && keySet.has(r.key)).map(r => r.n))
+      return { d, views, minutes, subs, impr, clk, visits: dk('vday'), ws: dk('wsday') }
+    })
+    const cur = series(o.cur[0], ytCurEnd), prev = series(o.prev[0], ytPrevEnd)
+    const tot = (b: 'cur' | 'prev', xs: Day[]) => {
+      const nn = (k: 'views' | 'minutes' | 'subs' | 'impr' | 'clk') => (xs.some(x => x[k] != null) ? sum(xs.map(x => x[k] ?? 0)) : null)
+      const ws = keys.map(k => one('ws', b, k)), ex = keys.map(k => one('ex', b, k))
+      return { views: nn('views'), minutes: nn('minutes'), subs: nn('subs'), impr: nn('impr'), clk: nn('clk'),
+        visits: sum(keys.map(k => one('vis', b, k).n)), captures: sum(keys.map(k => one('form', b, k).n)),
+        newWs: sum(ws.map(x => x.n)), activated: sum(ws.map(x => x.a)), paid: sum(ws.map(x => x.p)), expanded: sum(ws.map(x => x.x)), churned: sum(ws.map(x => x.c)),
+        tiersNew: ws.reduce((a, x) => addT(a, x.t), zeroT()), existing: sum(ex.map(x => x.n)), tiersExisting: ex.reduce((a, x) => addT(a, x.t), zeroT()) }
+    }
+    const T0 = tot('cur', cur), T1 = tot('prev', prev)
+    const pm = new Map<string, number>()
+    for (const r of rows) if (r.k === 'per' && r.b === 'cur' && keySet.has(r.key)) pm.set(r.d, (pm.get(r.d) ?? 0) + r.n)
+    const persona = [...pm.entries()].map(([label, n]) => ({ label, n })).sort((a, c) => (a.label === 'No answer' ? 1 : c.label === 'No answer' ? -1 : c.n - a.n))
+    const plans = plansOf(rows.filter(r => r.k === 'plan' && r.b === 'cur' && keySet.has(r.key)))
+    const mm = new Map<string, { month: string; n: number; act: number; paid: number; exp: number; churn: number }>()
+    for (const r of rows) if (r.k === 'mon' && r.b === 'cur' && keySet.has(r.key)) {
+      const e = mm.get(r.d) ?? { month: r.d, n: 0, act: 0, paid: 0, exp: 0, churn: 0 }; e.n += r.n; e.act += r.a; e.paid += r.p; e.exp += r.x; e.churn += r.c; mm.set(r.d, e)
+    }
+    const signupMonths = [...mm.values()].sort((a, c) => a.month.localeCompare(c.month))
+    // Visitors are only tied to a video through a tracked link: a selection with none can't show traffic.
+    const tracked = byVideo ? vidIds.some(id => scopeVideos.find(v => v.id === id)?.tagged) : true
+    const offerPage = byVideo ? vidIds.some(id => scopeVideos.find(v => v.id === id)?.offerPage) : scopeVideos.some(v => v.offerPage && v.tagged)
+    return {
+      byVideo, videoIds: vidIds, channels: chs.map(c => c.ch.label), tracked, offerPage,
+      cur, prev, T0, T1, persona, signupMonths,
+      tiers: { labels: TIER_LABELS, fresh: T0.tiersNew, existing: T0.tiersExisting },
+      afterSignup: { n: T0.newWs, free: T0.newWs - T0.paid, paidOnly: Math.max(0, T0.paid - T0.expanded - T0.churned), expanded: T0.expanded, churned: T0.churned, plans },
+      cuts: { device: cutOf('dev', keys), geo: cutOf('geo', keys) },
+    }
+  }
+
   return {
     scope: o.scope, mode: o.mode,
     channel: scopeChannel ? { id: scopeChannel.id, label: scopeChannel.label, handle: scopeChannel.handle, fallbackNote: scopeChannel.fallback?.note ?? null } : null,
@@ -587,7 +649,7 @@ export function buildSocial(o: {
     affiliateVisitors: one('vis', 'cur', 'affiliate').n,
     tiers: { labels: TIER_LABELS, fresh: withUntagged ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
     videos: scopeVideos,
-    persona, signupMonths, backCatalog, cuts, videoPeriod, olderVideos, videoDeep,
+    persona, signupMonths, backCatalog, cuts, videoPeriod, olderVideos, videoDeep, deep,
     trend, range: { cur: o.cur, prev: o.prev },
   }
 }

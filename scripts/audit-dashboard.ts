@@ -50,6 +50,18 @@ for (const qs of ['', 'preset=last28', 'preset=qtd&compare=previous_year']) {
       const older = s.olderVideos.find((o: any) => o.channel === r.label)?.views ?? 0
       eq(`${tag} ${r.label}: video rows + older = channel views`, sum(vids.map((v: any) => s.videoPeriod[v.id]?.views)) + older, r.views, 2)
     }
+    // Deep dive: everything in scope = the tiles; each creator alone = their channel row
+    const dAll = s.deep({ channels: [], videos: [] })
+    eq(`${tag} deep dive (all) views = tile`, dAll.T0.views, s.kpis.views.cur)
+    eq(`${tag} deep dive (all) referral visits = tile`, dAll.T0.visits, s.kpis.visits.cur)
+    eq(`${tag} deep dive (all) impressions = tile`, dAll.T0.impr, s.kpis.impressions.cur)
+    for (const r of live) {
+      const dc = s.deep({ channels: [r.id], videos: [] })
+      eq(`${tag} deep dive (${r.label}) visits = channel row`, dc.T0.visits, r.visits)
+      if (r.analytics) eq(`${tag} deep dive (${r.label}) views = channel row`, dc.T0.views, r.views)
+      const vids = s.videos.filter((v: any) => v.channel === r.label)
+      if (vids.length && r.analytics) eq(`${tag} deep dive (${r.label}, all its videos) views = video rows`, s.deep({ channels: [r.id], videos: vids.map((v: any) => v.id) }).T0.views, sum(vids.map((v: any) => s.videoPeriod[v.id]?.views)))
+    }
     // What moved: the views driver's total is the tile
     const vd = s.insight.drivers.find((d: any) => !Array.isArray(d) && JSON.stringify(d.lead).includes('"Views"')) as any
     if (vd && s.kpis.views.cur != null) {
