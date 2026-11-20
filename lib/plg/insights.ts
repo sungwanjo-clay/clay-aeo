@@ -88,9 +88,14 @@ export function driverPara(metric: string, unit: string, total: { cur: number; p
   const same = eligible.filter(i => Math.sign(i.cur - i.prev) === dir).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
   const opp = eligible.filter(i => Math.sign(i.cur - i.prev) === -dir).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
   const share = (i: Item) => `${Math.round(Math.abs(i.cur - i.prev) / Math.abs(net) * 100)}%`
+  // When single items swing harder than the net (a mix shift), percentages of the net read as nonsense (367%):
+  // show the swings themselves instead and say so in the lead.
+  const swing = eligible.some(i => Math.abs(i.cur - i.prev) > Math.abs(net))
+  if (swing) lead.push(' · items moved both ways by more than the net')
   const top = same.slice(0, 3)
-  const bullets: Para[] = top.map(i => [code(i.label), ` ${fmt(i.cur - i.prev)} · ${share(i)} of the net change`, ...(i.tags?.length ? [` · ${i.tags.join(' · ')}`] : [])])
-  if (opp[0]) bullets.push(['Offsetting: ', code(opp[0].label), ` ${fmt(opp[0].cur - opp[0].prev)} · offsets ${share(opp[0])}`])
+  const tags = (i: Item): Run[] => (i.tags?.length ? [` · ${i.tags.join(' · ')}`] : [])
+  const bullets: Para[] = top.map(i => [code(i.label), ` ${fmt(i.cur - i.prev)}`, ...(swing ? [] : [` · ${share(i)} of the net change`]), ...tags(i)])
+  if (opp[0]) bullets.push(['Offsetting: ', code(opp[0].label), ` ${fmt(opp[0].cur - opp[0].prev)}`, ...(swing ? [] : [` · offsets ${share(opp[0])}`])])
   const note: Para | null = null
   return { lead, bullets, note }
 }

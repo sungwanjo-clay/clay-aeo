@@ -14,15 +14,20 @@ import WhatMoved from './WhatMoved'
 import { workspacesInsight } from '@/lib/plg/workspacesInsight'
 import type { Block } from '@/lib/plg/insights'
 import { Eyebrow, Pill, Segmented, T } from './ui'
+import StickyFilters from './StickyFilters'
+import { useRef } from 'react'
 
 export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio' | 'tier4'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'social', label: 'Media properties' },
   { id: 'startup', label: 'Startup program' },
-  { id: 'portfolio', label: 'Portfolio' },
-  { id: 'tier4', label: 'Tier 4 SLG' },
 ] as const
+/** Workspaces tab sections, for the sticky bar's jump links. */
+const WS_SECTIONS = [
+  { id: 'ws-overview', label: 'Overview' }, { id: 'ws-moved', label: 'What moved' }, { id: 'ws-channels', label: 'Channels' },
+  { id: 'ws-slg', label: 'SLG pipeline' }, { id: 'ws-cro', label: 'CRO' }, { id: 'ws-tier4', label: 'Tier 4' },
+]
 const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces &amp; pacing</>, sub: 'Blended attribution, cut by channel and tier' },
   social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Video → offer → workspace</>, sub: '' },
@@ -55,6 +60,39 @@ function freshness(v: DashboardPayload, refreshedAt?: number | string | null) {
   return `${through} · refreshed ${t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
 }
 
+/** A titled section inside a tab (Workspaces: CRO, Tier 4), with an anchor for the sticky bar's jump links. */
+function SectionHead({ id, eyebrow, title, sub, children }: { id: string; eyebrow: string; title: string; sub: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="flex flex-col gap-5 sm:gap-6 pt-6 sm:pt-10 scroll-mt-20" style={{ borderTop: `1px solid ${T.border}` }}>
+      <div className="flex flex-col gap-2">
+        <Eyebrow>{eyebrow}</Eyebrow>
+        <h2 className="text-[30px] sm:text-[40px] leading-[1.1] font-bold" style={{ color: T.ink, letterSpacing: '-0.035em' }}>{title}</h2>
+        <p className="text-[16px]" style={{ color: T.muted }}>{sub}</p>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/** Startup program ↔ Portfolio partners: one switch on the Startup program tab instead of a separate tab. */
+function ProgramToggle({ value, onChange }: { value: 'startup' | 'portfolio'; onChange: (v: 'startup' | 'portfolio') => void }) {
+  const opts = [{ id: 'startup', label: 'Startup offer', sub: 'clay.com/clay-for-startups' }, { id: 'portfolio', label: 'Portfolio partners', sub: 'VC and accelerator portfolios' }] as const
+  const i = value === 'portfolio' ? 1 : 0
+  return (
+    <div role="radiogroup" aria-label="Program view" className="relative inline-grid grid-cols-2 rounded-2xl p-1 self-start w-full sm:w-[460px]" style={{ background: '#EFEEEA' }}>
+      <span aria-hidden className="absolute top-1 bottom-1 rounded-xl transition-transform duration-200"
+        style={{ left: 4, width: 'calc(50% - 4px)', transform: `translateX(${i * 100}%)`, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }} />
+      {opts.map(o => (
+        <button key={o.id} type="button" role="radio" aria-checked={value === o.id} onClick={() => onChange(o.id)}
+          className="relative z-10 rounded-xl px-4 py-2.5 text-left focus:outline-none focus-visible:ring-2">
+          <span className="block text-[15px] font-semibold" style={{ color: value === o.id ? T.ink : T.muted }}>{o.label}</span>
+          <span className="block text-[12px]" style={{ color: T.faint }}>{o.sub}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** config/health, written by the daily health check (scripts/health-check.mjs). */
 export type Health = { version: 1; checkedAt: string; status: 'ok' | 'warn' | 'alert'; problems: { id: string; level: 'alert' | 'warn'; detail: string }[] }
 
@@ -75,7 +113,7 @@ function HealthBanner({ h }: { h: Health | null | undefined }) {
   )
 }
 
-export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, tier4, slg, slgDrivers }: {
+export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, tier4, slg, slgDrivers, cro }: {
   /** Collapsed "Sources and SQL" panel for the active tab, shown at the bottom. */
   sources?: React.ReactNode
   /** Daily health check verdict; undefined while loading. */
@@ -100,8 +138,10 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   startup?: React.ReactNode
   /** Rendered when tab === 'portfolio'. */
   portfolio?: React.ReactNode
-  /** Rendered when tab === 'tier4'. */
+  /** Workspaces tab section: Tier 4 SLG hand-raisers. */
   tier4?: React.ReactNode
+  /** Workspaces tab: CRO section (landing pages, homepage launch). */
+  cro?: React.ReactNode
   /** Workspaces tab: PLG-sourced SLG pipeline card, and its What moved drivers. */
   slg?: React.ReactNode
   slgDrivers?: Block[]
@@ -111,6 +151,9 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   const active: DashboardTab = onTab ? tab : 'workspaces'
   const isSocial = active === 'social'
   const h = HEAD[active]
+  const filterRef = useRef<HTMLDivElement>(null)
+  const fstate: FilterState = { preset: v.params.preset, start: v.range.start, end: v.range.end, compare: v.params.compare, grain: v.params.grain }
+  const program = active === 'startup' || active === 'portfolio'
 
   return (
     <div className="px-4 py-6 sm:px-10 sm:py-8 xl:px-16 flex flex-col gap-6 sm:gap-8" style={{ background: T.page, minHeight: '100%' }}>
@@ -131,41 +174,54 @@ export default function DashboardView({ sources, health, v, loading, error, noti
         </div>
       </header>
 
-      <Segmented ariaLabel="Dashboard section" size="lg" value={active}
+      <Segmented ariaLabel="Dashboard section" size="lg" value={active === 'portfolio' ? 'startup' : active}
         onChange={id => onTab?.(id)}
         options={TABS.map(t => ({ ...t, disabled: t.id !== 'workspaces' && !onTab,
           title: t.id !== 'workspaces' && !onTab ? 'Available in the claude.ai version' : undefined }))} />
 
       {active === 'workspaces' && <RestatementBanner v={v} />}
 
-      <FilterCard
-        state={{ preset: v.params.preset, start: v.range.start, end: v.range.end, compare: v.params.compare, grain: v.params.grain }}
+      {program && onTab && <ProgramToggle value={active === 'portfolio' ? 'portfolio' : 'startup'} onChange={t => onTab(t)} />}
+
+      {active !== 'portfolio' && <StickyFilters anchor={filterRef} state={fstate} label={v.range.label} prevLabel={v.range.prevLabel} onChange={update}
+        sections={active === 'workspaces' ? WS_SECTIONS.filter(x => (x.id !== 'ws-slg' || slg) && (x.id !== 'ws-cro' || cro) && (x.id !== 'ws-tier4' || tier4)) : undefined} />}
+
+      {active !== 'portfolio' && <div ref={filterRef}><FilterCard
+        state={fstate}
         prevStart={v.range.prevStart} prevEnd={v.range.prevEnd}
         dataStart={v.range.dataStart} dataEnd={v.range.dataEnd}
         onChange={update}
-      />
+      /></div>}
       <HealthBanner h={health} />
       {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
-      {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : active === 'tier4' ? tier4 : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
-        <KpiTiles v={v} />
-
-        <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <CumulativeChart v={v} onZoom={(start, end) => update({ preset: null, start, end })} />
-          <TierPacing v={v} />
+        <div id="ws-overview" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
+          <KpiTiles v={v} />
+          <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <CumulativeChart v={v} onZoom={(start, end) => update({ preset: null, start, end })} />
+            <TierPacing v={v} />
+          </div>
         </div>
 
-        {slg}
+        <div id="ws-moved" className="scroll-mt-20"><WhatMoved insight={workspacesInsight(v, slgDrivers)} /></div>
 
-        <WhatMoved insight={workspacesInsight(v, slgDrivers)} />
-
-        <ChannelTable v={v} />
-
-        <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-2">
-          <McpByPlatform v={v} />
-          <DomainQuality v={v} />
+        <div id="ws-channels" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
+          <ChannelTable v={v} />
+          <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-2">
+            <McpByPlatform v={v} />
+            <DomainQuality v={v} />
+          </div>
         </div>
+
+        {slg && <div id="ws-slg" className="scroll-mt-20">{slg}</div>}
+
+        {cro && <SectionHead id="ws-cro" eyebrow="Conversion rate optimization" title="Landing pages and the homepage launch"
+          sub="Visits, workspace conversion and CTA clicks by landing page type, with the homepage and pricing page over time.">{cro}</SectionHead>}
+
+        {tier4 && <SectionHead id="ws-tier4" eyebrow="SLG · Tier 4 hand-raisers" title="Tier 4 hand-raisers → product → pipeline"
+          sub="Tier 4 accounts never qualify for an SDR demo. This follows them into the product and back into sales.">{tier4}</SectionHead>}
 
         <DataQualityStrip v={v} />
       </div>}

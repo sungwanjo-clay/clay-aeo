@@ -4,6 +4,7 @@
  */
 import { b, code, driverPara, ratePara, type Block, type Insight, type Item, type Para } from '../insights'
 import { PLG_PLAYS, type PlgGroup } from './sql'
+import type { CompanyRow, Firm } from '../portfolio/data'
 
 type Tbl = { columns: string[]; rows: unknown[][] }
 function table(payload: unknown): Tbl {
@@ -75,9 +76,10 @@ const cohort = (r?: Record<string, unknown>): T4Cohort => ({
   paying: (r?.c as number) ?? 0, retiered: (r?.y as number) ?? 0, s2: (r?.z as number) ?? 0,
 })
 
-export type NurturePath = 'Re-tier review' | 'Expansion' | 'Upgrade nurture' | 'Activation nurture' | 'Trial invite'
+export type NurturePath = 'Re-tier review' | 'Startup offer' | 'Expansion' | 'Upgrade nurture' | 'Activation nurture' | 'Trial invite'
 export const NURTURE: { id: NurturePath; rule: string; play: string }[] = [
   { id: 'Re-tier review', rule: '200+ employees, or $10K+ self-serve ARR', play: 'Likely mis-tiered: ask RevOps to review the tier before nurturing' },
+  { id: 'Startup offer', rule: 'VC-backed Seed or Series A in the portfolio scrape, not paying', play: 'Startup program offer, through the backing firm where it’s a partner' },
   { id: 'Expansion', rule: 'Paying self-serve', play: 'Usage and credit-pacing plays toward a bigger plan' },
   { id: 'Upgrade nurture', rule: 'Activated workspace, not paying', play: 'Upgrade prompts tied to what they built' },
   { id: 'Activation nurture', rule: 'Workspace, not activated', play: 'Onboarding: first table, first enrichment' },
@@ -91,10 +93,31 @@ export type T4Account = {
   workspaces: number; wsLast: string | null; activated: boolean; paying: boolean; arr: number; plan: string | null
   credits28: number; days28: number; pql: number; billingOpens28: number
   score: number; parts: { size: number; intent: number; product: number }; path: NurturePath
+  /** From the portfolio scrape (artifact db portfolio/*), matched on domain. */
+  vc?: { firms: string[]; partnered: boolean; stage: string | null; lastRoundAt: string | null; totalFunding: number | null } | null
 }
 
-export function nurturePath(a: Pick<T4Account, 'employees' | 'arr' | 'paying' | 'activated' | 'workspaces'>): NurturePath {
+const EARLY = /^(seed|series a)\b/i
+/** Join the portfolio scrape onto the account list by domain: investors, partner status, stage, last round, funding. */
+export function enrichTier4(rows: T4Account[], companies: CompanyRow[] | null | undefined, firms: Firm[] | null | undefined): T4Account[] {
+  if (!companies?.length) return rows
+  const norm = (d: string | null | undefined) => (d ?? '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '')
+  const byDom = new Map<string, CompanyRow>()
+  for (const c of companies) { const d = norm(c.domain); if (d && (!byDom.has(d) || c.inDenominator)) byDom.set(d, c) }
+  const firm = new Map((firms ?? []).map(f => [f.firm_id, f]))
+  return rows.map(r => {
+    const c = byDom.get(norm(r.domain))
+    if (!c) return { ...r, vc: null }
+    const fs = c.firms.map(id => firm.get(id)).filter((f): f is Firm => !!f)
+    const vc = { firms: fs.map(f => f.name), partnered: fs.some(f => f.partnership_cut === 'partnered'), stage: c.stage, lastRoundAt: c.lastRoundAt, totalFunding: c.totalFunding ?? null }
+    const x = { ...r, vc }
+    return { ...x, path: nurturePath(x) }
+  })
+}
+
+export function nurturePath(a: Pick<T4Account, 'employees' | 'arr' | 'paying' | 'activated' | 'workspaces' | 'vc'>): NurturePath {
   if ((a.employees ?? 0) >= RETIER.employees || a.arr >= RETIER.arr) return 'Re-tier review'
+  if (!a.paying && a.vc?.stage && EARLY.test(a.vc.stage)) return 'Startup offer'
   if (a.paying) return 'Expansion'
   if (a.activated) return 'Upgrade nurture'
   if (a.workspaces > 0) return 'Activation nurture'
@@ -153,6 +176,12 @@ export function tier4Insight(v: Tier4View): Insight {
     const big = v.accounts.filter(a => a.path === 'Re-tier review')
     if (big.length) emerging.push([b(`${big.length} accounts`), ' still at Tier 4 look mis-tiered (200+ employees or $10K+ self-serve ARR), led by ',
       ...big.slice(0, 3).flatMap((a, i) => [i ? ', ' : '', code(a.name)] as Para), '.'])
+    const vc = v.accounts.filter(a => a.vc)
+    if (vc.length) {
+      const partner = vc.filter(a => a.vc!.partnered).length, early = vc.filter(a => a.path === 'Startup offer').length
+      emerging.push([b(`${vc.length} accounts`), ` on the list are VC-backed in the portfolio scrape${partner ? ` (${partner} backed by a partner firm)` : ''}`,
+        early ? `; ${early} are Seed or Series A and not paying, so they fit the startup offer.` : '.'])
+    }
   }
   const anomalies: Para[] = []
   return { headline: [], drivers, emerging, anomalies, goals: [] }
@@ -166,6 +195,8 @@ export function tier4Csv(rows: T4Account[]): string {
     ['Region', a => a.region], ['Touchpoints (180d)', a => a.touchpoints], ['Last touchpoint', a => a.last], ['Last touchpoint type', a => a.lastType],
     ['Demo or contact form', a => (a.demo ? 'yes' : 'no')], ['Workspaces', a => a.workspaces], ['Activated', a => (a.activated ? 'yes' : 'no')],
     ['Paying', a => (a.paying ? 'yes' : 'no')], ['Self-serve ARR', a => Math.round(a.arr)], ['Plan', a => a.plan], ['Active days (28d)', a => a.days28],
+    ['Investors (portfolio scrape)', a => a.vc?.firms.join('; ')], ['Partner firm', a => (a.vc ? (a.vc.partnered ? 'yes' : 'no') : '')],
+    ['Stage', a => a.vc?.stage], ['Last round', a => a.vc?.lastRoundAt], ['Total funding', a => a.vc?.totalFunding],
     ['Score', a => a.score], ['Nurture path', a => a.path],
   ]
   return [cols.map(c => c[0]).join(','), ...rows.map(r => cols.map(c => esc(c[1](r))).join(','))].join('\n')

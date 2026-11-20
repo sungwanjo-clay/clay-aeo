@@ -161,15 +161,17 @@ function Accounts({ rows, onExport }: { rows: T4Account[] | null; onExport?: (fi
   const [path, setPath] = useState<NurturePath | 'all'>('all')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'score', dir: -1 })
   const [q, setQ] = useState('')
+  const [vcOnly, setVcOnly] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const counts = useMemo(() => Object.fromEntries(NURTURE.map(n => [n.id, rows?.filter(r => r.path === n.id).length ?? 0])), [rows])
   const list = useMemo(() => {
     if (!rows) return []
     const ql = q.trim().toLowerCase()
-    const xs = rows.filter(r => (path === 'all' || r.path === path) && (!ql || r.name.toLowerCase().includes(ql) || r.domain.includes(ql) || (r.industry ?? '').toLowerCase().includes(ql)))
+    const xs = rows.filter(r => (path === 'all' || r.path === path) && (!vcOnly || !!r.vc) && (!ql || r.name.toLowerCase().includes(ql) || r.domain.includes(ql) || (r.industry ?? '').toLowerCase().includes(ql)))
     const val = (r: T4Account) => (sort.key === 'name' ? r.name.toLowerCase() : sort.key === 'last' ? r.last : r[sort.key] ?? null)
     return [...xs].sort((a, b) => { const x = val(a), y = val(b); return x == null ? 1 : y == null ? -1 : (x < y ? -1 : x > y ? 1 : 0) * sort.dir })
-  }, [rows, path, sort, q])
+  }, [rows, path, sort, q, vcOnly])
+  const vcCount = rows?.filter(r => r.vc).length ?? 0, hasScrape = rows?.some(r => r.vc !== undefined) ?? false
   const sh = (k: SortKey, label: string, right = true) => {
     const on = sort.key === k
     return <th key={k} className={`${th} ${right ? 'text-right' : 'text-left'}`} aria-sort={on ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
@@ -193,7 +195,7 @@ function Accounts({ rows, onExport }: { rows: T4Account[] | null; onExport?: (fi
       </div>
       {msg && <p className="text-[13px]" style={{ color: T.neg }}>{msg}</p>}
       {!rows ? <p className="text-[15px]" style={{ color: T.muted }}>Querying Sigma for the account list…</p> : <>
-        <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           {NURTURE.map(n => {
             const on = path === n.id
             return (
@@ -209,12 +211,16 @@ function Accounts({ rows, onExport }: { rows: T4Account[] | null; onExport?: (fi
         <div className="flex flex-wrap items-center gap-3">
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search account, domain or industry" aria-label="Search accounts"
             className="rounded-full px-4 py-2 text-[14px] w-full sm:w-[320px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }} />
+          {hasScrape && <label className="inline-flex items-center gap-2 text-[14px] cursor-pointer select-none" style={{ color: T.ink }}>
+            <input type="checkbox" checked={vcOnly} onChange={e => setVcOnly(e.target.checked)} />
+            VC-backed only <span style={{ ...mono, color: T.muted }}>({fmtInt(vcCount)} matched the portfolio scrape)</span>
+          </label>}
           <span className="text-[13px]" style={{ color: T.muted }}>{fmtInt(list.length)} accounts{path !== 'all' ? ` · ${path}` : ''}</span>
         </div>
         <div className="overflow-auto max-h-[640px] rounded-xl" style={{ border: `1px solid ${T.border}` }}>
-          <table className="w-full min-w-[1080px] text-[14px]" style={{ color: T.ink }}>
+          <table className="w-full min-w-[1280px] text-[14px]" style={{ color: T.ink }}>
             <thead className="sticky top-0 z-10" style={{ background: '#fff' }}><tr style={head}>
-              {sh('name', 'Account', false)}{sh('employees', 'Employees')}<th className={`${th} text-left`}>Industry · region</th>
+              {sh('name', 'Account', false)}{sh('employees', 'Employees')}<th className={`${th} text-left`}>Industry · region</th><th className={`${th} text-left`} title="From the portfolio scrape, matched on domain">Investors · stage</th>
               {sh('touchpoints', 'Touchpoints')}{sh('last', 'Last')}<th className={`${th} text-left`}>Product</th>{sh('days28', 'Active 28d')}{sh('arr', 'ARR')}
               {sh('score', 'Score')}<th className={`${th} text-left`}>Path</th>
             </tr></thead>
@@ -223,6 +229,10 @@ function Accounts({ rows, onExport }: { rows: T4Account[] | null; onExport?: (fi
                 <td className="px-3 py-2"><p className="font-medium">{r.name}</p><p className="text-[12px]" style={{ color: T.muted }}>{r.domain}</p></td>
                 <td className={num} style={mono}>{fmtInt(r.employees)}</td>
                 <td className="px-3 py-2"><p>{r.industry ?? '–'}</p><p className="text-[12px]" style={{ color: T.muted }}>{r.region ?? ''}</p></td>
+                <td className="px-3 py-2 max-w-[220px]">{r.vc ? <>
+                  <p className="truncate" title={r.vc.firms.join(', ')}>{r.vc.firms.slice(0, 2).join(', ')}{r.vc.firms.length > 2 ? ` +${r.vc.firms.length - 2}` : ''}{r.vc.partnered && <span className="ml-1.5 rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: '#E6EEFF', color: '#1E3A8A' }}>Partner</span>}</p>
+                  <p className="text-[12px]" style={{ color: T.muted }}>{[r.vc.stage, r.vc.lastRoundAt ? `last round ${r.vc.lastRoundAt.slice(0, 7)}` : null, r.vc.totalFunding ? usd(r.vc.totalFunding) : null].filter(Boolean).join(' · ') || '–'}</p>
+                </> : <span style={{ color: T.faint }}>–</span>}</td>
                 <td className={num} style={mono}>{fmtInt(r.touchpoints)}{r.demo && <span title="Filled in a demo or contact-sales form" style={{ color: T.pos }}> ●</span>}</td>
                 <td className="px-3 py-2 whitespace-nowrap"><p style={mono}>{r.last}</p><p className="text-[12px]" style={{ color: T.muted }}>{r.lastType ?? ''}</p></td>
                 <td className="px-3 py-2"><p>{r.workspaces ? `${fmtInt(r.workspaces)} workspace${r.workspaces === 1 ? '' : 's'}` : 'No workspace'}</p>

@@ -421,8 +421,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   }, [data, meta, latest, cut, firmId, firmName])
 
   const stickyBar = (children: React.ReactNode) => (
-    <div className="sticky top-0 z-20 -mx-5 sm:-mx-8 px-5 sm:px-8 py-3 flex flex-wrap items-center gap-3"
-      style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>{children}</div>
+    <div className="sticky z-20 -mx-5 sm:-mx-8 px-5 sm:px-8 py-3 flex flex-wrap items-center gap-3"
+      style={{ top: 'var(--plg-sticky, 0px)', background: T.card, borderBottom: `1px solid ${T.border}` }}>{children}</div>
   )
   const cutSwitch = (
     <Segmented ariaLabel="Which firms" value={cut} onChange={v => setCutAndReset(v)}

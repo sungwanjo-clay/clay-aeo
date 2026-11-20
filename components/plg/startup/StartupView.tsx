@@ -339,7 +339,7 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <TiersAndReasons s={s} />
       <Campaigns s={s} />
       <Enablement />
-      <p className="text-[14px]" style={{ color: T.muted }}>Partner penetration and portfolio companies are on the <a href="#portfolio" className="underline">Portfolio</a> tab.</p>
+      <p className="text-[14px]" style={{ color: T.muted }}>Partner penetration and portfolio companies: switch to <b>Portfolio partners</b> at the top of this tab.</p>
     </div>
   )
 }

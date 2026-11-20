@@ -424,7 +424,7 @@ function DeepDive({ s, sel, setSel, thumbs }: { s: SV; sel: DeepSel; setSel: (x:
     <section id="video-deep-dive" className="flex flex-col gap-5">
       <H2>Deep dive</H2>
       {/* Filter bar: pins to the top while the deep dive is on screen. */}
-      <div className="sticky top-0 z-30 -mx-4 sm:-mx-10 xl:-mx-16 px-4 sm:px-10 xl:px-16 py-3 flex flex-wrap items-center gap-3" style={{ background: T.page, borderBottom: `1px solid ${T.border}` }}>
+      <div className="sticky z-30 -mx-4 sm:-mx-10 xl:-mx-16 px-4 sm:px-10 xl:px-16 py-3 flex flex-wrap items-center gap-3" style={{ top: 'var(--plg-sticky, 0px)', background: T.page, borderBottom: `1px solid ${T.border}` }}>
         {chOptions.length > 0 && <div className="flex flex-wrap gap-1.5" role="group" aria-label="Creators">
           <button type="button" aria-pressed={!sel.channels.length} onClick={() => setSel({ channels: [], videos: [] })} className="rounded-full px-3 py-1.5 text-[13px]" style={chip(!sel.channels.length)}>All channels</button>
           {chOptions.map(c => <button key={c.id} type="button" aria-pressed={sel.channels.includes(c.id)} onClick={() => toggleCh(c.id)} className="rounded-full px-3 py-1.5 text-[13px]" style={chip(sel.channels.includes(c.id))}>{c.label}</button>)}
