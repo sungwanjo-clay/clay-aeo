@@ -242,6 +242,20 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
   )
 }
 
+// Quick filters on Salesforce SALES_TIER_C. "Unmatched": no Salesforce record, or a record with no tier. Clicking the active one clears it.
+type TierFilter = 'all' | 't12' | 't34' | 'none'
+const TIER_FILTERS: { id: Exclude<TierFilter, 'all'>; label: string; title: string }[] = [
+  { id: 't12', label: 'Tier 1–2', title: 'Salesforce sales tier 1 or 2' },
+  { id: 't34', label: 'Tier 3–4', title: 'Salesforce sales tier 3 or 4' },
+  { id: 'none', label: 'Unmatched', title: 'No Salesforce record, or no sales tier on it' },
+]
+const TIER_MATCH: Record<TierFilter, (t: string | null | undefined) => boolean> = {
+  all: () => true,
+  t12: t => t === 'Tier 1' || t === 'Tier 2',
+  t34: t => t === 'Tier 3' || t === 'Tier 4',
+  none: t => !t,
+}
+
 export default function PortfolioView({ data, onExport }: { data: PortfolioData | null | undefined; onExport?: (filename: string, csv: string) => Promise<void> }) {
   const [cut, setCut] = useState<CutFilter>('all')
   const [firmId, setFirmId] = useState<string | null>(null)
@@ -250,6 +264,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const [firmSort, setFirmSort] = useState<Sort>({ key: 'paying_arr_usd', dir: -1 })
   const [coSort, setCoSort] = useState<Sort>({ key: 'name', dir: 1 })
   const [q, setQ] = useState('')
+  const [tier, setTier] = useState<TierFilter>('all')
   const [shown, setShown] = useState(PAGE)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
 
@@ -309,7 +324,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   }, [data, cut, latest, firmName, firmsById])
   const list = useMemo(() => {
     if (!data) return []
-    const rows = filterCompanies(data.companies, { cut, firmId, status, q, asOf: latest })
+    const rows = filterCompanies(data.companies, { cut, firmId, status, q, asOf: latest }).filter(r => TIER_MATCH[tier](r.salesTier))
     const val = (r: CompanyRow): unknown => {
       switch (coSort.key) {
         case 'name': return r.name.toLowerCase()
@@ -329,7 +344,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
       }
     }
     return [...rows].sort((a, b) => cmp(val(a), val(b), coSort.dir) || a.name.localeCompare(b.name))
-  }, [data, cut, firmId, status, q, latest, coSort])
+  }, [data, cut, firmId, status, q, tier, latest, coSort])
 
   // Sums over every company the filters match (all pages). With no search and status All this is the cut's (or firm's) total:
   // the same rule as the tiles and the Firms table total, each company once.
@@ -399,7 +414,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const pickFirm = (id: string | null) => { setFirmId(id); setShown(PAGE) }
   const doExport = async () => {
     if (!onExport || !latest) return
-    const name = `portfolio-${latest}-${firmId ? firmName(firmId).toLowerCase().replace(/[^a-z0-9]+/g, '-') : cut}-${status.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`
+    const name = `portfolio-${latest}-${firmId ? firmName(firmId).toLowerCase().replace(/[^a-z0-9]+/g, '-') : cut}-${status.toLowerCase().replace(/[^a-z0-9]+/g, '-')}${tier === 'all' ? '' : '-' + tier}.csv`
     try { await onExport(name, csvOf(list, firmName)); setExportMsg(null) } catch { setExportMsg('Export was cancelled or isn’t available here.') }
   }
 
@@ -530,6 +545,14 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           </div>
           {stickyBar(<>
             {cutSwitch}
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by Salesforce sales tier">
+              {TIER_FILTERS.map(f => (
+                <button key={f.id} type="button" title={f.title} aria-pressed={tier === f.id}
+                  onClick={() => { setTier(tier === f.id ? 'all' : f.id); setShown(PAGE) }}
+                  className="rounded-full px-3 py-1.5 text-[13px]"
+                  style={{ background: tier === f.id ? T.ink : '#fff', color: tier === f.id ? '#fff' : T.ink, border: `1px solid ${tier === f.id ? T.ink : T.border}` }}>{f.label}</button>
+              ))}
+            </div>
             <select value={firmId ?? ''} onChange={e => pickFirm(e.target.value || null)} aria-label="Filter companies by firm"
               className="rounded-full px-3 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${firmId ? T.ink : T.border}`, color: T.ink }}>
               <option value="">{cut === 'all' ? 'Every firm' : `Every ${CUT_LABEL[cut].toLowerCase()} firm`}</option>
