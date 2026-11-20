@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { SocialMode, SocialViewModel as SV } from '@/lib/plg/social/compute'
 import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, NO_ANALYTICS, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
 import { fmtShort } from '@/lib/plg/dates'
-import { Card, Delta, Eyebrow, H2, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned } from '../ui'
+import { Card, Delta, Eyebrow, H2, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned, fmtPp } from '../ui'
 
 export type SocialChannel = 'all' | 'peter' | 'payton' | 'eric'
 
@@ -40,16 +40,6 @@ function Tiers({ t }: { t: number[] | null }) {
   return <span style={mono} title={TIER_LABELS.map((l, i) => `${l}: ${t[i]}`).join(' · ')}>{t.map(fmtInt).join(' · ')}</span>
 }
 
-function Tile({ label, value, children, muted }: { label: string; value: React.ReactNode; children?: React.ReactNode; muted?: boolean }) {
-  return (
-    <div className="rounded-[22px] p-6 flex flex-col gap-3" style={{ background: T.tile }}>
-      <Eyebrow>{label}</Eyebrow>
-      <p className={muted ? 'text-[22px] leading-tight' : 'text-[40px] leading-none'} style={{ fontFamily: T.mono, color: muted ? T.faint : T.ink }}>{value}</p>
-      {children && <p className="text-[15px] leading-snug" style={{ color: T.ink }}>{children}</p>}
-    </div>
-  )
-}
-
 export function ChannelPills({ value, onChange }: { value: SocialChannel; onChange: (c: SocialChannel) => void }) {
   const pills = [{ id: 'all', label: 'All channels', ok: true }, ...CHANNELS.map(c => ({ id: c.id, label: c.label, ok: !!c.youtubeId }))]
   return (
@@ -80,137 +70,170 @@ export function ModeToggle({ value, onChange }: { value: SocialMode; onChange: (
   )
 }
 
-function CreatorKpis({ s }: { s: SV }) {
-  const k = s.kpis
+/** Big number + "▲ 12.3% vs previous period" + an optional rate badge. */
+function KpiTile({ label, value, delta, badge, foot, muted }: {
+  label: string; value: React.ReactNode; delta: number | null; badge?: { label: string; cur: number | null; prev: number | null; title?: string } | null
+  foot?: React.ReactNode; muted?: boolean
+}) {
+  const raw = badge && badge.cur != null && badge.prev != null ? (badge.cur - badge.prev) * 100 : null
+  const bd = raw != null && Math.abs(raw) < 0.05 ? 0 : raw
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-      <Tile label="All new workspaces" value={fmtInt(k.newWs.cur)}>
-        <Delta value={k.newWs.delta}>{fmtPctSigned(k.newWs.delta)}</Delta> vs previous period
-      </Tile>
-      <Tile label="Activated" value={fmtInt(k.activated.cur)}>
-        <Delta value={k.activated.delta}>{fmtPctSigned(k.activated.delta)}</Delta> vs previous period<br />{fmtPct(k.activated.rate, 0)} of new workspaces ran a first table
-      </Tile>
-      <Tile label="Paid" value={fmtInt(k.paid.cur)}>
-        <Delta value={k.paid.delta}>{fmtPctSigned(k.paid.delta)}</Delta> vs previous period<br />{fmtPct(k.paid.rate, 1)} of new workspaces · {fmtInt(k.paid.churned)} churned
-      </Tile>
-      <Tile label="Views" value={!k.views.known ? <NC inline why={NO_ANALYTICS} /> : k.views.cur == null ? 'pending' : fmtInt(k.views.cur)} muted={!k.views.known || k.views.cur == null}>
-        {!k.views.known ? <>{fmtInt(k.lifetimeViews)} lifetime public views</> : <><Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous period · {fmtPct(k.views.avgPct, 0)} avg viewed</>}
-      </Tile>
+    <div className="rounded-[22px] p-6 flex flex-col gap-3 min-w-0" style={{ background: T.tile }}>
+      <div className="flex items-center justify-between gap-2">
+        <Eyebrow>{label}</Eyebrow>
+        {badge && (
+          <span title={badge.title} className="rounded-full px-2.5 py-1 text-[12px] whitespace-nowrap" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.mono }}>
+            {badge.label} {fmtPct(badge.cur, 1)}{bd != null && <span style={{ color: deltaColor(bd) }}> {fmtPp(bd)}</span>}
+          </span>
+        )}
+      </div>
+      <p className={muted ? 'text-[22px] leading-tight' : 'text-[40px] leading-none'} style={{ fontFamily: T.mono, color: muted ? T.faint : T.ink }}>{value}</p>
+      <p className="text-[15px] leading-snug" style={{ color: T.muted }}>
+        {delta == null ? <span>– vs previous period</span>
+          : <><span className="rounded-md px-1.5 py-0.5 text-[14px]" style={{ fontFamily: T.mono, color: deltaColor(delta), background: delta > 0 ? '#E6F0FF' : delta < 0 ? '#FCE9E2' : '#EFEEEA' }}>{delta > 0 ? '▲' : delta < 0 ? '▼' : ''} {fmtPctSigned(delta).replace(/^[+−]/, '')}</span> vs previous period</>}
+      </p>
+      {foot && <p className="text-[13px] leading-snug" style={{ color: T.muted }}>{foot}</p>}
     </div>
   )
 }
 
 function Kpis({ s }: { s: SV }) {
   const k = s.kpis
+  const lag = s.mode === 'cohort' ? <>Videos in their first {COHORT_DAYS} days during these dates.</>
+    : s.yt.lagging && s.yt.lastDay ? <>Through {fmtShort(s.yt.lastDay)}: YouTube reports 2–3 days late, so both periods use the same {s.yt.days} days.</> : null
+  const excl = (xs: string[]) => (xs.length ? <> Excludes {xs.join(', ')} (not connected).</> : null)
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-      <Tile label="All new workspaces" value={fmtInt(k.newWs.cur)}>
-        <Delta value={k.newWs.delta}>{fmtPctSigned(k.newWs.delta)}</Delta> vs previous
-        {k.newWs.untagged != null && <> · {fmtInt(k.newWs.tagged)} tagged, {fmtInt(k.newWs.untagged)} untagged</>}
-      </Tile>
-      <Tile label="Activated" value={fmtInt(k.activated.cur)}>{fmtPct(k.activated.rate, 0)} of new workspaces ran a golden table within 7 days</Tile>
-      <Tile label="Paid" value={fmtInt(k.paid.cur)}>{fmtPct(k.paid.rate, 1)} of new workspaces</Tile>
-      <Tile label="Views" value={k.views.cur == null ? 'pending' : fmtK(k.views.cur)} muted={k.views.cur == null}>
-        <Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous · {fmtPct(k.views.avgPct, 0)} avg viewed · {fmtInt(k.views.minutes / 60)} watch hrs
-        {s.mode === 'calendar' && s.yt.lagging && <> · {s.yt.days} of {s.yt.periodDays} days, through {fmtShort(s.yt.lastDay!)} (YouTube reports 2–3 days late; both periods use the same days)</>}
-        {k.views.excluded.length > 0 && <> · excludes {k.views.excluded.join(', ')} (not connected)</>}
-        {s.mode === 'cohort' && <> · {fmtInt(k.cohortVideos)} videos in their first {COHORT_DAYS} days during these dates{k.pendingVideos ? `, ${k.pendingVideos} not reported by YouTube yet` : ''}</>}
-      </Tile>
-      <Tile label="Tagged site visits" value={fmtInt(k.visits.cur)}>
-        <Delta value={k.visits.delta}>{fmtPctSigned(k.visits.delta)}</Delta> vs previous
-        {k.visits.untagged != null && <> · plus {fmtInt(k.visits.untagged)} untagged YouTube visitors</>}
-      </Tile>
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+      <KpiTile label="Impressions" value={k.impressions.cur == null ? <NC inline why="Needs the channel owner’s one-time sign-in (YouTube Reporting API)" /> : fmtK(k.impressions.cur)}
+        muted={k.impressions.cur == null} delta={k.impressions.delta}
+        foot={<>{lag}{excl(k.impressions.excluded)}</>} />
+      <KpiTile label="Views" value={k.views.cur == null ? <NC inline why={NO_ANALYTICS} /> : fmtK(k.views.cur)} muted={k.views.cur == null} delta={k.views.delta}
+        badge={{ label: 'Thumbnail CTR', cur: k.thumbCtr.cur, prev: k.thumbCtr.prev, title: 'Thumbnail clicks ÷ impressions, from YouTube. Change is in percentage points.' }}
+        foot={<>{fmtInt(k.views.minutes / 60)} watch hours.{excl(k.views.excluded)}</>} />
+      <KpiTile label="Referral visits" value={fmtInt(k.visits.cur)} delta={k.visits.delta}
+        badge={{ label: 'CTA CTR', cur: k.ctaCtr.cur, prev: k.ctaCtr.prev, title: 'Visitors from the creators’ links ÷ views (channels with views only). Change is in percentage points.' }}
+        foot={<>Visitors from the creators’ clay.com links.{k.visits.untagged != null && <> Plus {fmtInt(k.visits.untagged)} from untagged YouTube links.</>}</>} />
+      <KpiTile label="Tier 1–3 workspaces" value={fmtInt(k.tier13.cur)} delta={k.tier13.delta}
+        foot={<>Of {fmtInt(k.newWs.cur)} new workspaces · {fmtInt(k.activated.cur)} activated · {fmtInt(k.paid.cur)} paying{k.tier13.untagged != null && <> · incl. untagged YouTube</>}</>} />
     </div>
   )
 }
 
-const TREND_NAMES = { views: 'Views', visits: 'Tagged visits', untagged: 'Untagged visits', ws: 'New workspaces (tagged)', ws_untagged: 'New workspaces (untagged)' } as const
 function Trend({ s }: { s: SV }) {
-  const [metric, setMetric] = useState<(typeof s.trend)[number]['metric']>(s.yt.viewsKnown ? 'views' : 'visits')
-  const viewsNc = metric === 'views' && !s.yt.viewsKnown
+  const first = s.trend.find(t => t.available)?.metric ?? s.trend[0].metric
+  const [metric, setMetric] = useState<string>(first)
   const tr = s.trend.find(x => x.metric === metric) ?? s.trend[0]
-  const data = tr.cur.map((p, i) => ({ label: fmtShort(p.d), cur: p.v, prev: tr.prev[i]?.v ?? null }))
-  const cur = sum(tr.cur.map(p => p.v ?? 0)); const prev = sum(tr.prev.map(p => p.v ?? 0))
+  const isRate = tr.kind === 'rate'
+  const fmt = (v: number | null | undefined) => (v == null ? '–' : isRate ? fmtPct(v, 1) : fmtInt(v))
+  const data = tr.cur.map((p, i) => ({ label: fmtShort(p.d), prevLabel: tr.prev[i] ? fmtShort(tr.prev[i].d) : '', cur: p.v, prev: tr.prev[i]?.v ?? null }))
+  const { cur, prev } = tr.total
+  const delta = cur != null && prev ? (isRate ? null : (cur - prev) / prev) : null
+  const rawPp = isRate && cur != null && prev != null ? (cur - prev) * 100 : null
+  const pp = rawPp != null && Math.abs(rawPp) < 0.05 ? 0 : rawPp
+  const [c0, c1] = s.range.cur, [p0, p1] = s.range.prev
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4 min-w-0">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <H2>Trend</H2>
           <p className="text-[15px] mt-1" style={{ color: T.muted }}>
-            <span style={{ ...mono, color: T.ink }}>{viewsNc ? <NC inline /> : fmtInt(cur)}</span> <Delta value={prev ? (cur - prev) / prev : null}>{fmtPctSigned(prev ? (cur - prev) / prev : null)}</Delta> vs previous period ({fmtInt(prev)})
+            <span style={{ ...mono, color: T.ink }}>{fmt(cur)}</span>{' '}
+            {isRate ? pp != null && <span style={{ ...mono, color: deltaColor(pp) }}>{fmtPp(pp)}</span> : <Delta value={delta}>{fmtPctSigned(delta)}</Delta>}
+            {' '}vs the period before ({fmt(prev)}){tr.days < tr.cur.length && <> · over the {tr.days} days both periods have</>}{s.mode === 'cohort' && <> · calendar days (the tiles use the video cohort)</>}
           </p>
         </div>
         <label className="flex items-center gap-3 text-[15px]" style={{ color: T.muted }}>Metric
-          <select value={metric} onChange={e => setMetric(e.target.value as typeof metric)} className="rounded-xl px-3 py-2 text-[15px]" style={{ border: `1px solid ${T.border}`, background: '#fff', ...mono, color: T.ink }}>
-            {s.trend.map(x => <option key={x.metric} value={x.metric}>{TREND_NAMES[x.metric]}</option>)}
+          <select value={metric} onChange={e => setMetric(e.target.value)} className="rounded-xl px-3 py-2 text-[15px]" style={{ border: `1px solid ${T.border}`, background: '#fff', ...mono, color: T.ink }}>
+            {s.trend.map(x => <option key={x.metric} value={x.metric} disabled={!x.available}>{x.label}{x.available ? '' : ' (not connected)'}</option>)}
           </select>
         </label>
       </div>
-      {viewsNc ? <p className="h-[220px] flex items-center justify-center text-[15px]" style={{ color: T.faint, fontStyle: 'italic' }} title={NO_ANALYTICS}>Views: Not connected</p> : <div className="h-[220px]">
+      <div className="flex flex-wrap items-center gap-5 text-[13px]" style={{ color: T.muted }}>
+        <span className="flex items-center gap-2"><span className="inline-block w-6 h-[3px] rounded" style={{ background: T.pos }} />This period · {fmtShort(c0)} – {fmtShort(c1)}</span>
+        <span className="flex items-center gap-2"><span className="inline-block w-6 border-t-2 border-dashed" style={{ borderColor: '#9A968E' }} />Period before · {fmtShort(p0)} – {fmtShort(p1)}</span>
+      </div>
+      {!tr.available ? <p className="h-[240px] flex items-center justify-center text-[15px]" style={{ color: T.faint, fontStyle: 'italic' }}>{tr.label}: not connected for this channel</p> : <div className="h-[240px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="#ECEAE5" />
             <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#D9D6CF' }} minTickGap={20} tick={{ fontSize: 12, fill: T.muted, fontFamily: T.mono }} />
-            <YAxis tickFormatter={fmtK} tickLine={false} axisLine={false} width={40} allowDecimals={false} tick={{ fontSize: 12, fill: T.muted, fontFamily: T.mono }} />
-            <Tooltip formatter={(v: unknown, n: unknown) => [v == null ? 'not reported yet' : fmtInt(Number(v)), n === 'cur' ? 'Selected' : 'Previous']} />
-            <Bar dataKey="cur" fill={T.pos} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-            <Line dataKey="prev" stroke="#7A7770" strokeDasharray="4 4" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
-          </ComposedChart>
+            <YAxis tickFormatter={v => (isRate ? `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%` : fmtK(v))} tickLine={false} axisLine={false} width={48} allowDecimals={isRate} tick={{ fontSize: 12, fill: T.muted, fontFamily: T.mono }} />
+            <Tooltip content={({ active, payload }) => {
+              if (!active || !payload?.length) return null
+              const d = payload[0].payload as (typeof data)[number]
+              return (
+                <div className="rounded-xl px-3 py-2 text-[13px]" style={{ background: '#fff', border: `1px solid ${T.border}`, fontFamily: T.mono }}>
+                  <div><span style={{ color: T.pos }}>●</span> {d.label}: {d.cur == null ? 'not reported yet' : fmt(d.cur)}</div>
+                  <div style={{ color: T.muted }}>○ {d.prevLabel}: {d.prev == null ? 'not reported yet' : fmt(d.prev)}</div>
+                </div>
+              )
+            }} />
+            <Line dataKey="prev" name="Period before" stroke="#9A968E" strokeDasharray="5 4" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+            <Line dataKey="cur" name="This period" stroke={T.pos} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+          </LineChart>
         </ResponsiveContainer>
       </div>}
-      <p className="text-[13px]" style={{ color: T.muted }}>Every table below follows the range.</p>
+      <p className="text-[13px]" style={{ color: T.muted }}>{tr.note ? `${tr.note}. ` : ''}Days YouTube hasn’t reported yet are left blank, not drawn as zero.</p>
     </Card>
   )
 }
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 
 function ChannelsTable({ s }: { s: SV }) {
+  const live = s.channelRows.filter((r): r is Extract<(typeof s.channelRows)[number], { connected: true }> => r.connected)
+  const tot = (f: (r: (typeof live)[number]) => number | null) => { const xs = live.map(f).filter((x): x is number => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) : null }
+  const tiersSum = (ts: (number[] | null)[]) => ts.filter((t): t is number[] => !!t).reduce((acc, t) => acc.map((x, i) => x + t[i]), [0, 0, 0, 0, 0])
+  const totalTiers = tiersSum([...live.map(r => r.tiersNew), s.untagged.ws.t])
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Channels side by side</H2>
       <p className="text-[15px]" style={{ color: T.muted }}>
-        Tagged = the visit’s utm_campaign maps to one of the channel’s videos. YouTube visits with no campaign go in the untagged row and are never split across videos.
-        Tier split: Tier 1 · 2 · 3 · 4 · Untiered.{s.mode === 'cohort' && ' Channel rows use each video’s first 28 days; the untagged row stays on calendar dates.'}
+        Referral visits come from each creator’s own clay.com links. YouTube visits with no campaign are in the untagged row.
+        Tiers: Tier 1 · 2 · 3 · 4 · Untiered (hover for labels).{s.mode === 'cohort' && ' Channel rows use each video’s first 28 days; the untagged row stays on calendar dates.'}
       </p>
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[1100px] text-[15px]" style={{ color: T.ink }}>
+        <table className="w-full min-w-[820px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
             <th className={`${th} text-left`}>Channel</th>
-            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Tagged visits</th><th className={`${th} text-right`}>New WS</th>
-            <th className={`${th} text-right`}>Tiers · new</th><th className={`${th} text-right`}>Existing</th><th className={`${th} text-right`}>Tiers · existing</th>
-            <th className={`${th} text-right`}>Videos tracked</th>
+            <th className={`${th} text-right`}>Impressions</th><th className={`${th} text-right`}>Views</th>
+            <th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>New WS</th><th className={`${th} text-right`}>Tiers · new WS</th>
           </tr></thead>
           <tbody>
             {s.channelRows.map(r => r.connected ? (
               <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3 font-semibold whitespace-nowrap">{r.label} <span className="font-normal text-[13px]" style={{ color: T.muted }}>{r.handle}</span></td>
+                <td className={num} style={mono}>{r.impressions != null ? fmtInt(r.impressions) : <NC why="Needs the channel owner’s one-time sign-in (YouTube Reporting API)" />}</td>
                 <td className={num} style={mono}>{r.analytics ? fmtInt(r.views) : <NC why={NO_ANALYTICS} />}</td>
                 <td className={num} style={mono}>{fmtInt(r.visits)}</td>
                 <td className={num} style={mono}>{fmtInt(r.newWs)}</td>
                 <td className={num}><Tiers t={r.tiersNew} /></td>
-                <td className={num} style={mono}>{fmtInt(r.existing)}</td>
-                <td className={num}><Tiers t={r.tiersExisting} /></td>
-                <td className={num} style={{ ...mono, color: r.trackedShare != null && r.trackedShare < 0.5 ? T.neg : T.ink }}>{r.trackedCount} of {r.videoCount} · {fmtPct(r.trackedShare, 0)}</td>
               </tr>
             ) : (
               <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}`, color: T.faint }}>
                 <td className="px-3 py-3 font-semibold">{r.label}</td>
-                <td className="px-3 py-3 text-[13px] italic" colSpan={7}>Not connected: needs the YouTube channel id and the creator’s link tag prefix</td>
+                <td className="px-3 py-3 text-[13px] italic" colSpan={5}>Not connected: needs the YouTube channel id and the creator’s link tag prefix</td>
               </tr>
             ))}
-            <tr style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
-              <td className="px-3 py-3 font-semibold">YouTube, untagged</td>
-              <td className={num} style={{ color: T.faint }}>–</td>
-              <td className={num} style={mono} title="Untagged visitors (not tagged visits)">{fmtInt(s.untagged.visits)} <span className="text-[12px]" style={{ color: T.muted }}>untagged</span></td>
+            <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+              <td className="px-3 py-3 font-semibold" style={{ color: T.muted }}>YouTube, untagged</td>
+              <td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td>
+              <td className={num} style={mono}>{fmtInt(s.untagged.visits)}</td>
               <td className={num} style={mono}>{fmtInt(s.untagged.ws.n)}</td>
               <td className={num}><Tiers t={s.untagged.ws.t} /></td>
-              <td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td><td className={num} style={{ color: T.faint }}>–</td>
+            </tr>
+            <tr style={{ background: '#F6F5F2', fontWeight: 600 }}>
+              <td className="px-3 py-3">Total</td>
+              <td className={num} style={mono}>{fmtInt(tot(r => r.impressions))}</td>
+              <td className={num} style={mono}>{fmtInt(tot(r => (r.analytics ? r.views : null)))}</td>
+              <td className={num} style={mono}>{fmtInt((tot(r => r.visits) ?? 0) + s.untagged.visits)}</td>
+              <td className={num} style={mono}>{fmtInt((tot(r => r.newWs) ?? 0) + s.untagged.ws.n)}</td>
+              <td className={num}><Tiers t={totalTiers} /></td>
             </tr>
           </tbody>
         </table>
       </div>
       <p className="text-[13px]" style={{ color: T.muted }}>
-        Excluded: {fmtInt(s.affiliateVisitors)} visitors from affiliate creators’ YouTube links (Rewardful ?via= referrals). They are the affiliate channel, not owned YouTube.
+        Excluded: {fmtInt(s.affiliateVisitors)} visitors from other affiliate creators’ YouTube links (Rewardful ?via= referrals); they belong to the affiliate channel, not owned YouTube.
       </p>
     </Card>
   )
@@ -505,7 +528,7 @@ function Discuss() {
 export default function SocialView({ s, loading }: { s: SV; loading: boolean }) {
   const body = s.scope !== 'all' ? (
     <>
-      <CreatorKpis s={s} />
+      <Kpis s={s} />
       <Trend s={s} />
       <Funnel s={s} />
       <AfterSignup s={s} />

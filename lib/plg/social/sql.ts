@@ -8,7 +8,7 @@
  *   plan   new workspaces by current plan (column d), with paid / expanded / churned
  *   ex     existing workspaces influenced (tagged visitor's user already in a workspace before the visit), tier split
  *   form   distinct offer-page (/wedge) form submitters; campaign from the form event, else the visitor's key
- *   vday / wsday   per-day series for the trend (calendar), by key
+ *   vday / wsday   per-day series for the trend (calendar), by key; wsday also carries activated, paid and the tier split
  *   per    new + existing workspaces by persona (d = ONBOARDING_SURVEY.TEAMS)
  *   dev / geo  visitors (n), captures (a), new workspaces (p) by device (PLATFORM) / region (TIMEZONE)
  *   mon    new workspaces by signup month (d = YYYY-MM) with activated, paid, expanded, churned
@@ -207,7 +207,7 @@ UNION ALL
 SELECT 'plan', 'coh', "key", "plan", COUNT(DISTINCT "wid"), 0, SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
 FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "plan"
 UNION ALL
-SELECT 'wsday', '', "key", CAST("day" AS string), COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
+SELECT 'wsday', '', "key", CAST("day" AS string), COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
 FROM fx WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
 GROUP BY "key", "day"
 UNION ALL

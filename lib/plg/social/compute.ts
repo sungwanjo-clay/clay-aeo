@@ -141,11 +141,13 @@ export function buildSocial(o: {
       const ex = isTracked ? one('ex', 'coh', v.id) : null
       const cohortDay = Math.min(COHORT_DAYS, Math.max(0, daysBetween(v.published, o.dataEnd)))
       const views = analytics ? (coh?.views || null) : null
-      const impr28 = v.impressions?.length ? sum(v.impressions.filter(r => r[0] >= v.published && r[0] <= addDays(v.published, COHORT_DAYS - 1) && (!viewsThrough || r[0] <= viewsThrough)).map(r => r[1])) : null
+      const imprRows = v.impressions?.length ? v.impressions.filter(r => r[0] >= v.published && r[0] <= addDays(v.published, COHORT_DAYS - 1) && (!viewsThrough || r[0] <= viewsThrough)) : null
+      const impr28 = imprRows ? sum(imprRows.map(r => r[1])) : null
+      const clicks28 = imprRows ? sum(imprRows.map(r => r[2])) : null
       const offerPage = !!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!))
       return {
         id: v.id, title: v.title, published: v.published, channel: ch.label, durationSec: v.durationSec,
-        cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews, impressions: impr28,
+        cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews, impressions: impr28, imprClicks: clicks28,
         views, viewsPending: analytics && !coh?.views, minutes: coh?.minutes ?? 0, avgViewPct: analytics && coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
         destination: v.destination, campaign: v.campaign, tagged: isTracked, offerPage,
         visits: vis?.n ?? null, captures: offerPage && form ? form.n : null,
@@ -195,8 +197,9 @@ export function buildSocial(o: {
       const cov = vs.map(v => coverage(c, v.published, cohortEnd(v.published, o.dataEnd)))
       const imprDays = sum(cov.map(x => x.days)), imprHave = sum(cov.map(x => x.have))
       const impressions = c.imprState === 'live' ? sum(vs.map(v => v.impressions ?? 0)) : null
+      const imprClicks = c.imprState === 'live' ? sum(vs.map(v => v.imprClicks ?? 0)) : null
       return {
-        videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions, imprDays, imprHave,
+        videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions, imprClicks, imprDays, imprHave,
         views, minutes: sum(vs.map(v => v.minutes)), subs: sum(vs.map(v => v.subsGained)),
         avgPct: views ? sum(reported.map(v => v.views! * (v.avgViewPct ?? 0))) / views : null,
         visits: sum(tagged.map(v => v.visits ?? 0)), captures: sum(tagged.map(v => v.captures ?? 0)),
@@ -213,9 +216,11 @@ export function buildSocial(o: {
     const kr = (k: string) => rows.filter(r => r.k === k && r.b === b && c.keys.has(r.key))
     const ws = kr('ws'); const ex = kr('ex')
     const cov = end >= range[0] ? coverage(c, range[0], end) : { days: 0, have: 0 }
-    const impressions = c.imprState === 'live' ? sum(c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end).map(r => r[1])) : null
+    const imprIn = c.imprState === 'live' ? c.doc!.impressionsDaily!.filter(r => r[0] >= range[0] && r[0] <= end) : null
+    const impressions = imprIn ? sum(imprIn.map(r => r[1])) : null
+    const imprClicks = imprIn ? sum(imprIn.map(r => r[2])) : null
     return {
-      videos: null as number | null, pending: 0, impressions, imprDays: cov.days, imprHave: cov.have,
+      videos: null as number | null, pending: 0, impressions, imprClicks, imprDays: cov.days, imprHave: cov.have,
       views, minutes: yt ? sum(yt.map(r => r[2])) : 0, subs: yt ? sum(yt.map(r => r[3] - r[4])) : 0,
       avgPct: yt && views ? sum(yt.map(r => r[1] * r[5])) / views / 100 : null,
       visits: sum(kr('vis').map(r => r.n)), captures: sum(kr('form').map(r => r.n)),
@@ -231,7 +236,7 @@ export function buildSocial(o: {
   type Tot = ReturnType<typeof totals>
   const combine = (ts: Tot[]): Tot => ({
     videos: ts.every(t => t.videos == null) ? null : sum(ts.map(t => t.videos ?? 0)), pending: sum(ts.map(t => t.pending)),
-    impressions: nsum(ts.map(t => t.impressions)), imprDays: sum(ts.map(t => t.imprDays)), imprHave: sum(ts.map(t => t.imprHave)),
+    impressions: nsum(ts.map(t => t.impressions)), imprClicks: nsum(ts.map(t => t.imprClicks)), imprDays: sum(ts.map(t => t.imprDays)), imprHave: sum(ts.map(t => t.imprHave)),
     views: nsum(ts.map(t => t.views)), minutes: sum(ts.map(t => t.minutes)), subs: sum(ts.map(t => t.subs)), avgPct: ts.length === 1 ? ts[0].avgPct : null,
     visits: sum(ts.map(t => t.visits)), captures: sum(ts.map(t => t.captures)), newWs: sum(ts.map(t => t.newWs)),
     activated: sum(ts.map(t => t.activated)), paid: sum(ts.map(t => t.paid)), expanded: sum(ts.map(t => t.expanded)), churned: sum(ts.map(t => t.churned)),
@@ -246,6 +251,9 @@ export function buildSocial(o: {
   const withViews = inScope.filter(c => c.analytics)
   const vc = withViews.length ? combine(withViews.map(c => totals(c, 'cur'))) : null
   const vp = withViews.length ? combine(withViews.map(c => totals(c, 'prev'))) : null
+  const withImpr = inScope.filter(c => c.imprState === 'live')
+  const ic = withImpr.length ? combine(withImpr.map(c => totals(c, 'cur'))) : null
+  const ip = withImpr.length ? combine(withImpr.map(c => totals(c, 'prev'))) : null
   const scopeVideos = inScope.flatMap(c => c.videos)
   /** Rows of one kind for the current period: cohort = in-cohort tracked videos; calendar = scope keys (+ untagged on All). */
   const periodKeys = o.mode === 'cohort'
@@ -344,7 +352,7 @@ export function buildSocial(o: {
     const t = totals(cc, 'cur')
     return {
       id: c.ch.id, label: c.ch.label, connected: true as const, handle: c.doc.handle, analytics: cc.analytics,
-      views: t.views, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
+      views: t.views, impressions: t.impressions, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
       existing: t.existing, tiersExisting: t.tiersExisting,
       trackedCount: cc.videos.filter(v => v.tagged).length, videoCount: cc.videos.length,
       trackedShare: cc.videos.length ? cc.videos.filter(v => v.tagged).length / cc.videos.length : null,
@@ -352,21 +360,58 @@ export function buildSocial(o: {
     }
   })
 
-  // ── Trend (calendar) ───────────────────────────────────────────────────────
+  // ── Trend (calendar, one point per day; the previous period is aligned day by day) ──
   const days = daysBetween(o.cur[0], o.cur[1])
   const scopeKeys = new Set(inScope.flatMap(c => [...c.keys]))
-  const series = (metric: 'views' | 'visits' | 'untagged' | 'ws' | 'ws_untagged', start: ISODate) =>
-    Array.from({ length: days }, (_, i) => {
-      const day = addDays(start, i)
-      if (metric === 'views') return { d: day, v: viewsKnown ? sum(inScope.map(c => c.doc!.daily.find(r => r[0] === day)?.[1] ?? 0)) : null }
-      const k = metric.startsWith('ws') ? 'wsday' : 'vday'
-      const match = (key: string) => (metric === 'untagged' || metric === 'ws_untagged' ? key === 'untagged' : scopeKeys.has(key))
-      return { d: day, v: sum(rows.filter(r => r.k === k && r.d === day && match(r.key)).map(r => r.n)) }
-    })
-  const trendMetrics = o.scope === 'all'
-    ? (['views', 'visits', 'untagged', 'ws', 'ws_untagged'] as const)
-    : (['views', 'visits', 'ws'] as const)
-  const trend = trendMetrics.map(m => ({ metric: m, cur: series(m, o.cur[0]), prev: series(m, o.prev[0]) }))
+  const viewKeys = new Set(withViews.flatMap(c => [...c.keys]))
+  const wsMatch = (key: string) => scopeKeys.has(key) || (o.scope === 'all' && key === 'untagged')
+  /** Per-day values; a day YouTube hasn't delivered yet is null (a gap), never 0. */
+  const ytDay = (cs: Ch[], day: ISODate, f: (c: Ch) => number | null) =>
+    !cs.length || cs.some(c => !c.through || day > c.through) ? null : sum(cs.map(c => f(c) ?? 0))
+  const dayRows = (k: string, day: ISODate, m: (key: string) => boolean) => rows.filter(r => r.k === k && r.d === day && m(r.key))
+  type DayVals = { impr: number | null; clk: number | null; views: number | null; visits: number; viewVisits: number; ws: number; act: number; paid: number; t13: number }
+  const dayVals = (day: ISODate): DayVals => {
+    const ws = dayRows('wsday', day, wsMatch)
+    return {
+      impr: ytDay(withImpr, day, c => c.doc!.impressionsDaily!.find(r => r[0] === day)?.[1] ?? 0),
+      clk: ytDay(withImpr, day, c => c.doc!.impressionsDaily!.find(r => r[0] === day)?.[2] ?? 0),
+      views: ytDay(withViews, day, c => c.doc!.daily.find(r => r[0] === day)?.[1] ?? 0),
+      visits: sum(dayRows('vday', day, k => scopeKeys.has(k)).map(r => r.n)),
+      viewVisits: sum(dayRows('vday', day, k => viewKeys.has(k)).map(r => r.n)),
+      ws: sum(ws.map(r => r.n)), act: sum(ws.map(r => r.a)), paid: sum(ws.map(r => r.p)), t13: sum(ws.map(r => r.t[0] + r.t[1] + r.t[2])),
+    }
+  }
+  const curDays = Array.from({ length: days }, (_, i) => addDays(o.cur[0], i))
+  const prevDays = Array.from({ length: days }, (_, i) => addDays(o.prev[0], i))
+  const cv = curDays.map(dayVals), pv = prevDays.map(dayVals)
+  const ratio = (a: number | null, b: number | null) => (a != null && b ? a / b : null)
+  type TrendDef = { metric: string; label: string; kind: 'count' | 'rate'; num: (x: DayVals) => number | null; den?: (x: DayVals) => number | null; note?: string }
+  const TREND: TrendDef[] = [
+    { metric: 'impressions', label: 'Impressions', kind: 'count', num: x => x.impr },
+    { metric: 'views', label: 'Views', kind: 'count', num: x => x.views },
+    { metric: 'thumb_ctr', label: 'Thumbnail CTR', kind: 'rate', num: x => x.clk, den: x => x.impr, note: 'Thumbnail clicks ÷ impressions (YouTube Reporting API)' },
+    { metric: 'visits', label: 'Referral visits', kind: 'count', num: x => x.visits },
+    { metric: 'cta_ctr', label: 'CTA CTR', kind: 'rate', num: x => (x.views == null ? null : x.viewVisits), den: x => x.views, note: 'Referral visits ÷ views, channels with views only' },
+    { metric: 't13', label: 'Tier 1–3 workspaces', kind: 'count', num: x => x.t13 },
+    { metric: 'ws', label: 'All workspaces', kind: 'count', num: x => x.ws },
+    { metric: 'activated', label: 'Activated', kind: 'count', num: x => x.act, note: 'Ran a first table within 7 days; the last 7 days are still filling in' },
+    { metric: 'paid', label: 'Paying workspaces', kind: 'count', num: x => x.paid },
+  ]
+  // Totals over the days both periods have (so a lagging YouTube day never counts against one side only).
+  const both = (d: TrendDef, i: number) => d.num(cv[i]) != null && d.num(pv[i]) != null && (!d.den || (d.den(cv[i]) != null && d.den(pv[i]) != null))
+  const trend = TREND.map(d => {
+    const pt = (x: DayVals) => (d.den ? ratio(d.num(x), d.den(x)) : d.num(x))
+    const idx = curDays.map((_, i) => i).filter(i => both(d, i))
+    const tot = (vs: DayVals[]) => {
+      if (!idx.length) return null
+      const n = sum(idx.map(i => d.num(vs[i]) ?? 0))
+      return d.den ? ratio(n, sum(idx.map(i => d.den!(vs[i]) ?? 0))) : n
+    }
+    const available = cv.some(x => d.num(x) != null)
+    return { metric: d.metric, label: d.label, kind: d.kind, note: d.note ?? null, available, days: idx.length,
+      cur: curDays.map((day, i) => ({ d: day, v: pt(cv[i]) })), prev: prevDays.map((day, i) => ({ d: day, v: pt(pv[i]) })),
+      total: { cur: tot(cv), prev: tot(pv) } }
+  }).filter(t => t.available || ['impressions', 'views', 'thumb_ctr', 'cta_ctr'].includes(t.metric))
 
   const withUntagged = o.scope === 'all'
   const allNew = pc.newWs + (withUntagged ? untagged.ws.n : 0)
@@ -391,6 +436,15 @@ export function buildSocial(o: {
       newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: withUntagged ? untagged.ws.n : null },
       activated: { cur: act, prev: actPrev, delta: pct(act, actPrev), rate: rate(act, allNew) },
       paid: { cur: paid, prev: paidPrev, delta: pct(paid, paidPrev), rate: rate(paid, allNew), churned: churn },
+      impressions: { cur: ic?.impressions ?? null, prev: ip?.impressions ?? null, delta: pct(ic?.impressions ?? null, ip?.impressions ?? null),
+                     excluded: inScope.filter(c => c.imprState !== 'live').map(c => c.ch.label) },
+      thumbCtr: { cur: rate(ic?.imprClicks ?? null, ic?.impressions ?? null), prev: rate(ip?.imprClicks ?? null, ip?.impressions ?? null) },
+      ctaCtr: { cur: rate(vc?.visits ?? null, vc?.views ?? null), prev: rate(vp?.visits ?? null, vp?.views ?? null) },
+      tier13: (() => {
+        const t = (x: number[]) => x[0] + x[1] + x[2]
+        const cur = t(pc.tiersNew) + (withUntagged ? t(untagged.ws.t) : 0), prev = t(pp.tiersNew) + (withUntagged ? t(untagged.prevWs.t) : 0)
+        return { cur, prev, delta: pct(cur, prev), untagged: withUntagged ? t(untagged.ws.t) : null }
+      })(),
       views: { cur: vc?.views ?? null, prev: vp?.views ?? null, delta: pct(vc?.views ?? null, vp?.views ?? null), avgPct: vc?.avgPct ?? null, subs: vc?.subs ?? 0, minutes: vc?.minutes ?? 0,
                known: viewsKnown, excluded: inScope.filter(c => !c.analytics).map(c => c.ch.label) },
       lifetimeViews: sum(scopeVideos.map(v => v.lifetimeViews)),
@@ -409,7 +463,7 @@ export function buildSocial(o: {
     tiers: { labels: TIER_LABELS, fresh: withUntagged ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
     videos: scopeVideos,
     persona, signupMonths, backCatalog, cuts,
-    trend,
+    trend, range: { cur: o.cur, prev: o.prev },
   }
 }
 
