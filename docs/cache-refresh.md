@@ -20,7 +20,7 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    - `ArtifactData` `list` of collection `youtube` on the artifact, with `out_dir` = `W/prev` (the current copies, with
      their `version`s).
    - If `YOUTUBE_CLIENT_ID` is set in the environment (check with `[ -n "$YOUTUBE_CLIENT_ID" ] && echo yes`, never print
-     it): `YOUTUBE_PREV_DIR=W/prev/youtube node scripts/sync-youtube.mjs`. It writes `dist/youtube/<channelId>.json` and
+     it): `NODE_USE_ENV_PROXY=1 YOUTUBE_PREV_DIR=W/prev/youtube node scripts/sync-youtube.mjs` (the proxy flag lets it download thumbnails from i.ytimg.com). It writes `dist/youtube/<channelId>.json` and
      prints one line per channel. A channel that fails keeps its previous file, so write only the files it printed
      `→ dist/youtube/…` for.
    - Write those files with one `ArtifactData` `batch`: `set` `youtube/<channelId>` from each file, and

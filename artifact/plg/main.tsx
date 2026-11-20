@@ -31,6 +31,8 @@ import { addDays, mondayOf, todayUTC, type ISODate } from '@/lib/plg/dates'
 import { assembleDashboard, planDashboard } from '@/lib/plg/plan'
 import { SIGMA, dashboardSql, latestDaySql, parseDashboardRows } from '@/lib/plg/sigma'
 import { covers, relabel } from '@/lib/plg/offline'
+import SourcesPanel from '@/components/plg/SourcesPanel'
+import { portfolioSources, socialSources, startupSources, workspacesSources } from '@/lib/plg/sources'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Mcp = any
@@ -439,6 +441,15 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db, mcp, dataEnd, isDefault, yt, saved === undefined])
 
+  // "Sources and SQL": the exact SQL for the current filters, built the same way whether or not this viewer has Sigma.
+  const sourcesFor = useMemo(() => {
+    if (route.tab === 'portfolio') return portfolioSources()
+    const sr = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
+    if (route.tab === 'social') return socialSources(sr && effEnd && yt ? socialSql({ ...sr, tagged: taggedVideos(yt, effEnd), fallbacks: channelFallbacks(yt, effEnd) }) : null)
+    if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
+    return workspacesSources(sql, latestDaySql(todayUTC()))
+  }, [route.tab, plan, effEnd, yt, sql])
+
   const v = view && 'v' in view ? view.v : null
   if (!v) {
     // Still reading the saved copy: don't flash the "connect Sigma" error at viewers who will get the saved view.
@@ -480,6 +491,7 @@ function App() {
     : <StartupView s={startupView.s} loading={startupView.stale} />
   return (
     <DashboardView
+      sources={<SourcesPanel key={route.tab} src={sourcesFor} />}
       health={health}
       tab={route.tab}
       startup={startupPane}

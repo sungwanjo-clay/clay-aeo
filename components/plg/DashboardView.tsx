@@ -70,7 +70,9 @@ function HealthBanner({ h }: { h: Health | null | undefined }) {
   )
 }
 
-export default function DashboardView({ health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
+export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
+  /** Collapsed "Sources and SQL" panel for the active tab, shown at the bottom. */
+  sources?: React.ReactNode
   /** Daily health check verdict; undefined while loading. */
   health?: Health | null
   v: DashboardPayload
@@ -155,6 +157,7 @@ export default function DashboardView({ health, v, loading, error, notice, onCha
         <Discuss v={v} />
         <DataQualityStrip v={v} />
       </div>}
+      {sources}
     </div>
   )
 }
