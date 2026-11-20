@@ -7,7 +7,7 @@
  * invariants that can only fail when something upstream broke (conversions > visitors, negative counts, a day with no
  * visitors at all). Ranges are labels "<start>~<end>" (lib/plg/offline.ts).
  */
-export type Name = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro'
+export type Name = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend'
 export type Verdict = { ok: boolean; problems: string[]; rows: number }
 
 type Tbl = { columns: unknown[]; rows: unknown[][] }
@@ -86,6 +86,18 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       if (rows.some(r => num(r, 'score') < 0 || num(r, 'score') > 100)) problems.push('score outside 0–100')
       break
     }
+    case 'crotrend': {
+      if (!need(['k', 'b', 'd', 'n', 'a', 'p', 'x'])) break
+      nonNum(['n', 'a', 'p', 'x']); negative(['n', 'a', 'p', 'x'])
+      const days = new Set(rows.map(r => str(r, 'b').slice(0, 10)))
+      if (days.size < 150) problems.push(`trend covers only ${days.size} days`)
+      const hp = new Map<string, number>()
+      for (const r of rows) if (str(r, 'd') === 'Homepage') hp.set(str(r, 'b').slice(0, 10), num(r, 'a'))
+      const empty = [...days].filter(d => !(hp.get(d)! > 0))
+      if (empty.length > 2) problems.push(`days with no new homepage visitors: ${empty.slice(0, 5).join(', ')}`)
+      if (rows.some(r => num(r, 'p') > num(r, 'a') || num(r, 'x') > num(r, 'a'))) problems.push('a day with conversions or clickers above new visitors')
+      break
+    }
     case 'cro': {
       if (!need(['k', 'b', 'd', 'n', 'a', 'p', 'x', 'c', 'y', 'z'])) break
       nonNum(['n', 'a', 'p', 'x', 'c', 'y', 'z']); negative(['n', 'a', 'p', 'x', 'c', 'y', 'z'])
@@ -97,12 +109,7 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
         if (num(r, 'x') > num(r, 'a')) problems.push(`more CTA clickers than new visitors for ${l}`)
         if (num(r, 'a') > num(r, 'n')) problems.push(`more new visitors than entry sessions for ${l}`)
       }
-      // The homepage series: every day has new visitors, conversions never exceed them.
-      const hp = rows.filter(r => str(r, 'k') === 'pg' && str(r, 'd') === 'homepage')
-      if (hp.length < 30) problems.push(`homepage series has only ${hp.length} days`)
-      const zero = hp.filter(r => !(num(r, 'n') > 0)).map(r => str(r, 'b').slice(0, 10))
-      if (zero.length) problems.push(`homepage days with no new visitors: ${zero.slice(0, 5).join(', ')}`)
-      if (hp.some(r => num(r, 'a') > num(r, 'n') || num(r, 'p') > num(r, 'n'))) problems.push('homepage day with conversions or clickers above new visitors')
+      if (!rows.some(r => str(r, 'k') === 'lx')) problems.push('no page type × channel rows')
       break
     }
   }

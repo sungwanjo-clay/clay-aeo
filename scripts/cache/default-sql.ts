@@ -14,7 +14,7 @@ import { channelFallbacks, taggedVideos, type YtChannelDoc } from '@/lib/plg/soc
 import { socialSql } from '@/lib/plg/social/sql'
 import { startupSql } from '@/lib/plg/startup/sql'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
-import { croSql } from '@/lib/plg/cro/sql'
+import { croSql, croTrendSql } from '@/lib/plg/cro/sql'
 import { OFFLINE_COMBOS, comboQs, rangeLabel, savedRanges } from '@/lib/plg/offline'
 
 export { validate } from '@/lib/plg/contracts'
@@ -53,5 +53,7 @@ export function defaults(dataEnd: string, ytDir: string) {
     // Not range-dependent: accounts with a Tier 4 touchpoint in the 180 days to dataEnd.
     tier4list: tier4ListSql(dataEnd),
     cro: croSql(ranges, dataEnd),
+    // Not range-dependent: the last 26 weeks to dataEnd.
+    crotrend: croTrendSql(dataEnd),
   }
 }

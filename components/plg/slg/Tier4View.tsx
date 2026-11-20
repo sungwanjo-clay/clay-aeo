@@ -5,6 +5,7 @@ import { NURTURE, RETIER, t4rate, tier4Csv, tier4Insight, type NurturePath, type
 import { TIER4 } from '@/lib/plg/slg/tier4sql'
 import { usd } from '@/lib/plg/insights'
 import WhatMoved from '../WhatMoved'
+import SectionBar, { Chip } from '../SectionBar'
 import { Card, Def, Delta, Eyebrow, H2, InfoTip, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
 
 const mono = { fontFamily: T.mono } as const
@@ -162,15 +163,17 @@ function Accounts({ rows, onExport }: { rows: T4Account[] | null; onExport?: (fi
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'score', dir: -1 })
   const [q, setQ] = useState('')
   const [vcOnly, setVcOnly] = useState(false)
+  const [region, setRegion] = useState('')
+  const regions = useMemo(() => [...new Set((rows ?? []).map(r => r.region).filter((x): x is string => !!x))].sort(), [rows])
   const [msg, setMsg] = useState<string | null>(null)
   const counts = useMemo(() => Object.fromEntries(NURTURE.map(n => [n.id, rows?.filter(r => r.path === n.id).length ?? 0])), [rows])
   const list = useMemo(() => {
     if (!rows) return []
     const ql = q.trim().toLowerCase()
-    const xs = rows.filter(r => (path === 'all' || r.path === path) && (!vcOnly || !!r.vc) && (!ql || r.name.toLowerCase().includes(ql) || r.domain.includes(ql) || (r.industry ?? '').toLowerCase().includes(ql)))
+    const xs = rows.filter(r => (path === 'all' || r.path === path) && (!vcOnly || !!r.vc) && (!region || r.region === region) && (!ql || r.name.toLowerCase().includes(ql) || r.domain.includes(ql) || (r.industry ?? '').toLowerCase().includes(ql)))
     const val = (r: T4Account) => (sort.key === 'name' ? r.name.toLowerCase() : sort.key === 'last' ? r.last : r[sort.key] ?? null)
     return [...xs].sort((a, b) => { const x = val(a), y = val(b); return x == null ? 1 : y == null ? -1 : (x < y ? -1 : x > y ? 1 : 0) * sort.dir })
-  }, [rows, path, sort, q, vcOnly])
+  }, [rows, path, sort, q, vcOnly, region])
   const vcCount = rows?.filter(r => r.vc).length ?? 0, hasScrape = rows?.some(r => r.vc !== undefined) ?? false
   const sh = (k: SortKey, label: string, right = true) => {
     const on = sort.key === k
@@ -208,15 +211,17 @@ function Accounts({ rows, onExport }: { rows: T4Account[] | null; onExport?: (fi
             )
           })}
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <SectionBar inCard label="Account filters">
+          <Chip on={path === 'all'} onClick={() => setPath('all')}>All paths</Chip>
+          {NURTURE.map(n => <Chip key={n.id} on={path === n.id} onClick={() => setPath(path === n.id ? 'all' : n.id)}>{n.id} <span style={{ opacity: 0.6 }}>{fmtInt(counts[n.id])}</span></Chip>)}
+          {regions.length > 1 && <select aria-label="Region" value={region} onChange={e => setRegion(e.target.value)} className="rounded-full px-3 py-1.5 text-[13px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
+            <option value="">All regions</option>{regions.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>}
+          {hasScrape && <Chip on={vcOnly} onClick={() => setVcOnly(x => !x)} title={`${vcCount} accounts matched the portfolio scrape`}>VC-backed only</Chip>}
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search account, domain or industry" aria-label="Search accounts"
-            className="rounded-full px-4 py-2 text-[14px] w-full sm:w-[320px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }} />
-          {hasScrape && <label className="inline-flex items-center gap-2 text-[14px] cursor-pointer select-none" style={{ color: T.ink }}>
-            <input type="checkbox" checked={vcOnly} onChange={e => setVcOnly(e.target.checked)} />
-            VC-backed only <span style={{ ...mono, color: T.muted }}>({fmtInt(vcCount)} matched the portfolio scrape)</span>
-          </label>}
-          <span className="text-[13px]" style={{ color: T.muted }}>{fmtInt(list.length)} accounts{path !== 'all' ? ` · ${path}` : ''}</span>
-        </div>
+            className="rounded-full px-3 py-1.5 text-[13px] w-full sm:w-[260px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }} />
+          <span className="text-[13px] sm:ml-auto" style={{ color: T.muted }}>{fmtInt(list.length)} accounts</span>
+        </SectionBar>
         <div className="overflow-auto max-h-[640px] rounded-xl" style={{ border: `1px solid ${T.border}` }}>
           <table className="w-full min-w-[1280px] text-[14px]" style={{ color: T.ink }}>
             <thead className="sticky top-0 z-10" style={{ background: '#fff' }}><tr style={head}>

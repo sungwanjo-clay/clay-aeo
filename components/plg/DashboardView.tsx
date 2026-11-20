@@ -31,8 +31,8 @@ const WS_SECTIONS = [
 const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces</>, sub: 'By channel and tier, with conversion and Tier 4 hand-raisers' },
   social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Media properties</>, sub: '' },
-  startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer</>, sub: 'clay.com/clay-for-startups · no offer sent yet' },
-  portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>Portfolio partners</>, sub: 'Portfolio companies with a workspace, paying and redeemed' },
+  startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup Offer Program</>, sub: 'clay.com/clay-for-startups · no offer sent yet' },
+  portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>VC and Partners</>, sub: 'Portfolio companies with a workspace, paying and redeemed' },
 } as const
 
 /** Next query params after a filter change (shared by the Next page and the artifact). */
@@ -75,7 +75,7 @@ function SectionHead({ id, eyebrow, title, sub, children }: { id: string; eyebro
 
 /** Startup program ↔ Portfolio partners: one switch on the Startup program tab instead of a separate tab. */
 function ProgramToggle({ value, onChange }: { value: 'startup' | 'portfolio'; onChange: (v: 'startup' | 'portfolio') => void }) {
-  const opts = [{ id: 'startup', label: 'Startup offer', sub: 'clay.com/clay-for-startups' }, { id: 'portfolio', label: 'Portfolio partners', sub: 'VC and accelerator portfolios' }] as const
+  const opts = [{ id: 'startup', label: 'Startup Offer Program', sub: 'clay.com/clay-for-startups' }, { id: 'portfolio', label: 'VC and Partners', sub: 'VC and accelerator portfolios' }] as const
   const i = value === 'portfolio' ? 1 : 0
   return (
     <div role="radiogroup" aria-label="Program view" className="relative inline-grid grid-cols-2 rounded-2xl p-1 self-start w-full sm:w-[460px]" style={{ background: '#EFEEEA' }}>
@@ -191,7 +191,7 @@ export default function DashboardView({ sources, health, v, loading, error, noti
       <HealthBanner h={health} />
       {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
-      {active === 'social' ? <Boundary name="Media properties" resetKey={v}>{social}</Boundary> : active === 'startup' ? <Boundary name="Startup offer" resetKey={v}>{startup}</Boundary> : active === 'portfolio' ? <Boundary name="Portfolio partners">{portfolio}</Boundary> : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? <Boundary name="Media properties" resetKey={v}>{social}</Boundary> : active === 'startup' ? <Boundary name="Startup Offer Program" resetKey={v}>{startup}</Boundary> : active === 'portfolio' ? <Boundary name="VC and Partners">{portfolio}</Boundary> : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <div id="ws-overview" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
           <Boundary name="Headline tiles" resetKey={v}><KpiTiles v={v} /></Boundary>

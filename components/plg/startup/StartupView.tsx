@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { FunnelStep, StartupPeriod, StartupViewModel as SV } from '@/lib/plg/startup/compute'
 import { ENABLEMENT, STEPS } from '@/lib/plg/startup/compute'
 import WhatMoved from '../WhatMoved'
+import SectionBar, { Chip } from '../SectionBar'
 import { STARTUP } from '@/lib/plg/startup/sql'
 import { fmtShort } from '@/lib/plg/dates'
 import ProgressChart, { type ProgressMetric } from '../ProgressChart'
@@ -240,13 +241,12 @@ function Campaigns({ s }: { s: SV }) {
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Paid campaigns</H2>
       <p className="text-[15px]" style={{ color: T.muted }}>The tiles’ metrics for each paid campaign. Judge campaigns on Tier 1–3 signup domains and new workspaces, not visits alone; spend and cost columns need ad spend in Snowflake. Select a campaign for its numbers vs the period before.</p>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter campaigns">
+      <SectionBar inCard label="Filter campaigns">
         {CAMP_FILTERS.map(f => {
           const n = s.T.campaigns.filter(c => campMatch(f.id, c)).length
-          return <button key={f.id} type="button" aria-pressed={cf === f.id} onClick={() => setCf(f.id)} className="rounded-full px-3 py-1.5 text-[13px]"
-            style={{ background: cf === f.id ? T.ink : '#fff', color: cf === f.id ? '#fff' : T.ink, border: `1px solid ${cf === f.id ? T.ink : T.border}` }}>{f.label} <span style={{ opacity: 0.6 }}>{n}</span></button>
+          return <Chip key={f.id} on={cf === f.id} onClick={() => setCf(f.id)}>{f.label} <span style={{ opacity: 0.6 }}>{n}</span></Chip>
         })}
-      </div>
+      </SectionBar>
       <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-[15px]" style={{ color: T.ink }}>
         <thead><tr style={head}>
           <SortTh label="Campaign" k="campaign" sort={sort} set={setSort} right={false} /><SortTh label="Platform" k="platform" sort={sort} set={setSort} right={false} />
@@ -339,7 +339,7 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <TiersAndReasons s={s} />
       <Campaigns s={s} />
       <Enablement />
-      <p className="text-[14px]" style={{ color: T.muted }}>Partner penetration and portfolio companies: switch to <b>Portfolio partners</b> at the top of this tab.</p>
+      <p className="text-[14px]" style={{ color: T.muted }}>Partner penetration and portfolio companies: switch to <b>VC and Partners</b> at the top of this tab.</p>
     </div>
   )
 }

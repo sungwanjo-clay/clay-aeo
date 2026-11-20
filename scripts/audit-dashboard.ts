@@ -13,7 +13,8 @@ import { parseDashboardRows } from '@/lib/plg/sigma'
 import { relabel } from '@/lib/plg/offline'
 import { resolveQuarters } from '@/lib/plg/compute'
 import { DEFAULT_QUARTERS } from '@/lib/plg/config'
-import { buildCro } from '@/lib/plg/cro/compute'
+import { buildCro, cut, trend } from '@/lib/plg/cro/compute'
+import { pageTypeOf } from '@/lib/plg/cro/pageTypes'
 import { buildTier4 } from '@/lib/plg/slg/compute'
 import { existsSync } from 'node:fs'
 
@@ -89,17 +90,30 @@ for (const qs of ['', 'preset=last28', 'preset=qtd&compare=previous_year']) {
   const sr = { cur: plan.summaries.cur, prev: plan.summaries.prev }
   const tot = (xs: any[], k: string, b: 'cur' | 'prev') => sum(xs.map(r => r[b][k]))
   if (existsSync(`${cacheDir}/cro.json`)) {
-    const c = buildCro(relabel(cached('cro').payload, sr), main.h.dataEnd)
+    const trendDoc = existsSync(`${cacheDir}/crotrend.json`) ? cached('crotrend').payload : null
+    const v = buildCro(relabel(cached('cro').payload, sr), trendDoc, main.h.dataEnd)
+    const all = cut(v, [])
     for (const b of ['cur', 'prev'] as const) for (const k of ['entries', 'newVisitors', 'converted', 'clickers', 'demo', 'selfServe', 'bots']) {
-      eq(`[cro ${b}] landing types sum to all · ${k}`, tot(c.landing, k, b), (c.all[b] as any)[k])
-      eq(`[cro ${b}] devices sum to all · ${k}`, tot(c.devices, k, b), (c.all[b] as any)[k])
-      eq(`[cro ${b}] channels sum to all · ${k}`, tot(c.channels, k, b), (c.all[b] as any)[k])
+      eq(`[cro ${b}] page types sum to all · ${k}`, tot(all.landing, k, b), (v.all[b] as any)[k])
+      eq(`[cro ${b}] devices sum to all · ${k}`, tot(all.devices, k, b), (v.all[b] as any)[k])
+      eq(`[cro ${b}] channels sum to all · ${k}`, tot(all.channels, k, b), (v.all[b] as any)[k])
     }
-    checks++; if (c.all.cur.converted > c.all.cur.newVisitors || c.all.cur.clickers > c.all.cur.newVisitors) { fails++; console.log('FAIL [cro] conversions or clickers above new visitors') }
-    checks++; if (sum(c.paths.map(p => p.cur.newVisitors)) > c.all.cur.newVisitors) { fails++; console.log('FAIL [cro] entry pages exceed all new visitors') }
-    // Homepage series: a day's conversions never exceed its visitors; the launch windows add up to their days.
-    checks++; if (c.pages.homepage.some(d => d.converted > d.newVisitors || d.clickers > d.newVisitors)) { fails++; console.log('FAIL [cro] homepage day with conversions above visitors') }
-    if (c.launch) eq('[cro] launch window "after" days', c.launch.after.days, 27)
+    // A page-type filter: the cut's total = that type's row; channels and devices sum to it.
+    for (const t of ['Homepage', 'Pricing']) {
+      const f = cut(v, [t]), row = all.landing.find(r => r.id === t)
+      if (!row) continue
+      eq(`[cro ${t}] filtered total = its page-type row`, f.total.cur.newVisitors, row.cur.newVisitors)
+      eq(`[cro ${t}] filtered devices sum to its total`, tot(f.devices, 'newVisitors', 'cur'), f.total.cur.newVisitors)
+      checks++; if (f.paths.some(p => p.type !== t)) { fails++; console.log(`FAIL [cro ${t}] entry pages of another type`) }
+    }
+    checks++; if (v.all.cur.converted > v.all.cur.newVisitors || v.all.cur.clickers > v.all.cur.newVisitors) { fails++; console.log('FAIL [cro] conversions or clickers above new visitors') }
+    checks++; if (sum(all.paths.map(p => p.cur.newVisitors)) > v.all.cur.newVisitors) { fails++; console.log('FAIL [cro] entry pages exceed all new visitors') }
+    if (v.days) {
+      checks++; if (v.days.some(d => d.s.converted > d.s.newVisitors || d.s.clickers > d.s.newVisitors)) { fails++; console.log('FAIL [cro] trend day with conversions above visitors') }
+      // Entry pages classify into the same types in TypeScript as in SQL.
+      const tr = trend(v, ['Homepage'], 'day'); checks++; if (!tr.length) { fails++; console.log('FAIL [cro] empty homepage trend') }
+    }
+    for (const p of all.paths) { if (p.type && p.label.startsWith('/') && !p.label.startsWith('/fr')) { checks++; const t = pageTypeOf('marketing_website', p.label); if (t !== p.type && p.type !== 'Conversion pages' && p.type !== 'Landing pages' && p.type !== 'University' && p.type !== 'Guides') { fails++; console.log(`FAIL [cro] ${p.label}: SQL type ${p.type} vs TS ${t}`) } } }
   }
   if (existsSync(`${cacheDir}/tier4.json`)) {
     const t = buildTier4(relabel(cached('tier4').payload, sr), existsSync(`${cacheDir}/tier4list.json`) ? cached('tier4list').payload : null)

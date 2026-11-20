@@ -93,18 +93,19 @@ export function startupSources(sql: string | null): TabSources {
   }
 }
 
-export function croSources(sql: string | null): TabSources {
+export function croSources(sql: string | null, trend: string | null = null): TabSources {
   return {
     sources: [
       { name: 'Entry sessions, landing page, channel, device', where: 'DBT.PROD.MARKETING_WEBSITE_SESSIONS', what: 'First-ever session per cookie (SESSION_ASC_RANKER = 1); WORKSPACE_STATUS = no existing workspace' },
-      { name: 'Homepage and pricing first views', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'site marketing_website, path / and /pricing, first-ever view per cookie since 2023' },
       { name: 'Bot filter', where: 'DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION', what: 'BINARY_BOT_EXCLUSION = 1 and no Clay (numeric) user id' },
       { name: 'Visitor → workspace', where: 'DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP, DBT.PROD.CUSTOMERS', what: 'Workspace created within 24 hours of the first visit; prior workspace = FIRST_SEEN before it' },
       { name: 'CTA clicks', where: 'SEGMENT.MARKETING_WEBSITE.CONVERSION_BUTTON_CLICKED', what: 'BUTTON_TYPE Self-serve | Contact Form; ELEMENT_LOCATION → zone; 1 minute before to 24 hours after' },
     ],
-    queries: sql ? [{ label: 'CRO query (current filters)', sql, note: 'Definitions from monty (Clay’s data analyst agent), growth-marketing landing-page playbook. ' + SIGMA_NOTE }] : [],
-    notes: ['The homepage launch date (2026-06-23, about 15:00 UTC) comes from the hero button ids switching in the click data; there is no deploy event in the warehouse.',
-      'The dbt model DBT.PROD.CONVERSION_BUTTON_CLICKED is not in Sigma, so the page reads its Segment source; counts can differ slightly where the model dedupes.'],
+    queries: [
+      ...(sql ? [{ label: 'Conversion query (current filters)', sql, note: 'Definitions from monty (Clay’s data analyst agent), growth-marketing landing-page playbook. Page types: lib/plg/cro/pageTypes.ts. ' + SIGMA_NOTE }] : []),
+      ...(trend ? [{ label: 'Conversion trend by page type (last 26 weeks)', sql: trend }] : []),
+    ],
+    notes: ['The dbt model DBT.PROD.CONVERSION_BUTTON_CLICKED is not in Sigma, so the page reads its Segment source (a pass-through view: same rows, about a day fresher).'],
   }
 }
 

@@ -36,7 +36,7 @@ const add = (id, level, ok, detail) => checks.push({ id, level, ok, detail })   
 // the last 30 hours, data no older than 3 days), cover every preset × comparison (a multi-range copy, not a single view a
 // page wrote), and pass its data contract (lib/plg/contracts.ts): the right shape, a row for every range, no impossible
 // counts. Anything less is what viewers without Sigma would see.
-const CACHES = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro']
+const CACHES = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend']
 const RANGED = new Set(['main', 'social', 'startup', 'tier4', 'cro'])
 let contracts = null
 try {

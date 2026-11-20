@@ -46,7 +46,7 @@ import { buildTier4, enrichTier4 } from '@/lib/plg/slg/compute'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
 import CroView from '@/components/plg/cro/CroView'
 import { buildCro } from '@/lib/plg/cro/compute'
-import { croSql } from '@/lib/plg/cro/sql'
+import { croSql, croTrendSql } from '@/lib/plg/cro/sql'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Mcp = any
@@ -67,10 +67,10 @@ type Problem = { code: string; message: string } | null
  */
 /** `ranges`: set by the daily job's multi-view copy (lib/plg/offline.ts): the date ranges it computed. Absent = one view. */
 type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate; ranges?: string[] }
-type CacheName = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro'
-const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro']
+type CacheName = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend'
+const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend']
 type Saved = Record<CacheName, Cached | null>
-const noSaved = (): Saved => ({ main: null, social: null, startup: null, tier4: null, tier4list: null, cro: null })
+const noSaved = (): Saved => ({ main: null, social: null, startup: null, tier4: null, tier4list: null, cro: null, crotrend: null })
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
@@ -432,25 +432,26 @@ function App() {
   const croText = useMemo(() => (secRanges && dataEnd && route.tab === 'workspaces' && !offline ? croSql(secRanges, dataEnd) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], dataEnd, route.tab, offline])
+  const croTrendText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? croTrendSql(dataEnd) : null), [dataEnd, route.tab, offline])
   const tier4ListText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? tier4ListSql(dataEnd) : null), [dataEnd, route.tab, offline])
-  const [secRes, setSecRes] = useState<Partial<Record<'tier4' | 'tier4list' | 'cro', { key: string; payload: unknown }>>>({})
-  const [secProblem, setSecProblem] = useState<Partial<Record<'tier4' | 'tier4list' | 'cro', Problem>>>({})
+  const [secRes, setSecRes] = useState<Partial<Record<'tier4' | 'tier4list' | 'cro' | 'crotrend', { key: string; payload: unknown }>>>({})
+  const [secProblem, setSecProblem] = useState<Partial<Record<'tier4' | 'tier4list' | 'cro' | 'crotrend', Problem>>>({})
   useEffect(() => {
     if (!mcp) return
-    const unsubs = ([['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText]] as const).filter(([, q]) => q).map(([name, q]) =>
+    const unsubs = ([['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText], ['crotrend', croTrendText]] as const).filter(([, q]) => q).map(([name, q]) =>
       mcp.watchTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: q } }, (ev: any) => {
         if (ev.type === 'error') { setSecProblem(x => ({ ...x, [name]: { code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' } })); return }
         setSecProblem(x => ({ ...x, [name]: null }))
         setSecRes(x => ({ ...x, [name]: { key: q!, payload: ev.result?.payload } }))
       }, { cache: CACHE }))
     return () => unsubs.forEach(u => u())
-  }, [mcp, tier4Text, tier4ListText, croText])
+  }, [mcp, tier4Text, tier4ListText, croText, croTrendText])
   /** Section data: live, or the saved copy when it covers these dates (a single-view copy only covers the default view). */
-  const pick = (name: 'tier4' | 'tier4list' | 'cro', text: string | null): { payload: unknown; stale: boolean } | { uncovered: true } | null => {
+  const pick = (name: 'tier4' | 'tier4list' | 'cro' | 'crotrend', text: string | null): { payload: unknown; stale: boolean } | { uncovered: true } | null => {
     if (offline) {
       const c = saved?.[name]
       if (!c) return null
-      const ok = name === 'tier4list' || (c.ranges ? !!secRanges && covers(c.ranges, { cur: secRanges[0], prev: secRanges[1] }) : offlineQs === '')
+      const ok = name === 'tier4list' || name === 'crotrend' || (c.ranges ? !!secRanges && covers(c.ranges, { cur: secRanges[0], prev: secRanges[1] }) : offlineQs === '')
       return ok ? { payload: c.payload, stale: false } : { uncovered: true }
     }
     const r = secRes[name]
@@ -461,9 +462,10 @@ function App() {
     if (!r || !socialRanges || !effEnd) return null
     if ('uncovered' in r) return { error: UNCOVERED }
     const end = offline && saved?.cro ? saved.cro.dataEnd : effEnd
-    try { return { v: buildCro(guard('cro', relabel(r.payload, socialRanges), ['cur', 'prev']), end), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    const tr = pick('crotrend', croTrendText)
+    try { return { v: buildCro(guard('cro', relabel(r.payload, socialRanges), ['cur', 'prev']), tr && 'payload' in tr ? guard('crotrend', tr.payload) : null, end), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secRes.cro, saved?.cro, offline, croText, effEnd, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
+  }, [secRes.cro, secRes.crotrend, saved?.cro, saved?.crotrend, offline, croText, croTrendText, effEnd, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
   const tier4View = useMemo(() => {
     const r = pick('tier4', tier4Text), l0 = pick('tier4list', tier4ListText)
     if (!r || !socialRanges) return null
@@ -486,7 +488,7 @@ function App() {
     if (!db || saved === undefined || !dataEnd || !isDefault) return
     const live: [CacheName, { key: string; payload: unknown } | null | undefined, string | null][] = [
       ['social', socialResult, socialSqlText], ['startup', startupResult, startupSqlText],
-      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText]]
+      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText]]
     for (const [name, r, text] of live) {
       if (!r || r.key !== text) continue
       if (keepSaved(name)) continue
@@ -497,7 +499,7 @@ function App() {
       const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
       writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? noSaved()), [name]: c })) } })
     }
-  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, secRes, tier4Text, tier4ListText, croText, saved])
+  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, secRes, tier4Text, tier4ListText, croText, croTrendText, saved])
   useEffect(() => {
     if (!db || !mcp || !dataEnd || !isDefault || !socialRanges || yt == null || saved === undefined) return
     let live = true
@@ -515,6 +517,7 @@ function App() {
       if (due(saved.tier4 ?? null) && route.tab !== 'workspaces' && !keepSaved('tier4')) jobs.push(['tier4', tier4Sql(sr)])
       if (due(saved.tier4list ?? null) && route.tab !== 'workspaces' && !keepSaved('tier4list')) jobs.push(['tier4list', tier4ListSql(dataEnd)])
       if (due(saved.cro ?? null) && route.tab !== 'workspaces' && !keepSaved('cro')) jobs.push(['cro', croSql(sr, dataEnd)])
+      if (due(saved.crotrend ?? null) && route.tab !== 'workspaces' && !keepSaved('crotrend')) jobs.push(['crotrend', croTrendSql(dataEnd)])
       for (const [name, text] of jobs) {
         try {
           const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
@@ -535,7 +538,7 @@ function App() {
     if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
     const ws = workspacesSources(sql, latestDaySql(todayUTC()))
     const t4 = tier4Sources(sr ? tier4Sql([sr.cur, sr.prev]) : null, effEnd ? tier4ListSql(effEnd) : null)
-    const cr = croSources(sr && effEnd ? croSql([sr.cur, sr.prev], effEnd) : null)
+    const cr = croSources(sr && effEnd ? croSql([sr.cur, sr.prev], effEnd) : null, effEnd ? croTrendSql(effEnd) : null)
     return { sources: [...ws.sources, ...cr.sources, ...t4.sources], queries: [...ws.queries, ...cr.queries, ...t4.queries], notes: [...(ws.notes ?? []), ...(cr.notes ?? []), ...(t4.notes ?? [])] }
   }, [route.tab, plan, effEnd, yt, sql])
 
