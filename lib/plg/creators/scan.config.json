@@ -1,0 +1,17 @@
+{
+  "about": "Weekly niche scan (scripts/niche-scan.mjs). Seed searches find the channels B2B founders, agency owners and GTM people watch; each tracked channel's newest uploads are pulled and scored against the channel's own median. Edit the terms here; the channel list grows from search results.",
+  "terms": [
+    "clay.com tutorial", "clay ai tutorial", "gtm engineer", "how to become a gtm engineer", "cold email", "cold email course",
+    "b2b lead generation", "lead generation strategy", "how to find leads", "lead list building", "find anyone's email",
+    "apollo.io tutorial", "linkedin sales navigator", "linkedin outreach", "cold email deliverability", "email infrastructure cold email",
+    "claude code lead generation", "chatgpt lead generation", "grok lead generation", "ai sdr", "ai agents for sales",
+    "n8n lead generation", "cold calling", "outbound sales", "sales prospecting", "lead gen agency",
+    "get clients for agency", "b2b sales strategy", "buying signals sales", "data enrichment"
+  ],
+  "discoverMonths": 24,
+  "freshDays": 8,
+  "minSeedHits": 2,
+  "maxChannels": 90,
+  "maxNewChannelsPerWeek": 15,
+  "uploadsPerChannel": 300
+}

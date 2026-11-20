@@ -90,6 +90,11 @@ if (existsSync(ytDir)) {
   }
 } else add('yt_sync', 'alert', false, 'YouTube documents were not downloaded')
 
+// 1d. Content insights: the weekly niche scan (youtube/scan). Weekly, so 8 days without one is a warning.
+const sc = existsSync(ytDir) ? read('youtube', 'scan') : null
+add('scan_sync', 'warn', !!sc && hours(sc.fetchedAt) <= 8 * 24, sc ? `Content insights: niche scan from ${String(sc.fetchedAt).slice(0, 10)}${sc.partial ? ' (partial: YouTube quota ran out)' : ''}` : 'Content insights: no niche scan yet')
+if (sc?.partial) add('scan_partial', 'warn', false, 'Content insights: the last niche scan is partial (YouTube quota ran out)')
+
 // 1c. Content insights: the creator program list (youtube/creators, scripts/sync-creators.mjs). The sheet half is a manual
 // export for now, so this only warns: a week without a re-sync means new videos and links are missing from the tab.
 const cr = existsSync(ytDir) ? read('youtube', 'creators') : null

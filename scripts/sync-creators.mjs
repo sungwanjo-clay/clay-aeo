@@ -7,20 +7,20 @@
  *                                        (the count is in creators.json → thumbParts)
  *
  *   YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET / YOUTUBE_REFRESH_TOKEN (any read-only token can read public videos)
- *   NODE_USE_ENV_PROXY=1 node scripts/sync-creators.mjs <export.json> [preview.json]
+ *   NODE_USE_ENV_PROXY=1 node scripts/sync-creators.mjs <export.json> [tags.json]
  *
  * Per video: title, channel, publish date, length, views / likes / comments, description signals (chapters, where the
  * first Clay link sits, how many links), and the channel's median views over its recent long-form uploads (3 min+,
  * newest 5 excluded, the same baseline as Eric's demand map) so a sponsored video can be read as a multiple of its
- * channel's normal. preview.json (optional) carries the demand-map preview shown on the tab until the weekly
- * look-alike scan exists; it is copied through as is.
+ * channel's normal. tags.json (optional) is the hand-checked theme of each program video ({videoId: themeId}, ids in
+ * lib/plg/creators/themes.ts), copied through as is; untagged videos fall back to the title rules.
  * Quota: about 3 units per channel and 1 per 50 videos.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const [exportFile, previewFile] = process.argv.slice(2)
-if (!exportFile) { console.error('usage: node scripts/sync-creators.mjs <export.json> [preview.json]'); process.exit(2) }
+const [exportFile, tagsFile] = process.argv.slice(2)
+if (!exportFile) { console.error('usage: node scripts/sync-creators.mjs <export.json> [tags.json]'); process.exit(2) }
 const src = JSON.parse(readFileSync(exportFile, 'utf8'))
 const outDir = resolve(import.meta.dirname, '../dist/creators')
 mkdirSync(outDir, { recursive: true })
@@ -94,8 +94,8 @@ for (const [id, uri] of Object.entries(thumbs)) {
   if (size + uri.length > 240_000 && Object.keys(parts.at(-1)).length) { parts.push({}); size = 0 }
   parts.at(-1)[id] = uri; size += uri.length
 }
-const preview = previewFile && existsSync(previewFile) ? JSON.parse(readFileSync(previewFile, 'utf8')) : null
-const doc = { fetchedAt, sheetAsOf: src.asOf ?? null, placements: src.placements, daily: src.daily, videos, channels, preview, thumbParts: parts.length }
+const tags = tagsFile && existsSync(tagsFile) ? JSON.parse(readFileSync(tagsFile, 'utf8')) : null
+const doc = { fetchedAt, sheetAsOf: src.asOf ?? null, placements: src.placements, daily: src.daily, videos, channels, tags, thumbParts: parts.length }
 const body = JSON.stringify(doc)
 if (body.length > 900_000) { console.error(`creators document is ${(body.length / 1024).toFixed(0)} KB, over the cap`); process.exit(1) }
 writeFileSync(resolve(outDir, 'creators.json'), body)

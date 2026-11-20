@@ -37,7 +37,7 @@ const TABS = {
   social: { hash: '#social', must: ['What moved'] },
   startup: { hash: '#startup', must: ['What moved', 'Funnel'] },
   portfolio: { hash: '#portfolio', must: [] },
-  insights: { hash: '#insights', must: ['What moved', 'YouTube creator funnel', 'Videos that drive workspaces', 'What the winners share'] },
+  insights: { hash: '#insights', must: ['Five videos to make next', 'New this week', 'Videos', 'What worked and what didn’t, by theme', 'Winners vs losers, side by side', 'Open lanes and title formats'] },
 }
 const PRESETS = quick ? ['last7', 'last28'] : ['last7', 'last28', 'last90', 'qtd', 'ytd']
 const COMPARES = quick ? ['previous_period'] : ['previous_period', 'previous_year']
@@ -105,6 +105,7 @@ const scenarios = [
     return d
   })(), /Data check failed/, '#insights'],
   ['creator list not synced', (() => { const d = clone(); delete d['youtube/creators']; return d })(), /creator program list isn’t synced/, '#insights'],
+  ['no niche scan yet', (() => { const d = clone(); delete d['youtube/scan']; return d })(), /No niche scan yet/, '#insights'],
 ]
 for (const [name, d, expect, hash = ''] of scenarios) {
   const r = await visit(d, hash, '', 4000); runs++

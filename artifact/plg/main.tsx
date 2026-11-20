@@ -48,7 +48,8 @@ import CroView from '@/components/plg/cro/CroView'
 import { buildCro } from '@/lib/plg/cro/compute'
 import { croSql, croTrendSql } from '@/lib/plg/cro/sql'
 import InsightsView from '@/components/plg/creators/InsightsView'
-import { buildCreators, type CreatorsDoc, type Period } from '@/lib/plg/creators/compute'
+import { buildCreators, type CreatorsDoc } from '@/lib/plg/creators/compute'
+import type { ScanDoc } from '@/lib/plg/creators/scan'
 import { creatorsSql } from '@/lib/plg/creators/sql'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -197,7 +198,8 @@ function App() {
   // Content insights: the program's placement list + YouTube metadata (youtube/creators, written by scripts/sync-creators.mjs).
   const [creatorsDoc, setCreatorsDoc] = useState<CreatorsDoc | null | undefined>(undefined)
   const [creatorThumbs, setCreatorThumbs] = useState<Record<string, string>>({})
-  const [period, setPeriod] = useState<Period>('all')
+  // The weekly niche scan (youtube/scan, scripts/niche-scan.mjs + niche-analyze.mjs); null when there isn't one yet.
+  const [scanDoc, setScanDoc] = useState<ScanDoc | null>(null)
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
   // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
@@ -223,6 +225,7 @@ function App() {
       setDb(d)
       Promise.all(CACHE_NAMES.map(n => readCached(d, n)))
         .then(xs => setSaved(Object.fromEntries(CACHE_NAMES.map((n, i) => [n, xs[i]])) as Saved)).catch(() => setSaved(noSaved()))
+      d.doc('youtube/scan').get().then((x: any) => setScanDoc(x?.exists ? (x.data() as ScanDoc) : null)).catch(() => setScanDoc(null))
       d.doc('youtube/creators').get().then(async (x: any) => {
         const doc = x?.exists ? (x.data() as CreatorsDoc) : null
         setCreatorsDoc(doc)
@@ -502,9 +505,9 @@ function App() {
     if (!r || !creatorsDoc || !effEnd) return null
     if ('uncovered' in r) return { error: UNCOVERED }
     const end = offline && saved?.creators ? saved.creators.dataEnd : effEnd
-    try { return { v: buildCreators(creatorsDoc, guard('creators', r.payload), end, period), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    try { return { v: buildCreators(creatorsDoc, guard('creators', r.payload), end, scanDoc), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secRes.creators, saved?.creators, offline, creatorsText, creatorsDoc, effEnd, period])
+  }, [secRes.creators, saved?.creators, offline, creatorsText, creatorsDoc, effEnd, scanDoc])
 
   // Saved copies of the Media properties and Startup default views: written when this viewer loads them live in the
   // default range, and warmed in the background (at most every 12 h) once this viewer has shown it can write the copy.
@@ -625,7 +628,7 @@ function App() {
     : secProblem.creators && !creatorsView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(secProblem.creators).title}: {problemCopy(secProblem.creators).body}</p>
     : !creatorsView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline && !saved?.creators ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for creator links… first load takes 10–30 seconds.'}</p>
     : 'error' in creatorsView ? <p className="text-[15px]" style={{ color: T.neg }}>{creatorsView.error}</p>
-    : <InsightsView d={creatorsView.v!} period={period} onPeriod={setPeriod} thumbs={creatorThumbs} loading={creatorsView.stale} />
+    : <InsightsView d={creatorsView.v!} thumbs={creatorThumbs} loading={creatorsView.stale} />
   return (
     <DashboardView
       insights={insightsPane}

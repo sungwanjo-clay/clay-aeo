@@ -33,7 +33,7 @@ const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces</>, sub: 'By channel and tier, with conversion and Tier 4 hand-raisers' },
   social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Media properties</>, sub: '' },
   startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup Offer Program</>, sub: 'clay.com/clay-for-startups · no offer sent yet' },
-  insights: { eyebrow: 'PLG weekly metrics · Content insights · YouTube creators', title: <>Content insights</>, sub: 'Which creator videos drive workspaces, what they share, and what to make next' },
+  insights: { eyebrow: 'PLG weekly metrics · Content insights · YouTube creators', title: <>Content insights</>, sub: 'What’s working on YouTube, why it works, and what to make next' },
   portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>VC and Partners</>, sub: 'Portfolio companies with a workspace, paying and redeemed' },
 } as const
 
