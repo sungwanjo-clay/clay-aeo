@@ -9,7 +9,7 @@
  *
  * MQAL (this tab's definition, not the SLG hand-raise MQAL): a distinct business domain at a
  * Salesforce Tier 1–3 account among identified visitors. Domain = the workspace's billing domain
- * (CUSTOMERS.DOMAIN, business domains only); tier = STG_SALESFORCE__ACCOUNT.SALES_TIER_C.
+ * (CUSTOMERS.DOMAIN, personal emails excluded); tier = the Marketing tile's rule (lib/plg/tier.ts).
  *
  * Row kinds (k), b = cur | prev (cday: visits per paid campaign per day, d = day|platform|campaign):
  *   vis   distinct visitors (n), identified visitors (a)
@@ -23,13 +23,14 @@
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS } from '../social/config'
+import { TIER_ACCOUNTS, tierEligible } from '../tier'
 import { rangeTable } from '../offline'
 
 const T = {
   pageviews: '2a126a88-fa3d-49aa-ae05-5e830a2f3037', // DBT.PROD.MARKETING_PAGEVIEWS
   cookies: '22e14a56-e32f-4d31-aff8-b6bc3b23190b',   // DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP
   customers: '7821001c-903e-47e1-9f1d-a03f2a5ca9ae', // DBT.PROD.CUSTOMERS
-  accounts: 'c5f1715b-69c1-4033-ad5c-8281a21d2cd5',  // DBT.STAGING.STG_SALESFORCE__ACCOUNT
+  accounts: TIER_ACCOUNTS,                          // FIVETRAN.SALESFORCE.ACCOUNT (lib/plg/tier.ts, the Marketing tile's rule)
   blended: 'b9625c73-5094-4b94-9c0f-034c5efccbd4',   // DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION (activation)
 }
 const t = (id: string) => `"connection"."${id}"`
@@ -93,8 +94,9 @@ ck AS (
 lw AS (
   SELECT DISTINCT fv."aid", fv."b", fv."d0", cu."wid", cu."dom",
          CASE WHEN cu."dom" IS NULL OR cu."dom" = '' OR cu."dom" NOT LIKE '%.%' THEN 'Invalid or missing domain'
-              WHEN cu."seg" = 'personal' THEN 'Personal email' WHEN cu."seg" = 'academic' THEN 'Academic'
-              WHEN acct."tier" IS NULL THEN 'No Salesforce account' ELSE acct."tier" END AS "cls",
+              WHEN cu."seg" = 'personal' THEN 'Personal email'
+              WHEN acct."tier" IS NOT NULL THEN acct."tier"
+              WHEN cu."seg" = 'academic' THEN 'Academic' ELSE 'No Salesforce account' END AS "cls",
          CASE WHEN CAST(cu."created" AS date) >= fv."d0" AND CAST(cu."created" AS date) <= DATE_ADD('day', ${STARTUP.newWindowDays}, fv."d0") THEN 1 ELSE 0 END AS "is_new",
          CASE WHEN b."BINARY_ACTIVATED_WORKSPACE" = 1 AND b."DAYS_TO_ACTIVATION" <= ${ACTIVATION_DAYS} THEN 1 ELSE 0 END AS "act",
          CASE WHEN cu."first_inv" IS NOT NULL THEN 1 ELSE 0 END AS "paid",
@@ -103,7 +105,7 @@ lw AS (
   FROM fv
   JOIN ck ON ck."aid" = fv."aid" AND ck."nws" <= ${STARTUP.maxWorkspacesPerVisitor}
   JOIN cu ON cu."wid" = ck."wid" AND COALESCE(cu."dom", '') NOT IN (${STARTUP.internalDomains.map(x => `'${x}'`).join(', ')})
-  LEFT JOIN acct ON acct."dom" = cu."dom" AND cu."seg" = 'other'
+  LEFT JOIN acct ON acct."dom" = cu."dom" AND ${tierEligible('cu."seg"')}
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = cu."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
 mq AS (SELECT DISTINCT "aid", "b", "dom" FROM lw WHERE "is_new" = 1 AND "cls" IN ('Tier 1', 'Tier 2', 'Tier 3')),

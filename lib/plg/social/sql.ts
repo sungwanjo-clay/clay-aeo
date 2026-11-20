@@ -19,11 +19,12 @@
  *              requireSource if set; else the channel's fallback rule (see config.ts)
  *   unmapped   utm_campaign ILIKE '<prefix>%' but in no current description: flagged, never assigned to a video
  *   untagged   YouTube referrer or utm_source, no utm_campaign, not an affiliate (Rewardful ?via=) referral
- *   tier       CUSTOMERS.DOMAIN → STG_SALESFORCE__ACCOUNT.SALES_TIER_C (best tier per domain), business
- *              domains only (CUSTOMER_DOMAIN_SEGMENT = 'other'); personal, academic or no SFDC account → Untiered
+ *   tier       the Marketing Q4 Tier 1–3 tile's rule (lib/plg/tier.ts): CUSTOMERS.DOMAIN → live Salesforce account,
+ *              best tier per domain, personal emails excluded; no Salesforce account → Untiered
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS, CHANNELS } from './config'
+import { TIER_ACCOUNTS, tierEligible } from '../tier'
 import { rangeTable } from '../offline'
 
 const T = {
@@ -31,7 +32,7 @@ const T = {
   firstTouch: '8d715619-0478-4abf-ba37-20a7a7045aa9', // DBT.PROD.FIRST_TOUCH_ATTRIBUTION
   blended: 'b9625c73-5094-4b94-9c0f-034c5efccbd4',   // DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION (activation, paid)
   customers: '7821001c-903e-47e1-9f1d-a03f2a5ca9ae', // DBT.PROD.CUSTOMERS
-  accounts: 'c5f1715b-69c1-4033-ad5c-8281a21d2cd5',  // DBT.STAGING.STG_SALESFORCE__ACCOUNT
+  accounts: TIER_ACCOUNTS,                          // FIVETRAN.SALESFORCE.ACCOUNT (lib/plg/tier.ts, the Marketing tile's rule)
   roles: 'a7defd23-614d-4c68-ad31-b807b7a164b0',     // FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES
   credits: '990653ed-fe9f-4d3c-a674-f4278de7049f',   // DBT.PROD.CREDIT_PACK_INVOICES
   forms: '794d9f65-d34c-4173-94d1-1b0709c1b040',     // SEGMENT.VERCEL.FORM_SUBMITTED (offer page captures)
@@ -127,7 +128,7 @@ acct AS (
   GROUP BY LOWER("DOMAIN_C")
 ),
 wtier AS (
-  SELECT cu."wid", CASE WHEN cu."seg" = 'other' AND acct."tier" IS NOT NULL THEN acct."tier" ELSE 'Untiered' END AS "tier"
+  SELECT cu."wid", CASE WHEN ${tierEligible('cu."seg"')} AND acct."tier" IS NOT NULL THEN acct."tier" ELSE 'Untiered' END AS "tier"
   FROM cu LEFT JOIN acct ON acct."dom" = cu."dom"
 ),
 ft AS (

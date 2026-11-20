@@ -88,10 +88,10 @@ export default function KpiTiles({ v }: { v: DashboardPayload }) {
         {r ? <>
           {rateRow('Visitor → HQ trial user', r.visitToHq, rp?.visitToHq ?? null, <Def
             d={<>New HQ workspaces ({fmtInt(k.hqTotal)}) ÷ unique visitors ({fmtInt(r.visitors)}) on clay.com and signup pages.</>}
-            note="Excludes UTC and Asia time zones. MBR definition." />)}
+            note="MBR definition, the one the monthly report uses: excludes UTC and Asia time zones." />)}
           {rateRow('Trial → paid', r.trialToPaid, rp?.trialToPaid ?? null, <Def
             d={<>New paid PLG workspaces ({fmtInt(r.paid)}, first invoice in the period) ÷ new HQ workspaces in the same period.</>}
-            note="Not a cohort: some payers signed up earlier. MBR definition." />)}
+            note="MBR definition. Not a cohort: some payers signed up earlier." />)}
           {rateRow('Activation', r.activation, rp?.activation ?? null, <Def
             d={<>New workspaces that ran a first table within 7 days ({fmtInt(r.activated)}) ÷ new workspaces.</>}
             note="The latest week is still filling in." />)}

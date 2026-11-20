@@ -10,6 +10,7 @@
  *   DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION  (90_days, first_touch)
  *   → DBT.PROD.CUSTOMERS.DOMAIN → FIVETRAN.SALESFORCE.ACCOUNT.SALES_TIER_C
  */
+import { tierEligible } from './tier'
 import type { DailyPoint, RangeSummary } from './compute'
 import type { ISODate } from './dates'
 import { GOAL_SEGMENT } from './config'
@@ -137,7 +138,7 @@ function dashboardCtes(lo: ISODate, hi: ISODate, extra = ''): string {
   GROUP BY LOWER("DOMAIN_C")
 ), base AS (
   SELECT ws."day", ws."cat", ws."ch", ws."sub", ws."q", ws."act",
-         COALESCE(a."tier", 'Unassigned') AS "tier",
+         CASE WHEN ${tierEligible('c."seg"')} THEN COALESCE(a."tier", 'Unassigned') ELSE 'Unassigned' END AS "tier",
          CASE WHEN c."seg" IN ('personal', 'academic') THEN c."seg"
               WHEN c."seg" IS NULL THEN 'unknown' ELSE 'non_personal' END AS "dseg"
   FROM ws

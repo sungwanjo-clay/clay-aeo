@@ -103,7 +103,7 @@ function Kpis({ s }: { s: SV }) {
         tip={<Def d="Unique visitors to clay.com from a creator’s tracked link (its utm_campaign maps to a video in the description)." src="MARKETING_PAGEVIEWS" note="Untagged YouTube traffic is shown separately." />}
         foot={<>Visitors from the creators’ clay.com links.{k.visits.untagged != null && <> Plus {fmtInt(k.visits.untagged)} from untagged YouTube links.</>}</>} />
       <KpiTile label="Tier 1–3 workspaces" value={fmtInt(k.tier13.cur)} delta={k.tier13.delta}
-        tip={<Def d="New workspaces whose first touch was a creator’s link, at Tier 1–3 Salesforce accounts (business domains only)." src="FIRST_TOUCH_ATTRIBUTION → CUSTOMERS domain → Salesforce tier" />}
+        tip={<Def d="New workspaces whose first touch was a creator’s link, at Tier 1–3 Salesforce accounts (personal emails excluded, same rule as Marketing’s Q4 tile)." src="FIRST_TOUCH_ATTRIBUTION → CUSTOMERS domain → Salesforce tier" />}
         foot={<>Of {fmtInt(k.newWs.cur)} new workspaces · {fmtInt(k.activated.cur)} activated · {fmtInt(k.paid.cur)} paying{k.tier13.untagged != null && <> · incl. untagged YouTube</>}</>} />
     </div>
   )
