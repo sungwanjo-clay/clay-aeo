@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import DashboardView, { paramsFor, type DashboardTab, type Health } from '@/components/plg/DashboardView'
-import SocialView, { ChannelPills, ModeToggle, type SocialChannel } from '@/components/plg/social/SocialView'
+import SocialView, { ChannelPills, type SocialChannel } from '@/components/plg/social/SocialView'
 import { buildSocial, channelFallbacks, parseSocialRows, taggedVideos, type SocialMode, type YtChannelDoc } from '@/lib/plg/social/compute'
 import { CHANNELS } from '@/lib/plg/social/config'
 import { socialSql } from '@/lib/plg/social/sql'
@@ -30,6 +30,7 @@ import { DEFAULT_QUARTERS, GUARDRAILS } from '@/lib/plg/config'
 import { addDays, mondayOf, todayUTC, type ISODate } from '@/lib/plg/dates'
 import { assembleDashboard, planDashboard } from '@/lib/plg/plan'
 import { SIGMA, dashboardSql, latestDaySql, parseDashboardRows } from '@/lib/plg/sigma'
+import { covers, relabel } from '@/lib/plg/offline'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Mcp = any
@@ -47,17 +48,18 @@ type Problem = { code: string; message: string } | null
  * kept in this page's db (collection `cache`, readable by everyone who can open the page, written by editors). It is
  * refreshed whenever someone with Sigma and edit access loads the default view. Any other range needs Sigma.
  */
-type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate }
+/** `ranges`: set by the daily job's multi-view copy (lib/plg/offline.ts): the date ranges it computed. Absent = one view. */
+type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate; ranges?: string[] }
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
     const h = await db.doc(`cache/${name}`).get()
     if (!h?.exists) return null
-    const head = h.data() as { parts: number; key: string; storedAt: number; dataEnd: ISODate }
+    const head = h.data() as { parts: number; key: string; storedAt: number; dataEnd: ISODate; ranges?: string[] }
     const parts = await Promise.all(Array.from({ length: head.parts }, (_, i) => db.doc(`cache/${name}-${i}`).get()))
     if (parts.some((x: any) => !x?.exists)) return null
     const payload = JSON.parse(parts.map((x: any) => x.data().s as string).join(''))
-    return { key: head.key, payload, storedAt: head.storedAt, dataEnd: head.dataEnd }
+    return { key: head.key, payload, storedAt: head.storedAt, dataEnd: head.dataEnd, ranges: head.ranges }
   } catch { return null }
 }
 async function writeCached(db: Db, name: string, c: Cached): Promise<boolean> {
@@ -167,7 +169,7 @@ function App() {
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
   // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
-  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'cohort', payton: 'cohort', eric: 'calendar' })
+  const [modes, setModes] = useState<Record<SocialChannel, SocialMode>>({ all: 'calendar', peter: 'calendar', payton: 'calendar', eric: 'calendar' })
 
   // Capabilities
   useEffect(() => {
@@ -231,7 +233,18 @@ function App() {
   const sigmaDown = mcp === null || (!result && (!!problem || waitedOut))
   const offline = sigmaDown && !!saved?.main
   const effEnd = offline ? saved!.main!.dataEnd : dataEnd
-  const plan = useMemo(() => (effEnd ? planDashboard(new URLSearchParams(offline ? '' : qs), effEnd, quarters) : null), [effEnd, qs, quarters, offline])
+  // Offline: the daily job's copy covers every preset × comparison (any grain), computed with the default quarters.
+  // A filter state it doesn't cover (custom dates) falls back to the default view.
+  const savedQuarters = useMemo(() => resolveQuarters(DEFAULT_QUARTERS, []), [])
+  const offlineCovers = useCallback((q: string) => {
+    if (!saved?.main?.ranges) return q === ''
+    const pl = planDashboard(new URLSearchParams(q), saved.main.dataEnd, savedQuarters)
+    const sr = { cur: pl.summaries.cur, prev: pl.summaries.prev }
+    return covers(saved.main.ranges, pl.summaries) && (!saved.social?.ranges || covers(saved.social.ranges, sr)) && (!saved.startup?.ranges || covers(saved.startup.ranges, sr))
+  }, [saved, savedQuarters])
+  const offlineQs = offline && offlineCovers(qs) ? qs : ''
+  const plan = useMemo(() => (effEnd ? planDashboard(new URLSearchParams(offline ? offlineQs : qs), effEnd, offline ? savedQuarters : quarters) : null),
+    [effEnd, qs, quarters, offline, offlineQs, savedQuarters])
   const sql = useMemo(() => (plan ? dashboardSql(plan) : null), [plan])
   const defaultSql = useMemo(() => (dataEnd ? dashboardSql(planDashboard(new URLSearchParams(''), dataEnd, quarters)) : null), [dataEnd, quarters])
 
@@ -256,7 +269,12 @@ function App() {
   }, [mcp, sql, handleError, attempt])
 
   // Parse once per result; assemble separately so restatement updates don't re-parse.
-  const shownResult = offline ? { key: sql ?? '', payload: saved!.main!.payload, storedAt: saved!.main!.storedAt } : result
+  /** The daily job's multi-view copy is never replaced by a single view the page loaded (it would lose the presets). */
+  const keepSaved = (name: 'main' | 'social' | 'startup') => !!saved?.[name]?.ranges && !!dataEnd && saved![name]!.dataEnd >= dataEnd
+  const offlineMain = useMemo(() => (offline && plan ? (saved!.main!.ranges ? relabel(saved!.main!.payload, plan.summaries) : saved!.main!.payload) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [offline, plan, saved?.main])
+  const shownResult = offline ? { key: sql ?? '', payload: offlineMain, storedAt: saved!.main!.storedAt } : result
   const parsed = useMemo(() => {
     if (!plan || !shownResult) return null
     try { return { data: parseDashboardRows(shownResult.payload, plan), stale: !offline && shownResult.key !== sql } }
@@ -273,7 +291,7 @@ function App() {
   // Keep the saved default view current: when this viewer loads the default view live, store it (editors only;
   // other viewers' writes are refused and ignored).
   useEffect(() => {
-    if (!db || !result || !dataEnd || offline || result.key !== defaultSql) return
+    if (!db || !result || !dataEnd || offline || result.key !== defaultSql || keepSaved('main')) return
     const at = result.storedAt ?? Date.now()
     if (saved?.main && saved.main.storedAt >= at) return
     const c: Cached = { key: result.key, payload: result.payload, storedAt: at, dataEnd }
@@ -290,12 +308,13 @@ function App() {
   }, [db, recent, dataEnd])
 
   const onChange = useCallback((patch: Partial<FilterState>) => {
-    if (offline) { setNotice('Other dates, comparisons and grains need a Clay Sigma connection. Connect Clay Sigma in claude.ai Settings → Connectors, then reload.'); return }
     if (!view || !('v' in view) || !view.v) return
     const next = paramsFor(view.v, patch).toString()
+    if (offline && !offlineCovers(next)) { setNotice('Custom dates need a Clay Sigma connection: every preset and comparison works without it. Connect Clay Sigma in claude.ai Settings → Connectors, then reload.'); return }
+    setNotice(null)
     saveQs(next)
     setQs(next)
-  }, [view, offline])
+  }, [view, offline, offlineCovers])
 
   const allow = useCallback(async () => {
     if (!mcp) return
@@ -335,7 +354,7 @@ function App() {
     }, { cache: CACHE })
     return unsub
   }, [mcp, socialSqlText])
-  const socialShown = offline ? (saved?.social ? { key: '', payload: saved.social.payload } : null) : socialResult
+  const socialShown = offline ? (saved?.social ? { key: '', payload: saved.social.ranges && socialRanges ? relabel(saved.social.payload, socialRanges) : saved.social.payload } : null) : socialResult
   const socialView = useMemo(() => {
     if (!socialShown || !socialRanges || !effEnd) return null
     try {
@@ -365,7 +384,7 @@ function App() {
     }, { cache: CACHE })
     return unsub
   }, [mcp, startupSqlText])
-  const startupShown = offline ? (saved?.startup ? { key: '', payload: saved.startup.payload } : null) : startupResult
+  const startupShown = offline ? (saved?.startup ? { key: '', payload: saved.startup.ranges && socialRanges ? relabel(saved.startup.payload, socialRanges) : saved.startup.payload } : null) : startupResult
   const startupView = useMemo(() => {
     if (!startupShown || !socialRanges || !effEnd) return null
     try {
@@ -382,6 +401,7 @@ function App() {
     if (!db || !dataEnd || !isDefault) return
     for (const [name, r] of [['social', socialResult], ['startup', startupResult]] as const) {
       if (!r || (name === 'social' ? r.key !== socialSqlText : r.key !== startupSqlText)) continue
+      if (keepSaved(name)) continue
       const prev = saved?.[name]
       // Same query and saved in the last 6 hours: keep it. Otherwise replace it with this live result (this also corrects a
       // copy the daily job wrote, the next time someone with Sigma opens the tab).
@@ -400,9 +420,9 @@ function App() {
       setCanWrite(true)
       const due = (c: Cached | null) => !c || c.dataEnd !== dataEnd || Date.now() - c.storedAt > 12 * 3600_000
       const jobs: ['social' | 'startup', string][] = []
-      if (due(saved.social ?? null) && route.tab !== 'social')
+      if (due(saved.social ?? null) && route.tab !== 'social' && !keepSaved('social'))
         jobs.push(['social', socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd), fallbacks: channelFallbacks(yt, dataEnd) })])
-      if (due(saved.startup ?? null) && route.tab !== 'startup') jobs.push(['startup', startupSql(socialRanges)])
+      if (due(saved.startup ?? null) && route.tab !== 'startup' && !keepSaved('startup')) jobs.push(['startup', startupSql(socialRanges)])
       for (const [name, text] of jobs) {
         try {
           const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
@@ -469,7 +489,6 @@ function App() {
       social={<div className="flex flex-col gap-6 sm:gap-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <ChannelPills value={route.channel} onChange={c => go('social', c)} />
-          {route.channel === 'all' && <ModeToggle value={modes.all} onChange={m => setModes(prev => ({ ...prev, all: m }))} />}
         </div>
         {socialPane}
       </div>}
@@ -477,12 +496,14 @@ function App() {
       loading={stale}
       error={offline ? null : problem && problem.code !== 'no_runtime' ? problemCopy(problem).title : null}
       notice={offline ? <span className="flex flex-wrap items-center gap-3">
-        <span>{notice ?? `Showing the saved Last 7 days view (data through ${fmtDay(saved!.main!.dataEnd)}). Other dates, comparisons and grains need a Clay Sigma connection: add Clay Sigma in claude.ai Settings → Connectors, then reload.`}</span>
+        <span>{notice ?? (saved!.main!.ranges
+          ? `Showing saved data through ${fmtDay(saved!.main!.dataEnd)}, refreshed every morning. Every preset, comparison and grain works without Sigma; custom dates need a Clay Sigma connection (claude.ai Settings → Connectors).`
+          : `Showing the saved Last 7 days view (data through ${fmtDay(saved!.main!.dataEnd)}). Other dates, comparisons and grains need a Clay Sigma connection: add Clay Sigma in claude.ai Settings → Connectors, then reload.`)}</span>
         {problem && problemCopy(problem).canAllow && <button onClick={allow} className="rounded-full px-4 py-1.5 text-[14px] font-medium" style={{ background: T.ink, color: '#fff' }}>Allow Clay Sigma</button>}
       </span> : null}
       onChange={onChange}
       refreshedAt={offline ? saved!.main!.storedAt : result?.storedAt ?? null}
-      sourceNote={offline ? 'Saved copy of the default view, refreshed when someone with Sigma opens the dashboard.' : 'Live from Snowflake through your Clay Sigma connector. Cached up to 6 hours.'}
+      sourceNote={offline ? 'Saved copy from the daily refresh (every preset and comparison), no Sigma needed.' : 'Live from Snowflake through your Clay Sigma connector. Cached up to 6 hours.'}
     />
   )
 }

@@ -60,17 +60,6 @@ export function ChannelPills({ value, onChange }: { value: SocialChannel; onChan
   )
 }
 
-export function ModeToggle({ value, onChange }: { value: SocialMode; onChange: (m: SocialMode) => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <span className="text-[13px] uppercase" style={{ letterSpacing: '0.14em', color: T.muted, fontFamily: T.mono }}>Measure by</span>
-      <Segmented ariaLabel="Measure by" value={value} onChange={onChange}
-        options={[{ id: 'calendar', label: 'Calendar dates' }, { id: 'cohort', label: `Video cohort (first ${COHORT_DAYS} days)` }]} />
-    </div>
-  )
-}
-
-/** Big number + "▲ 12.3% vs previous period" + an optional rate badge. */
 function KpiTile({ label, value, delta, badge, foot, muted }: {
   label: string; value: React.ReactNode; delta: number | null; badge?: { label: string; cur: number | null; prev: number | null; title?: string } | null
   foot?: React.ReactNode; muted?: boolean
@@ -235,20 +224,12 @@ function ChannelsTable({ s }: { s: SV }) {
       <p className="text-[13px]" style={{ color: T.muted }}>
         Excluded: {fmtInt(s.affiliateVisitors)} visitors from other affiliate creators’ YouTube links (Rewardful ?via= referrals); they belong to the affiliate channel, not owned YouTube.
       </p>
+      {s.unmapped.length > 0 && (
+        <p className="text-[13px]" style={{ color: T.muted }} title="These carry Peter’s pk_yt_ prefix but no current video description links them, so they aren’t assigned to a video or counted as referral visits.">
+          Not counted: {s.unmapped.map(u => <span key={u.campaign} style={mono}>{u.campaign} ({fmtInt(u.visits)} visitors, {fmtInt(u.ws)} new WS)</span>).reduce<React.ReactNode[]>((acc, x, i) => (i ? [...acc, ', ', x] : [x]), [])} — campaign links no current video description uses. Add them back to a description to count them.
+        </p>
+      )}
     </Card>
-  )
-}
-
-function Unmapped({ s }: { s: SV }) {
-  if (!s.unmapped.length) return null
-  return (
-    <div className="rounded-2xl px-5 py-4 text-[14px] flex flex-col gap-2" style={{ background: T.amberBg, color: T.amberInk }} role="status">
-      <p className="font-semibold">Tagged campaigns that are in no current video description</p>
-      <p>These carry Peter’s pk_yt_ prefix but no video links them today, so they are not assigned to any video or counted as tagged visits.</p>
-      <ul className="flex flex-col gap-1" style={mono}>
-        {s.unmapped.map(u => <li key={u.campaign}>{u.campaign} · {fmtInt(u.visits)} visitors (prev {fmtInt(u.prevVisits)}) · {fmtInt(u.ws)} new workspaces</li>)}
-      </ul>
-    </div>
   )
 }
 
@@ -541,7 +522,6 @@ export default function SocialView({ s, loading }: { s: SV; loading: boolean }) 
       <Kpis s={s} />
       <Trend s={s} />
       <ChannelsTable s={s} />
-      <Unmapped s={s} />
       <TierMix s={s} />
       <Discuss />
     </>

@@ -1,8 +1,11 @@
 # Daily refresh of the dashboard's saved default view
 
-Viewers without a Clay Sigma connection see the PLG dashboard's default **Last 7 days** view (Workspaces, Media
-properties, Startup program) from a saved copy in the artifact's database, collection `cache`. The page refreshes that
-copy itself when someone with Sigma and edit access opens it; this job refreshes it every day regardless.
+Viewers without a Clay Sigma connection see the PLG dashboard (Workspaces, Media properties, Startup program) from a
+saved copy in the artifact's database, collection `cache`. This job writes it every morning. Each tab's copy covers
+**every preset × comparison** (Last 7 / 28 / 90 days, quarter to date, year to date; previous period or same period last
+year) and the page applies the grain, so only custom dates need Sigma. One query per tab computes all of them: it joins a
+small table of the date ranges and labels each row with its range (`lib/plg/offline.ts`), so unique visitors are exact
+for every range. The page never overwrites this copy with a single view it loaded.
 
 Artifact: https://claude.ai/artifact/R2pMQF57g3idB4EvtazAeC · Sigma connection `2d269863-3d4a-459d-9245-daff9e223f17`
 
@@ -37,10 +40,11 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    - `node scripts/refresh-cache.mjs pack NAME DATAEND <result path> W/sql.json W/out` writes the documents
      `W/out/NAME-0.json…` (parts) and `W/out/NAME.json` (header).
    - If a query errors, skip that NAME (its previous copy stays) and continue with the next.
-6. **Write to the dashboard.** `ArtifactData` `list` of collection `cache` (to read each document's `version`), then one
-   `batch` per NAME: `set` each part `cache/NAME-<i>` from its file, then the header `cache/NAME` last (readers use the
-   header to find the parts, so it must go after them). Pass `if_version` for every document that already exists. If a
-   part number from an older, longer copy is left over, leave it: the header's `parts` count limits what is read.
+6. **Write to the dashboard.** `ArtifactData` `list` of collection `cache` (to read each document's `version`), then for
+   each NAME: `set` each part `cache/NAME-<i>` from its file, in batches of at most 4 parts (a batch is capped at 1 MB),
+   then the header `cache/NAME` last, in the final batch (readers use the header to find the parts, so it must go after
+   them). Pass `if_version` for every document that already exists. If a part number from an older, longer copy is left
+   over, leave it: the header's `parts` count limits what is read.
 7. **Report** one line for the YouTube sync (channels written, views and impressions through which day), then one line per
    NAME: data through DATAEND, rows, parts, written or skipped (and why).
 

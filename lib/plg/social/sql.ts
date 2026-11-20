@@ -24,6 +24,7 @@
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS, CHANNELS } from './config'
+import { rangeTable } from '../offline'
 
 const T = {
   pageviews: '2a126a88-fa3d-49aa-ae05-5e830a2f3037', // DBT.PROD.MARKETING_PAGEVIEWS
@@ -63,13 +64,24 @@ export interface SocialQuery {
   /** Videos whose description link carries a utm_campaign (from the YouTube sync). */
   tagged: TaggedVideo[]
   fallbacks: ChannelFallback[]
+  /**
+   * Saved-copy mode (lib/plg/offline.ts): instead of cur/prev, every row is computed for each of these ranges and its
+   * bucket column holds the range label ("<start>~<end>"); back-catalog rows hold "bc@<label>". cur/prev are ignored.
+   */
+  ranges?: [ISODate, ISODate][]
 }
 
 export function socialSql(q: SocialQuery): string {
-  const dates = [q.cur[0], q.cur[1], q.prev[0], q.prev[1], ...q.tagged.flatMap(v => [v.cohortStart, v.cohortEnd]), ...q.fallbacks.flatMap(f => [f.cohortStart, f.cohortEnd])].sort()
+  const multi = q.ranges?.length ? q.ranges : null
+  const dates = [...(multi ? multi.flat() : [q.cur[0], q.cur[1], q.prev[0], q.prev[1]]), ...q.tagged.flatMap(v => [v.cohortStart, v.cohortEnd]), ...q.fallbacks.flatMap(f => [f.cohortStart, f.cohortEnd])].sort()
   const lo = dates[0]; const hi = dates[dates.length - 1]
-  const bucket = (col: string) =>
-    `CASE WHEN ${col} BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} THEN 'cur' WHEN ${col} BETWEEN ${d(q.prev[0])} AND ${d(q.prev[1])} THEN 'prev' END`
+  const bucket = (col: string) => multi ? '"rlbl"'
+    : `CASE WHEN ${col} BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} THEN 'cur' WHEN ${col} BETWEEN ${d(q.prev[0])} AND ${d(q.prev[1])} THEN 'prev' END`
+  // Saved-copy mode: each source joined to the range table, one copy of a row per range its day falls in.
+  const R = (src: string) => (multi ? `${src}_r` : src)
+  const multiCtes = !multi ? '' : `,
+rng AS (${rangeTable(multi)}),
+${['pv', 'fs2', 'fx', 'exx', 'pw', 'cutv'].map(x => `${x}_r AS (SELECT ${x}.*, rng."lbl" AS "rlbl" FROM ${x} JOIN rng ON ${x}."day" BETWEEN rng."rs" AND rng."re")`).join(',\n')}`
   const prefixes = CHANNELS.map(c => c.campaignPrefix).filter(Boolean) as string[]
   const prefixMatch = (col: string) => prefixes.length ? `(${prefixes.map(p => `${col} LIKE ${lit(`${p}%`)}`).join(' OR ')})` : 'FALSE'
   // Lookup table; a sentinel row keeps the CTE valid when no video is tagged.
@@ -178,68 +190,70 @@ cutv AS (
   SELECT 'v' AS "m", "aid" AS "id", "key", "day", "cs", "ce", "dev", "geo" FROM pv
   UNION ALL SELECT 'f', "aid", "key", "day", "cs", "ce", COALESCE("dev", 'Unknown'), COALESCE("geo", 'Unknown') FROM fsd
   UNION ALL SELECT 'w', CAST("wid" AS string), "key", "day", "cs", "ce", "dev", "geo" FROM fxd
-)
+)${multiCtes}
 SELECT 'vis' AS "k", ${bucket('"day"')} AS "b", "key", '' AS "d", COUNT(DISTINCT "aid") AS "n", 0 AS "a", 0 AS "p", ${zeroT}
-FROM pv WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
+FROM ${R('pv')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
 SELECT 'vis', 'coh', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
 FROM pv WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
 SELECT 'vday', '', "key", CAST("day" AS string), COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
-FROM pv WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
+FROM ${R('pv')} WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
 GROUP BY "key", "day"
 UNION ALL
 SELECT 'form', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
-FROM fs2 WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
+FROM ${R('fs2')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
 SELECT 'form', 'coh', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
 FROM fs2 WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
 SELECT 'ws', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
-FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
+FROM ${R('fx')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
 SELECT 'ws', 'coh', "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
 FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
 SELECT 'plan', ${bucket('"day"')}, "key", "plan", COUNT(DISTINCT "wid"), 0, SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
-FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", "plan"
+FROM ${R('fx')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", "plan"
 UNION ALL
 SELECT 'plan', 'coh', "key", "plan", COUNT(DISTINCT "wid"), 0, SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
 FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "plan"
 UNION ALL
 SELECT 'wsday', '', "key", CAST("day" AS string), COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
-FROM fx WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
+FROM ${R('fx')} WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged')
 GROUP BY "key", "day"
 UNION ALL
 SELECT 'ex', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, ${tierCols}
-FROM exx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
+FROM ${R('exx')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
 UNION ALL
 SELECT 'ex', 'coh', "key", '', COUNT(DISTINCT "wid"), 0, 0, 0, 0, ${tierCols}
 FROM exx WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
 SELECT 'per', ${bucket('"day"')}, "key", "team", COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
-FROM pw WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", "team"
+FROM ${R('pw')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", "team"
 UNION ALL
 SELECT 'per', 'coh', "key", "team", COUNT(DISTINCT "wid"), 0, 0, ${zeroT}
 FROM pw WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "team"
 ${(['dev', 'geo'] as const).map(c => `UNION ALL
 SELECT '${c}', ${bucket('"day"')}, "key", "${c}", COUNT(DISTINCT CASE WHEN "m" = 'v' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'f' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'w' THEN "id" END), ${zeroT}
-FROM cutv WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged') GROUP BY ${bucket('"day"')}, "key", "${c}"
+FROM ${R('cutv')} WHERE ${bucket('"day"')} IS NOT NULL AND ("cs" IS NOT NULL OR "key" = 'untagged') GROUP BY ${bucket('"day"')}, "key", "${c}"
 UNION ALL
 SELECT '${c}', 'coh', "key", "${c}", COUNT(DISTINCT CASE WHEN "m" = 'v' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'f' THEN "id" END), COUNT(DISTINCT CASE WHEN "m" = 'w' THEN "id" END), ${zeroT}
 FROM cutv WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", "${c}"`).join('\n')}
 UNION ALL
 SELECT 'mon', ${bucket('"day"')}, "key", SUBSTR(CAST("day" AS string), 1, 7), COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
-FROM fx WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", SUBSTR(CAST("day" AS string), 1, 7)
+FROM ${R('fx')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key", SUBSTR(CAST("day" AS string), 1, 7)
 UNION ALL
 SELECT 'mon', 'coh', "key", SUBSTR(CAST("day" AS string), 1, 7), COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), 0 AS "t1", 0 AS "t2", 0 AS "t3", 0 AS "t4", 0 AS "t5"
 FROM fx WHERE "cs" IS NOT NULL AND "day" BETWEEN "cs" AND "ce" GROUP BY "key", SUBSTR(CAST("day" AS string), 1, 7)
 UNION ALL
-SELECT 'vis', 'bc', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
-FROM pv WHERE "cs" IS NOT NULL AND "day" > "ce" AND "day" BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} GROUP BY "key"
+${multi ? `SELECT 'vis', 'bc@' || "rlbl", "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+FROM pv_r WHERE "cs" IS NOT NULL AND "day" > "ce" GROUP BY "rlbl", "key"` : `SELECT 'vis', 'bc', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+FROM pv WHERE "cs" IS NOT NULL AND "day" > "ce" AND "day" BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} GROUP BY "key"`}
 UNION ALL
-SELECT 'ws', 'bc', "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
-FROM fx WHERE "cs" IS NOT NULL AND "day" > "ce" AND "day" BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} GROUP BY "key"`
+${multi ? `SELECT 'ws', 'bc@' || "rlbl", "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
+FROM fx_r WHERE "cs" IS NOT NULL AND "day" > "ce" GROUP BY "rlbl", "key"` : `SELECT 'ws', 'bc', "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
+FROM fx WHERE "cs" IS NOT NULL AND "day" > "ce" AND "day" BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} GROUP BY "key"`}`
 }
 
 /** Window helper: a video's first COHORT_DAYS days, capped at the last complete data day. */

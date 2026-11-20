@@ -14,6 +14,7 @@ import type { DailyPoint, RangeSummary } from './compute'
 import type { ISODate } from './dates'
 import { GOAL_SEGMENT } from './config'
 import { DAILY_KEYS, SUMMARY_KEYS, type DashboardPlan, type DailyKey, type SummaryKey } from './plan'
+import { rangeTable } from './offline'
 
 export const SIGMA = {
   server: 'Clay Sigma',
@@ -58,11 +59,18 @@ WHERE "TIME_PERIOD_TYPE" = 'day' AND "CHANNEL_HIERARCHY_LEVEL" = 'aggregate' AND
   AND CAST("TIME_PERIOD_START" AS date) >= ${d(todayUtc)} - INTERVAL '14 day'`
 }
 
-export function dashboardSql(plan: DashboardPlan): string {
-  const ranges = [...SUMMARY_KEYS.map(k => plan.summaries[k]), ...DAILY_KEYS.map(k => plan.dailies[k])]
+/**
+ * `saved`: saved-copy mode (lib/plg/offline.ts). The plans of every preset × comparison; summary rows are computed
+ * once per distinct range (bucket "<start>~<end>", "dom:<label>", "x:<label>:<metric>") through a joined range table,
+ * and the daily series covers every plan's days. The QTD tier rows (sot) don't depend on the preset.
+ */
+export function dashboardSql(plan: DashboardPlan, saved?: DashboardPlan[]): string {
+  const plans = saved?.length ? saved : [plan]
+  const ranges = plans.flatMap(pl => [...SUMMARY_KEYS.map(k => pl.summaries[k]), ...DAILY_KEYS.map(k => pl.dailies[k])])
   const lo = ranges.map(r => r[0]).sort()[0]
   const hi = ranges.map(r => r[1]).sort().at(-1)!
   const between = (r: [ISODate, ISODate]) => `"day" BETWEEN ${d(r[0])} AND ${d(r[1])}`
+  if (saved?.length) return savedDashboardSql(plan, plans, lo, hi)
 
   const summaryParts = SUMMARY_KEYS.map(k => `
 SELECT '${k}' AS "b", '' AS "d", "cat", "ch", "sub", "tier", "q", COUNT(*) AS "n"
@@ -91,17 +99,7 @@ WHERE "FIRST_GTM_MOTION" = 'PLG' AND CAST("FIRST_INVOICE_UTC" AS date) BETWEEN $
    * current sales_tier_c Tier 1–3, best tier per domain, free-mail (personal) domains excluded. No HQ filter.
    * Quarter to date through dataEnd, plus the same through dataEnd − 7 for the week-over-week add.
    */
-  const [qs, qe] = plan.summaries.qtd
-  const weekAgo = [qe].map(x => { const dt = new Date(`${x}T00:00:00Z`); dt.setUTCDate(dt.getUTCDate() - 7); return dt.toISOString().slice(0, 10) })[0]
-  const sotParts = ([['now', qe], ['wk', weekAgo]] as const).map(([k, end]) => `
-SELECT 'sot:${k}' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", a."tier", '' AS "q", COUNT(*) AS "n"
-FROM c JOIN a ON a."dom" = c."dom"
-WHERE c."created" BETWEEN ${d(qs)} AND ${d(end)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
-GROUP BY a."tier"`).concat(`
-SELECT 'sot:day' AS "b", CAST(c."created" AS string) AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS "tier", '' AS "q", COUNT(*) AS "n"
-FROM c JOIN a ON a."dom" = c."dom"
-WHERE c."created" BETWEEN ${d(qs)} AND ${d(qe)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
-GROUP BY c."created"`)
+  const sotParts = sotPartsFor(plan)
 
   const dailyWhere = DAILY_KEYS.map(k => `(${between(plan.dailies[k])})`).join(' OR ')
   const dailyPart = `
@@ -111,6 +109,11 @@ SELECT 'day' AS "b", CAST("day" AS string) AS "d", '' AS "cat",
 FROM base WHERE ${dailyWhere}
 GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' END, "q"`
 
+  return `${dashboardCtes(lo, hi)}
+${[...summaryParts, ...domainParts, ...extraParts, ...sotParts, dailyPart].join('\nUNION ALL')}`
+}
+
+function dashboardCtes(lo: ISODate, hi: ISODate, extra = ''): string {
   return `WITH ws AS (
   SELECT "WORKSPACE_ID" AS "wid",
          CAST("WORKSPACE_CREATED_AT_UTC" AS date) AS "day",
@@ -140,8 +143,54 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
   FROM ws
   LEFT JOIN c ON c."wid" = ws."wid"
   LEFT JOIN a ON a."dom" = c."dom"
-)
-${[...summaryParts, ...domainParts, ...extraParts, ...sotParts, dailyPart].join('\nUNION ALL')}`
+)${extra}`
+}
+
+/** Source-of-truth Tier 1–3 rows for the plan's quarter to date (see dashboardSql). */
+function sotPartsFor(plan: DashboardPlan): string[] {
+  const [qs, qe] = plan.summaries.qtd
+  const weekAgo = [qe].map(x => { const dt = new Date(`${x}T00:00:00Z`); dt.setUTCDate(dt.getUTCDate() - 7); return dt.toISOString().slice(0, 10) })[0]
+  return ([['now', qe], ['wk', weekAgo]] as const).map(([k, end]) => `
+SELECT 'sot:${k}' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", a."tier", '' AS "q", COUNT(*) AS "n"
+FROM c JOIN a ON a."dom" = c."dom"
+WHERE c."created" BETWEEN ${d(qs)} AND ${d(end)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
+GROUP BY a."tier"`).concat(`
+SELECT 'sot:day' AS "b", CAST(c."created" AS string) AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS "tier", '' AS "q", COUNT(*) AS "n"
+FROM c JOIN a ON a."dom" = c."dom"
+WHERE c."created" BETWEEN ${d(qs)} AND ${d(qe)} AND COALESCE(c."seg", '') <> 'personal' AND a."tier" IN ('Tier 1', 'Tier 2', 'Tier 3')
+GROUP BY c."created"`)
+
+}
+
+/** Saved-copy variant of dashboardSql (see its `saved` parameter). */
+function savedDashboardSql(plan: DashboardPlan, plans: DashboardPlan[], lo: ISODate, hi: ISODate): string {
+  const sum = plans.flatMap(pl => SUMMARY_KEYS.map(k => pl.summaries[k]))
+  const extra = `,
+rng AS (${rangeTable(sum)}),
+br AS (SELECT base.*, rng."lbl" FROM base JOIN rng ON base."day" BETWEEN rng."rs" AND rng."re"),
+pvd AS (
+  SELECT DISTINCT CAST("TIMESTAMP_UTC" AS date) AS "day", "ANONYMOUS_ID" AS "aid" FROM ${t(SIGMA.pageviews)}
+  WHERE "SITE" IN (${MBR_SITES}) AND CAST("TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
+    AND COALESCE("TIMEZONE", '') NOT LIKE 'Asia/%' AND COALESCE("TIMEZONE", '') NOT IN ('UTC', 'Etc/UTC')
+),
+pdw AS (
+  SELECT DISTINCT CAST("FIRST_INVOICE_UTC" AS date) AS "day", "WORKSPACE_ID" AS "wid" FROM ${t(SIGMA.customers)}
+  WHERE "FIRST_GTM_MOTION" = 'PLG' AND CAST("FIRST_INVOICE_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
+)`
+  const parts = [`
+SELECT "lbl" AS "b", '' AS "d", "cat", "ch", "sub", "tier", "q", COUNT(*) AS "n" FROM br GROUP BY "lbl", "cat", "ch", "sub", "tier", "q"`, `
+SELECT 'dom:' || "lbl", '', '', '', '', '', "dseg", COUNT(*) FROM br GROUP BY "lbl", "dseg"`, `
+SELECT 'x:' || "lbl" || ':activated', '', '', '', '', '', '', SUM("act") FROM br GROUP BY "lbl"`, `
+SELECT 'x:' || rng."lbl" || ':visitors', '', '', '', '', '', '', COUNT(DISTINCT pvd."aid") FROM pvd JOIN rng ON pvd."day" BETWEEN rng."rs" AND rng."re" GROUP BY rng."lbl"`, `
+SELECT 'x:' || rng."lbl" || ':paid', '', '', '', '', '', '', COUNT(DISTINCT pdw."wid") FROM pdw JOIN rng ON pdw."day" BETWEEN rng."rs" AND rng."re" GROUP BY rng."lbl"`,
+    ...sotPartsFor(plan), `
+SELECT 'day' AS "b", CAST("day" AS string) AS "d", '' AS "cat",
+       CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' END AS "ch",
+       '' AS "sub", '' AS "tier", "q", COUNT(*) AS "n"
+FROM base
+GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' END, "q"`]
+  return `${dashboardCtes(lo, hi, extra)}
+${parts.join('\nUNION ALL')}`
 }
 
 type SigmaTable = { columns: string[]; rows: unknown[][] }

@@ -23,6 +23,7 @@
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS } from '../social/config'
+import { rangeTable } from '../offline'
 
 const T = {
   pageviews: '2a126a88-fa3d-49aa-ae05-5e830a2f3037', // DBT.PROD.MARKETING_PAGEVIEWS
@@ -49,10 +50,15 @@ export const STARTUP = {
   launch: '2026-07-01' as ISODate,
 } as const
 
-export function startupSql(q: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate] }): string {
-  const lo = [q.cur[0], q.prev[0]].sort()[0]
-  const hi = [q.cur[1], q.prev[1]].sort()[1]
-  const bucket = (col: string) =>
+/** ranges: saved-copy mode (lib/plg/offline.ts): every row per range, bucket = "<start>~<end>"; cur/prev ignored. */
+export function startupSql(q: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate]; ranges?: [ISODate, ISODate][] }): string {
+  const multi = q.ranges?.length ? q.ranges : null
+  const all = multi ? multi.flat() : [q.cur[0], q.cur[1], q.prev[0], q.prev[1]]
+  const lo = [...all].sort()[0]
+  const hi = [...all].sort().at(-1)!
+  // Saved-copy mode: page views joined to the range table (pvr), one copy per range the day falls in.
+  const src = multi ? 'pvr' : 'pv'
+  const bucket = (col: string) => multi ? col.replace('"day"', '"rlbl"') :
     `CASE WHEN ${col} BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} THEN 'cur' WHEN ${col} BETWEEN ${d(q.prev[0])} AND ${d(q.prev[1])} THEN 'prev' END`
   const paths = STARTUP.pagePaths.map(p => `'${p}'`).join(', ')
   return `WITH pv AS (
@@ -67,7 +73,9 @@ export function startupSql(q: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate
   WHERE p."SITE" = 'marketing_website' AND p."PATH" IN (${paths})
     AND CAST(p."TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
 ),
-fv AS (SELECT "aid", ${bucket('"day"')} AS "b", MIN("day") AS "d0" FROM pv WHERE ${bucket('"day"')} IS NOT NULL GROUP BY "aid", ${bucket('"day"')}),
+${multi ? `rng AS (${rangeTable(multi)}),
+pvr AS (SELECT pv.*, rng."lbl" AS "rlbl" FROM pv JOIN rng ON pv."day" BETWEEN rng."rs" AND rng."re"),
+` : ''}fv AS (SELECT "aid", ${bucket('"day"')} AS "b", MIN("day") AS "d0" FROM ${src} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY "aid", ${bucket('"day"')}),
 cu AS (
   SELECT "WORKSPACE_ID" AS "wid", MIN("CREATED_AT_UTC") AS "created", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg",
          MIN("FIRST_INVOICE_UTC") AS "first_inv", MAX("BINARY_CURRENT_CUSTOMER") AS "current"
@@ -99,7 +107,7 @@ lw AS (
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = cu."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
 mq AS (SELECT DISTINCT "aid", "b", "dom" FROM lw WHERE "is_new" = 1 AND "cls" IN ('Tier 1', 'Tier 2', 'Tier 3')),
-pc AS (SELECT DISTINCT pv."aid", ${bucket('pv."day"')} AS "b", pv."platform", pv."camp" FROM pv WHERE pv."platform" IS NOT NULL AND ${bucket('pv."day"')} IS NOT NULL)
+pc AS (SELECT DISTINCT pv."aid", ${bucket('pv."day"')} AS "b", pv."platform", pv."camp" FROM ${src} pv WHERE pv."platform" IS NOT NULL AND ${bucket('pv."day"')} IS NOT NULL)
 SELECT 'vis' AS "k", fv."b", '' AS "d", COUNT(DISTINCT fv."aid") AS "n", COUNT(DISTINCT lw."aid") AS "a", 0 AS "p", 0 AS "x", 0 AS "c"
 FROM fv LEFT JOIN lw ON lw."aid" = fv."aid" AND lw."b" = fv."b" GROUP BY fv."b"
 UNION ALL
@@ -118,7 +126,7 @@ FROM pc LEFT JOIN mq ON mq."aid" = pc."aid" AND mq."b" = pc."b" LEFT JOIN lw ON 
 GROUP BY pc."b", pc."platform", pc."camp"
 UNION ALL
 SELECT 'dv', ${bucket('pv."day"')}, CAST(pv."day" AS string), COUNT(DISTINCT pv."aid"), 0, 0, 0, 0
-FROM pv WHERE ${bucket('pv."day"')} IS NOT NULL GROUP BY ${bucket('pv."day"')}, CAST(pv."day" AS string)
+FROM ${src} pv WHERE ${bucket('pv."day"')} IS NOT NULL GROUP BY ${bucket('pv."day"')}, CAST(pv."day" AS string)
 UNION ALL
 SELECT 'dw', "b", CAST("d0" AS string), COUNT(DISTINCT "wid"), COUNT(DISTINCT CASE WHEN "act" = 1 THEN "wid" END),
        COUNT(DISTINCT CASE WHEN "cls" IN ('Tier 1', 'Tier 2', 'Tier 3') THEN "dom" END), 0, 0

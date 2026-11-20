@@ -2,12 +2,14 @@
  * Daily refresh of the dashboard's saved default view (for viewers without Clay Sigma).
  *
  *   node scripts/refresh-cache.mjs latest                     → {connectionId, sql} for the latest complete day
- *   node scripts/refresh-cache.mjs sql <dataEnd> <youtubeDir>  → {connectionId, main, social, startup} SQL
+ *   node scripts/refresh-cache.mjs sql <dataEnd> <youtubeDir>  → {connectionId, ranges, main, social, startup}: one query per
+ *        tab covering every preset × comparison (lib/plg/offline.ts)
  *   node scripts/refresh-cache.mjs pack <name> <dataEnd> <resultFile> <sql-json> <outDir>
  *        → db documents for collection `cache`: <outDir>/<name>-<i>.json parts and <outDir>/<name>.json header
  *
  * The page reads cache/<name> (header: parts, key, storedAt, dataEnd) and cache/<name>-<i> ({s: JSON text part}),
- * the same shape it writes itself (artifact/plg/main.tsx). key must equal the SQL the page would run.
+ * the same parts shape the page writes itself (artifact/plg/main.tsx). The header's `ranges` marks a multi-view copy,
+ * which the page never overwrites with a single view.
  */
 import { build } from 'esbuild'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -41,13 +43,16 @@ else if (cmd === 'sql') console.log(JSON.stringify((await lib()).defaults(args[0
 else if (cmd === 'pack') {
   const [name, dataEnd, resultFile, sqlJson, outDir] = args
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dataEnd)) throw new Error('dataEnd must be YYYY-MM-DD')
-  const key = JSON.parse(readFileSync(sqlJson, 'utf8'))[name]
+  const sqls = JSON.parse(readFileSync(sqlJson, 'utf8'))
+  const key = sqls[name]
   if (!key) throw new Error(`no SQL named ${name}`)
+  const ranges = sqls.ranges?.[name]
   const payload = payloadOf(readFileSync(resultFile, 'utf8'))
   const json = JSON.stringify(payload)
   const n = Math.max(1, Math.ceil(json.length / PART))
   mkdirSync(outDir, { recursive: true })
   for (let i = 0; i < n; i++) writeFileSync(resolve(outDir, `${name}-${i}.json`), JSON.stringify({ s: json.slice(i * PART, (i + 1) * PART) }))
-  writeFileSync(resolve(outDir, `${name}.json`), JSON.stringify({ parts: n, key, storedAt: Date.now(), dataEnd }))
-  console.log(JSON.stringify({ name, parts: n, rows: payload.rows.length, bytes: json.length }))
+  // ranges: the date ranges this copy covers (lib/plg/offline.ts); the page offers every preset × comparison in it.
+  writeFileSync(resolve(outDir, `${name}.json`), JSON.stringify({ parts: n, key: `saved:${name}`, storedAt: Date.now(), dataEnd, ...(ranges ? { ranges } : {}) }))
+  console.log(JSON.stringify({ name, parts: n, rows: payload.rows.length, bytes: json.length, ranges: ranges?.length ?? 0 }))
 } else { console.error('usage: latest | sql <dataEnd> <youtubeDir> | pack <name> <dataEnd> <resultFile> <sql-json> <outDir>'); process.exit(1) }
