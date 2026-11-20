@@ -119,7 +119,7 @@ for (const r of roster) {
 rows.push(...outside.values())
 rows.sort((a, b) => a.name.localeCompare(b.name))
 
-const CHUNK = 600   // artifact db documents are capped at 256 KB
+const CHUNK = 480   // artifact db documents are capped at 256 KB
 const chunks = []
 for (let i = 0; i < rows.length; i += CHUNK) chunks.push(rows.slice(i, i + CHUNK))
 

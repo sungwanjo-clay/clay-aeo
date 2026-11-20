@@ -131,7 +131,7 @@ function Strip({ c, p, eligibilityConnected, arrConnected, churnConnected, selec
 /* ───────────────────────── Firms ───────────────────────── */
 const FIRM_COLS: Col[] = [
   { h: 'Firm', sort: 'name' }, { h: 'Type', sort: 'type' },
-  { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven is shown as a separate tag and doesn’t make a firm partnered.' },
+  { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven = the firm is on the sheet’s Proven tab; it’s shown as a tag and doesn’t make a firm partnered.' },
   { h: 'Paying ARR', num: true, sort: 'paying_arr_usd', tip: 'Current paying ARR (Snowflake CUSTOMERS.ARR for workspaces paying now) across the firm’s portfolio companies. Ranks which funds’ portfolios bring the most revenue. A company backed by two firms counts in both rows.' },
   { h: 'Churned ARR', num: true, sort: 'churned_arr_usd', tip: 'ARR lost from portfolio companies that paid before and pay nothing now: each one’s last invoice, annualized. Sort by it to find the portfolios to re-engage. A company backed by two firms counts in both rows.' },
   { h: 'Portfolio', num: true, sort: 'portfolio', tip: 'Verified portfolio companies in the latest week: the denominator.' },
@@ -141,7 +141,7 @@ const FIRM_COLS: Col[] = [
   { h: 'Ever paid', num: true, sort: 'ever_paid' },
   { h: 'Eligible', num: true, tip: 'Confirmed eligible since tracking began.' },
   { h: 'Redeemed', num: true },
-  { h: 'Shared by partner', num: true, sort: 'shared_by_partner', tip: 'Companies that were on a list the firm shared with us. A coverage check.' },
+  { h: 'Shared by partner', num: true, sort: 'shared_by_partner', tip: 'Companies that were on a portfolio list the firm sent us directly. A coverage check on our own discovery; shown once a firm has shared a list.' },
   { h: 'Roster refreshed', sort: 'refreshed', tip: 'Last successful roster run for the firm.' },
 ]
 
@@ -153,13 +153,13 @@ const COMPANY_COLS: Col[] = [
   { h: 'Partner', sort: 'cut', tip: 'The closest partnership among its backing firms: Partnered, then Pending, then Not partnered. Proven when any backer is on the Proven tab.' },
   { h: 'Paying ARR', sort: 'arr', num: true, tip: 'Current paying ARR across the company’s Clay workspaces.' },
   { h: 'Churned ARR', sort: 'churn', num: true, tip: 'For a company that paid before and pays nothing now: its last invoice, annualized. Hover for the churn date. Sort by it for the re-engagement list.' },
-  { h: 'Total funding', sort: 'funding', num: true, tip: 'Total funding raised, from the company’s Salesforce account. Blank when it has no Salesforce record or Salesforce has no amount. Sort with “Not on Clay” to find well-funded companies that aren’t paying.' },
+  { h: 'Total funding', sort: 'funding', num: true, tip: 'Total funding raised, from the company’s Salesforce account. Blank when it has no Salesforce record or Salesforce has no amount. Sort with “Not on Clay” to find well-funded companies that aren’t paying. It’s Salesforce’s figure as recorded, so a few records are clearly wrong (billions for a seed company); check the outliers before acting on them.' },
   { h: 'Sales tier', sort: 'tier', tip: 'The Salesforce sales tier (Tier 1 is the highest). Blank without a Salesforce record.' },
   { h: 'Clay workspace', sort: 'workspaces', tip: 'From Clay’s Snowflake lookup: matched (with the number of workspaces), no exact match, or unknown when the lookup failed or needs review.' },
   { h: 'Paid', sort: 'paid', tip: 'Paying now, ever paid, or not. Unknown when Clay didn’t read paid status.' },
   { h: 'Offer', tip: 'Eligible since tracking began, and redemption. Redemption shows Not connected until promo-code events are in.' },
   { h: 'Stage', sort: 'stage' }, { h: 'Last round', sort: 'lastRoundAt' },
-  { h: 'Counted', tip: 'Whether the company is in the denominator, and why not: in review, or found only by matching our workspaces.' },
+  { h: 'In totals', tip: 'Whether the company counts in the numbers above. Yes = a firm-first source (the firm’s own site, PitchBook, Crunchbase, Dealroom, announcements) verified the firm backs it. No = still being verified, or we only found it by matching our own Clay workspaces, which can’t prove who invested.' },
 ]
 
 function wsCell(r: CompanyRow) {
@@ -243,7 +243,7 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
 }
 
 export default function PortfolioView({ data, onExport }: { data: PortfolioData | null | undefined; onExport?: (filename: string, csv: string) => Promise<void> }) {
-  const [cut, setCut] = useState<CutFilter>('partnered')
+  const [cut, setCut] = useState<CutFilter>('all')
   const [firmId, setFirmId] = useState<string | null>(null)
   const [step, setStep] = useState<StepId | null>(null)
   const [status, setStatus] = useState<StatusFilter>('All')
@@ -288,6 +288,9 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
     }
     return [...firmRows].sort((a, b) => cmp(val(a), val(b), firmSort.dir) || firmName(a.firm_id).localeCompare(firmName(b.firm_id)))
   }, [firmRows, firmSort, firmsById, firmName])
+  // "Shared by partner" stays hidden until a firm has actually sent us a portfolio list.
+  const showShared = firmRows.some(r => (r.shared_by_partner ?? 0) > 0)
+  const firmCols = showShared ? FIRM_COLS : FIRM_COLS.filter(c => c.sort !== 'shared_by_partner')
   const firmsWithoutRoster = useMemo(() => {
     if (!meta) return 0
     const has = new Set(meta.firmRows.filter(r => r.snapshot_date === latest).map(r => r.firm_id))
@@ -398,12 +401,12 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
     <div className="flex flex-col gap-6 sm:gap-8">
       <div className="flex flex-wrap items-center gap-3">
         <Segmented ariaLabel="Firm cut" value={cut} onChange={setCutAndReset}
-          options={(['partnered', 'pending', 'not_partnered', 'all'] as CutFilter[]).map(id => ({ id, label: CUT_LABEL[id] }))} />
+          options={(['all', 'partnered', 'not_partnered', 'pending'] as CutFilter[]).map(id => ({ id, label: CUT_LABEL[id] }))} />
         <label className="inline-flex items-center gap-2 text-[14px]" style={{ color: T.muted }}>
           Firm
           <select value={firmId ?? ''} onChange={e => pickFirm(e.target.value || null)} disabled={!firmRows.length}
             className="rounded-full px-3 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }}>
-            <option value="">All firms in the cut</option>
+            <option value="">{cut === 'all' ? 'Every firm' : `Every ${CUT_LABEL[cut].toLowerCase()} firm`}</option>
             {[...firmRows].sort((a, b) => firmName(a.firm_id).localeCompare(firmName(b.firm_id))).map(r => <option key={r.firm_id} value={r.firm_id}>{firmName(r.firm_id)}</option>)}
           </select>
         </label>
@@ -442,7 +445,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
             <p className="text-[15px]" style={{ color: T.muted }}>Click a firm to filter the numbers and companies to it. A company backed by two firms counts in both rows, once in the totals.</p>
           </div>
           <div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-[15px]" style={{ color: T.ink }}>
-            <Head cols={FIRM_COLS} sort={firmSort} onSort={setFirmSort} />
+            <Head cols={firmCols} sort={firmSort} onSort={setFirmSort} />
             <tbody>
               {sortedFirmRows.length ? sortedFirmRows.map(r => {
                 const f = firmsById.get(r.firm_id)
@@ -463,11 +466,11 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                     <td className={num} style={mono}>{fmtInt(r.ever_paid)}</td>
                     <td className={num} style={mono}>{meta.eligibilityConnected ? fmtInt(r.eligible_to_date) : <NC />}</td>
                     <td className={num} style={mono}>{r.redemption_connected ? fmtInt(r.redeemed) : <NC />}</td>
-                    <td className={num} style={mono}>{fmtInt(r.shared_by_partner ?? 0)}</td>
+                    {showShared && <td className={num} style={mono}>{fmtInt(r.shared_by_partner ?? 0)}</td>}
                     <td className="px-3 py-3 whitespace-nowrap" style={{ color: T.muted }}>{fmtDate(f?.roster_refreshed_at)}</td>
                   </tr>
                 )
-              }) : <tr><td colSpan={FIRM_COLS.length} className="px-3 py-4 text-[14px]" style={{ color: T.muted }}>No firm in this cut has a roster in this week yet.</td></tr>}
+              }) : <tr><td colSpan={firmCols.length} className="px-3 py-4 text-[14px]" style={{ color: T.muted }}>No firm in this cut has a roster in this week yet.</td></tr>}
             </tbody>
             {sortedFirmRows.length > 1 && !firmId && c && (() => {
               const t = c
@@ -489,14 +492,14 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                   <td className={num} style={mono}>{fmtInt(t.ever_paid)}</td>
                   <td className={num} style={mono}>{meta.eligibilityConnected ? fmtInt(t.eligible_to_date) : <NC />}</td>
                   <td className={num} style={mono}>{t.redemption_connected ? fmtInt(t.redeemed) : <NC />}</td>
-                  <td className={num} style={{ ...mono, color: T.faint }}>–</td>
+                  {showShared && <td className={num} style={{ ...mono, color: T.faint }}>–</td>}
                   <td className="px-3 py-3" />
                 </tr></tfoot>
               )
             })()}
           </table></div>
           {firmsWithoutRoster > 0 && <p className="text-[13px]" style={{ color: T.muted }}>{fmtInt(firmsWithoutRoster)} more {firmsWithoutRoster === 1 ? 'firm' : 'firms'} in this cut {firmsWithoutRoster === 1 ? 'has' : 'have'} no roster yet.</p>}
-          <ColDefs cols={FIRM_COLS} />
+          <ColDefs cols={firmCols} />
         </Card>
       </>)}
 
@@ -513,7 +516,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <div className="flex flex-wrap items-center gap-3">
             <select value={firmId ?? ''} onChange={e => pickFirm(e.target.value || null)} aria-label="Filter companies by firm"
               className="rounded-full px-3 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${firmId ? T.ink : T.border}`, color: T.ink }}>
-              <option value="">All firms · {CUT_LABEL[cut].toLowerCase()}</option>
+              <option value="">{cut === 'all' ? 'Every firm' : `Every ${CUT_LABEL[cut].toLowerCase()} firm`}</option>
               {firmOptions.map(f => <option key={f.id} value={f.id}>{firmName(f.id)} ({fmtInt(f.n)})</option>)}
             </select>
             <input type="search" value={q} onChange={e => { setQ(e.target.value); setShown(PAGE) }} placeholder="Search company or domain"
@@ -560,7 +563,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                   <td className="px-3 py-3 text-[14px]">{r.stage ?? <span style={{ color: T.faint }}>–</span>}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{r.lastRoundAt ? fmtDate(r.lastRoundAt) : <span style={{ color: T.faint }}>–</span>}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{r.inDenominator ? 'Yes'
-                    : <span style={{ color: T.muted }}>{r.notCountedReason === 'in_review' ? 'No · in review' : r.notCountedReason === 'workspace_match_only' ? 'No · found via our workspaces' : 'No · not verified'}</span>}</td>
+                    : <span style={{ color: T.muted }}>{r.notCountedReason === 'in_review' ? 'No · still being verified' : r.notCountedReason === 'workspace_match_only' ? 'No · only matched to our workspaces' : 'No · not verified'}</span>}</td>
                 </tr>
               )) : <tr><td colSpan={COMPANY_COLS.length} className="px-3 py-4 text-[14px]" style={{ color: T.muted }}>No companies match these filters.</td></tr>}
             </tbody>

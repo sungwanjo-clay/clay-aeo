@@ -135,8 +135,8 @@ export function countsFor(meta: PortfolioMeta, date: string | null, cut: CutFilt
   return meta.totals.find(r => r.snapshot_date === date && r.cut === cut) ?? null
 }
 
-export type StatusFilter = 'All' | 'Not on Clay' | 'Recently funded · not on Clay' | 'With a workspace' | 'Paying now' | 'Churned' | 'Ever paid' | 'Lookup unknown' | 'Eligible' | 'Redeemed' | 'Not in denominator'
-export const STATUS_FILTERS: StatusFilter[] = ['All', 'Not on Clay', 'Recently funded · not on Clay', 'With a workspace', 'Paying now', 'Churned', 'Ever paid', 'Lookup unknown', 'Eligible', 'Redeemed', 'Not in denominator']
+export type StatusFilter = 'All' | 'Not on Clay' | 'Recently funded · not on Clay' | 'With a workspace' | 'Paying now' | 'Churned' | 'Ever paid' | 'Lookup unknown' | 'Eligible' | 'Redeemed' | 'Not in totals'
+export const STATUS_FILTERS: StatusFilter[] = ['All', 'Not on Clay', 'Recently funded · not on Clay', 'With a workspace', 'Paying now', 'Churned', 'Ever paid', 'Lookup unknown', 'Eligible', 'Redeemed', 'Not in totals']
 
 /** A round in the 12 months before the snapshot week. */
 export function recentlyFunded(r: CompanyRow, asOf: string | null): boolean {
@@ -161,7 +161,7 @@ export function filterCompanies(rows: CompanyRow[], o: { cut: CutFilter; firmId:
       case 'Lookup unknown': return r.inDenominator && r.hasWorkspace === null
       case 'Eligible': return r.inDenominator && r.eligibleToDate
       case 'Redeemed': return r.inDenominator && r.redemption === 'redeemed'
-      case 'Not in denominator': return !r.inDenominator
+      case 'Not in totals': return !r.inDenominator
     }
   })
 }
