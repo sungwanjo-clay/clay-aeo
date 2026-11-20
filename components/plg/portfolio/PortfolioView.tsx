@@ -153,6 +153,8 @@ const COMPANY_COLS: Col[] = [
   { h: 'Partner', sort: 'cut', tip: 'The closest partnership among its backing firms: Partnered, then Pending, then Not partnered. Proven when any backer is on the Proven tab.' },
   { h: 'Paying ARR', sort: 'arr', num: true, tip: 'Current paying ARR across the company’s Clay workspaces.' },
   { h: 'Churned ARR', sort: 'churn', num: true, tip: 'For a company that paid before and pays nothing now: its last invoice, annualized. Hover for the churn date. Sort by it for the re-engagement list.' },
+  { h: 'Total funding', sort: 'funding', num: true, tip: 'Total funding raised, from the company’s Salesforce account. Blank when it has no Salesforce record or Salesforce has no amount. Sort with “Not on Clay” to find well-funded companies that aren’t paying.' },
+  { h: 'Sales tier', sort: 'tier', tip: 'The Salesforce sales tier (Tier 1 is the highest). Blank without a Salesforce record.' },
   { h: 'Clay workspace', sort: 'workspaces', tip: 'From Clay’s Snowflake lookup: matched (with the number of workspaces), no exact match, or unknown when the lookup failed or needs review.' },
   { h: 'Paid', sort: 'paid', tip: 'Paying now, ever paid, or not. Unknown when Clay didn’t read paid status.' },
   { h: 'Offer', tip: 'Eligible since tracking began, and redemption. Redemption shows Not connected until promo-code events are in.' },
@@ -314,6 +316,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         // Exactly the numbers shown: blank only when the column shows a dash.
         case 'arr': return r.inDenominator && meta?.arrConnected ? (r.payingArr ?? 0) : null
         case 'churn': return r.inDenominator && meta?.churnConnected ? coChurn(r) : null
+        case 'funding': return r.totalFunding ?? null
+        case 'tier': return r.salesTier ?? null
         case 'type': return coType(r)
         case 'cut': return coCut(r).rank
         case 'stage': return r.stage
@@ -540,6 +544,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                   <td className={`${num} font-semibold`} style={mono}>{!meta.arrConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : r.payingArr ? fmtUsd(r.payingArr) : <span style={{ color: T.faint }}>$0</span>}</td>
                   <td className={num} style={mono} title={coChurn(r) ? `Churned${r.churnedAt ? ' ' + fmtDate(r.churnedAt) : ''}: last invoice, annualized` : undefined}>
                     {!meta.churnConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : coChurn(r) ? fmtUsd(coChurn(r)) : <span style={{ color: T.faint }}>$0</span>}</td>
+                  <td className={num} style={mono}>{r.totalFunding ? fmtUsd(r.totalFunding) : <span style={{ color: T.faint }}>–</span>}</td>
+                  <td className="px-3 py-3 text-[14px] whitespace-nowrap">{r.salesTier ?? <span style={{ color: T.faint }}>–</span>}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{wsCell(r)}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{paidCell(r)}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">
@@ -563,8 +569,9 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                 <td className="px-3 py-3 font-semibold" colSpan={4}>Total · {fmtInt(listArr.n)} {listArr.n === 1 ? 'company' : 'companies'}{list.length > shown ? ' (all pages)' : ''}</td>
                 <td className={`${num} font-semibold`} style={mono}>{fmtUsd(listArr.arr)}</td>
                 <td className={`${num} font-semibold`} style={mono}>{meta.churnConnected ? fmtUsd(listArr.churnArr) : '–'}</td>
+                <td className="px-3 py-3" colSpan={2} />
                 <td className="px-3 py-3 text-[14px] whitespace-nowrap">{fmtInt(listArr.paying)} paying now{listArr.churned ? <> · {fmtInt(listArr.churned)} churned</> : null}</td>
-                <td className="px-3 py-3" colSpan={COMPANY_COLS.length - 7} />
+                <td className="px-3 py-3" colSpan={COMPANY_COLS.length - 9} />
               </tr></tfoot>
             )}
           </table></div>

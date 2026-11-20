@@ -27,3 +27,4 @@ $P -f "$W/006_test.sql" 2>&1
 sed -i "/alter role anon/d; /notify pgrst/d" "$W/007_ingest_timeout.sql"; $P -v ON_ERROR_STOP=1 -f "$W/007_ingest_timeout.sql" && echo "007 applied"
 $P -v ON_ERROR_STOP=1 -f "$W/008_churned_arr.sql" && echo "008 applied"
 $P -f "$W/008_test.sql" 2>&1
+$P -v ON_ERROR_STOP=1 -f "$W/009_sales_tier.sql" && echo "009 applied"

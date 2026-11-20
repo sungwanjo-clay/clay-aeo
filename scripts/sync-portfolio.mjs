@@ -95,6 +95,9 @@ if (latest) {
       // For the progress chart: when the company first had a Clay workspace and first paid.
       ...(s.first_workspace_at ? { firstWsAt: String(s.first_workspace_at).slice(0, 10) } : {}), ...(s.first_paid_at ? { firstPaidAt: String(s.first_paid_at).slice(0, 10) } : {}),
       stage: st.funding_stage ?? null, lastRoundAt: st.last_round_at ?? null,
+      // From the company's Salesforce account, when it has one (null otherwise, never 0).
+      ...(st.total_raised_usd != null && Number(st.total_raised_usd) > 0 ? { totalFunding: Number(st.total_raised_usd) } : {}),
+      ...(st.sales_tier ? { salesTier: st.sales_tier } : {}),
     })
   }
 }

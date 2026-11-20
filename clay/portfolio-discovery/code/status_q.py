@@ -74,7 +74,8 @@ wsj AS (
 sf AS (
   SELECT LOWER(REGEXP_REPLACE(REGEXP_REPLACE(a.DOMAIN_C, '^https?://', ''), '^www[.]', '')) AS DOMAIN,
          ARRAY_AGG(OBJECT_CONSTRUCT('account_id', a.ID, 'owner_id', a.OWNER_ID, 'sales_tier', a.SALES_TIER_C, 'open_pipeline', a.OPEN_PIPELINE_C,
-                   'account_stage', a.ACCOUNT_STAGE_C, 'gtme', a.GTME_C, 'segment', a.COMPANY_SEGMENT_C)) AS SF
+                   'account_stage', a.ACCOUNT_STAGE_C, 'gtme', a.GTME_C, 'segment', a.COMPANY_SEGMENT_C,
+                   'total_funding', a.TOTAL_FUNDING_AMOUNT_C)) AS SF
   FROM FIVETRAN.SALESFORCE.ACCOUNT a
   WHERE a.IS_DELETED = FALSE AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(a.DOMAIN_C, '^https?://', ''), '^www[.]', '')) IN (SELECT DOMAIN FROM roster)
   GROUP BY 1)

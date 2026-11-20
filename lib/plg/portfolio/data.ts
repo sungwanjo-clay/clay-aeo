@@ -67,6 +67,8 @@ export type CompanyRow = {
   churnedAt?: string | null          // latest cancellation over those workspaces
   firstWsAt?: string | null          // first Clay workspace created (any of its workspaces)
   firstPaidAt?: string | null        // first invoice over its workspaces
+  totalFunding?: number | null       // Salesforce TOTAL_FUNDING_AMOUNT_C, only with a Salesforce record
+  salesTier?: string | null          // Salesforce SALES_TIER_C, only with a Salesforce record
 }
 
 export type PortfolioMeta = {
@@ -169,8 +171,8 @@ export function csvOf(rows: CompanyRow[], firmName: (id: string) => string): str
     const s = v == null ? '' : String(v)
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
-  const head = ['company', 'domain', 'firms', 'in_denominator', 'lookup_status', 'has_workspace', 'workspaces', 'ever_paid', 'paying_now', 'paying_arr_usd', 'churned_arr_usd', 'churned_at', 'eligible_to_date', 'redemption', 'stage', 'last_round_at']
+  const head = ['company', 'domain', 'firms', 'in_denominator', 'lookup_status', 'has_workspace', 'workspaces', 'ever_paid', 'paying_now', 'paying_arr_usd', 'churned_arr_usd', 'churned_at', 'total_funding_usd', 'sales_tier', 'eligible_to_date', 'redemption', 'stage', 'last_round_at']
   const lines = rows.map(r => [r.name, r.domain, r.firms.map(firmName).join('; '), r.inDenominator ? 'yes' : (r.notCountedReason ?? 'no'),
-    r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.payingArr ?? '', r.churnedArr ?? '', r.churnedAt ?? '', r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
+    r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.payingArr ?? '', r.churnedArr ?? '', r.churnedAt ?? '', r.totalFunding ?? '', r.salesTier ?? '', r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
   return [head.join(','), ...lines].join('\n') + '\n'
 }

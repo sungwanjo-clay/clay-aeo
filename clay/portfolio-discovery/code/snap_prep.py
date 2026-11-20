@@ -30,7 +30,7 @@ def handler(context):
     st = st.get('result', st) if isinstance(st, dict) else {}
     rows = st.get('rows') if isinstance(st, dict) else None
     lookup_ok = isinstance(rows, list) and len(rows) > 0
-    by_dom, arr_by, churn_by, first_by = {}, {}, {}, {}
+    by_dom, arr_by, churn_by, first_by, sf_by = {}, {}, {}, {}, {}
     for r in rows or []:
         d = (r.get('DOMAIN') or '').lower()
         if d:
@@ -40,6 +40,12 @@ def handler(context):
             try: churn_by[d] = (round(float(r['WS_CHURN_ARR']), 2), (r.get('WS_CHURNED_AT') or '')[:10] or None) if r.get('WS_CHURN_ARR') not in (None, '') else None
             except (TypeError, ValueError, KeyError): churn_by[d] = None
             first_by[d] = ((r.get('WS_FIRST_WS') or '')[:10] or None, (r.get('WS_FIRST_PAID') or '')[:10] or None)
+            # Salesforce account(s) on the domain: total funding (largest) and sales tier (best, Tier 1 first). None without a record.
+            sf = [a for a in (_json(r.get('SF_JSON')) or []) if isinstance(a, dict)]
+            # Salesforce stores 0 when funding is unknown: only a positive amount counts.
+            funds = [float(a['total_funding']) for a in sf if a.get('total_funding') not in (None, '') and float(a['total_funding']) > 0]
+            tiers = sorted(str(a['sales_tier']) for a in sf if a.get('sales_tier'))
+            sf_by[d] = (round(max(funds), 2) if funds else None, tiers[0] if tiers else None)
 
     lookups, elig = [], []
     seen = set()
@@ -77,7 +83,8 @@ def handler(context):
                      'net_new_check': 'needs_check', 'net_new_reason': 'Not assessed by portfolio discovery',
                      'funding_stage': c.get('latest_round_type') or None,
                      'last_round_at': lr if re.fullmatch(r'\d{4}-\d{2}-\d{2}', lr) else None,
-                     'last_round_amount_usd': _amount(c.get('latest_round_amount_usd'))})
+                     'last_round_amount_usd': _amount(c.get('latest_round_amount_usd')),
+                     'total_raised_usd': sf_by.get(d, (None, None))[0], 'sales_tier': sf_by.get(d, (None, None))[1]})
     return {'snapshot_date': snap,
             # reopen: a firm run after this week was published reopens it; publishing again refreezes membership.
             'open_write': body('snapshot_open', [{'snapshot_date': snap, 'run_id': run_id, 'reopen': True}]),
