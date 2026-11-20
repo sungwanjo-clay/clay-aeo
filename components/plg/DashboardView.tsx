@@ -50,7 +50,29 @@ function freshness(v: DashboardPayload, refreshedAt?: number | string | null) {
   return `${through} · refreshed ${t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
 }
 
-export default function DashboardView({ v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
+/** config/health, written by the daily health check (scripts/health-check.mjs). */
+export type Health = { version: 1; checkedAt: string; status: 'ok' | 'warn' | 'alert'; problems: { id: string; level: 'alert' | 'warn'; detail: string }[] }
+
+/** Shown on every tab when the daily check found a problem, or when the check itself hasn't run for two days. */
+function HealthBanner({ h }: { h: Health | null | undefined }) {
+  if (h === undefined) return null
+  const age = h ? (Date.now() - new Date(h.checkedAt).getTime()) / 36e5 : Infinity
+  const silent = age > 50
+  if (h && h.status === 'ok' && !silent) return null
+  const alert = silent || h?.status === 'alert'
+  return (
+    <div role="status" className="rounded-2xl px-5 py-3 text-[14px] flex flex-col gap-1"
+      style={{ background: alert ? '#FCE9E2' : T.amberBg, color: alert ? T.neg : T.amberInk }}>
+      <b>{silent ? (h ? `The daily data check hasn’t run since ${new Date(h.checkedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'The daily data check hasn’t run yet')
+        : h!.status === 'alert' ? 'Some numbers on this dashboard may be out of date' : 'Data check: something looks off'}</b>
+      {!silent && h!.problems.slice(0, 4).map(p => <span key={p.id}>{p.level === 'alert' ? '●' : '○'} {p.detail}</span>)}
+    </div>
+  )
+}
+
+export default function DashboardView({ health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
+  /** Daily health check verdict; undefined while loading. */
+  health?: Health | null
   v: DashboardPayload
   loading: boolean
   error: string | null
@@ -110,6 +132,7 @@ export default function DashboardView({ v, loading, error, notice, onChange, ref
         dataStart={v.range.dataStart} dataEnd={v.range.dataEnd}
         onChange={update}
       />
+      <HealthBanner h={health} />
       {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
       {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>

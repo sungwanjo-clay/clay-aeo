@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import DashboardView, { paramsFor, type DashboardTab } from '@/components/plg/DashboardView'
+import DashboardView, { paramsFor, type DashboardTab, type Health } from '@/components/plg/DashboardView'
 import SocialView, { ChannelPills, ModeToggle, type SocialChannel } from '@/components/plg/social/SocialView'
 import { buildSocial, channelFallbacks, parseSocialRows, taggedVideos, type SocialMode, type YtChannelDoc } from '@/lib/plg/social/compute'
 import { CHANNELS } from '@/lib/plg/social/config'
@@ -152,6 +152,7 @@ function App() {
   // Saved default view (undefined = not read yet, null = none).
   const [saved, setSaved] = useState<Record<'main' | 'social' | 'startup', Cached | null> | undefined>(undefined)
   const [notice, setNotice] = useState<string | null>(null)
+  const [health, setHealth] = useState<Health | null | undefined>(undefined)
   // Social tab: routed on the hash (#social, #social-peter) so links can point at it.
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
@@ -191,6 +192,8 @@ function App() {
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
         .then(snaps => setYt(snaps.filter(x => x?.exists).map(x => x.data() as YtChannelDoc)))
         .catch(() => setYt([]))
+      // Daily health check verdict (scripts/health-check.mjs, written by the scheduled check).
+      d.doc('config/health').get().then((x: any) => setHealth(x?.exists ? (x.data() as Health) : null)).catch(() => setHealth(null))
       try {
         const snap = await d.doc('config/goals').get()
         const rows = snap.exists ? (snap.data()?.rows as GoalRow[] | undefined) : undefined
@@ -453,6 +456,7 @@ function App() {
     : <StartupView s={startupView.s} loading={startupView.stale} />
   return (
     <DashboardView
+      health={health}
       tab={route.tab}
       startup={startupPane}
       portfolio={route.tab === 'portfolio' ? <PortfolioView data={portfolio}
