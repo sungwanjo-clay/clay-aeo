@@ -34,7 +34,7 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    connector's `begin_session` once, then `query` with `{type: "connection", connectionId, sql}` using that SQL
    exactly. The single row's `max_day` (first 10 characters) is `DATAEND`.
 4. **Default-view SQL.** `node scripts/refresh-cache.mjs sql DATAEND W/yt/youtube > W/sql.json`.
-5. **Run the six queries,** one at a time, for NAME in `main`, `startup`, `social`, `slg`, `tier4`, `tier4list`:
+5. **Run the seven queries,** one at a time, for NAME in `main`, `startup`, `social`, `slg`, `tier4`, `tier4list`, `cro`:
    - Print the SQL: `node -e "process.stdout.write(require('W/sql.json').NAME)"` (use the real path).
    - Call Sigma `query` with that SQL **character for character** (connection type, same connectionId).
    - Large results are saved to a file and the tool returns its path: use that path. If the result comes back inline

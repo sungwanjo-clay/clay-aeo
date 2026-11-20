@@ -32,12 +32,15 @@ import { assembleDashboard, planDashboard } from '@/lib/plg/plan'
 import { SIGMA, dashboardSql, latestDaySql, parseDashboardRows } from '@/lib/plg/sigma'
 import { covers, relabel } from '@/lib/plg/offline'
 import SourcesPanel from '@/components/plg/SourcesPanel'
-import { portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
+import { croSources, portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
 import PlgPipelineCard from '@/components/plg/slg/PlgPipelineCard'
 import Tier4View from '@/components/plg/slg/Tier4View'
 import { buildSlg, buildTier4, enrichTier4, slgDrivers } from '@/lib/plg/slg/compute'
 import { slgSql } from '@/lib/plg/slg/sql'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
+import CroView from '@/components/plg/cro/CroView'
+import { buildCro } from '@/lib/plg/cro/compute'
+import { croSql } from '@/lib/plg/cro/sql'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Mcp = any
@@ -57,10 +60,10 @@ type Problem = { code: string; message: string } | null
  */
 /** `ranges`: set by the daily job's multi-view copy (lib/plg/offline.ts): the date ranges it computed. Absent = one view. */
 type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate; ranges?: string[] }
-type CacheName = 'main' | 'social' | 'startup' | 'slg' | 'tier4' | 'tier4list'
-const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'slg', 'tier4', 'tier4list']
+type CacheName = 'main' | 'social' | 'startup' | 'slg' | 'tier4' | 'tier4list' | 'cro'
+const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'slg', 'tier4', 'tier4list', 'cro']
 type Saved = Record<CacheName, Cached | null>
-const noSaved = (): Saved => ({ main: null, social: null, startup: null, slg: null, tier4: null, tier4list: null })
+const noSaved = (): Saved => ({ main: null, social: null, startup: null, slg: null, tier4: null, tier4list: null, cro: null })
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
@@ -417,20 +420,23 @@ function App() {
   const tier4Text = useMemo(() => (slgRanges && route.tab === 'workspaces' && !offline ? tier4Sql(slgRanges) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, offline])
+  const croText = useMemo(() => (slgRanges && dataEnd && route.tab === 'workspaces' && !offline ? croSql(slgRanges, dataEnd) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], dataEnd, route.tab, offline])
   const tier4ListText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? tier4ListSql(dataEnd) : null), [dataEnd, route.tab, offline])
-  const [slgRes, setSlgRes] = useState<Partial<Record<'slg' | 'tier4' | 'tier4list', { key: string; payload: unknown }>>>({})
-  const [slgProblem, setSlgProblem] = useState<Partial<Record<'slg' | 'tier4' | 'tier4list', Problem>>>({})
+  const [slgRes, setSlgRes] = useState<Partial<Record<'slg' | 'tier4' | 'tier4list' | 'cro', { key: string; payload: unknown }>>>({})
+  const [slgProblem, setSlgProblem] = useState<Partial<Record<'slg' | 'tier4' | 'tier4list' | 'cro', Problem>>>({})
   useEffect(() => {
     if (!mcp) return
-    const unsubs = ([['slg', slgText], ['tier4', tier4Text], ['tier4list', tier4ListText]] as const).filter(([, q]) => q).map(([name, q]) =>
+    const unsubs = ([['slg', slgText], ['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText]] as const).filter(([, q]) => q).map(([name, q]) =>
       mcp.watchTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: q } }, (ev: any) => {
         if (ev.type === 'error') { setSlgProblem(x => ({ ...x, [name]: { code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' } })); return }
         setSlgProblem(x => ({ ...x, [name]: null }))
         setSlgRes(x => ({ ...x, [name]: { key: q!, payload: ev.result?.payload } }))
       }, { cache: CACHE }))
     return () => unsubs.forEach(u => u())
-  }, [mcp, slgText, tier4Text, tier4ListText])
-  const pick = (name: 'slg' | 'tier4' | 'tier4list', text: string | null) => {
+  }, [mcp, slgText, tier4Text, tier4ListText, croText])
+  const pick = (name: 'slg' | 'tier4' | 'tier4list' | 'cro', text: string | null) => {
     if (offline) { const c = saved?.[name]; return c ? { payload: c.payload, stale: false } : null }
     const r = slgRes[name]
     return r ? { payload: r.payload, stale: r.key !== text } : null
@@ -441,6 +447,13 @@ function App() {
     try { return { s: buildSlg(relabel(r.payload, socialRanges)), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slgRes.slg, saved?.slg, offline, slgText, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
+  const croView = useMemo(() => {
+    const r = pick('cro', croText)
+    if (!r || !socialRanges || !effEnd) return null
+    const end = offline && saved?.cro ? saved.cro.dataEnd : effEnd
+    try { return { v: buildCro(relabel(r.payload, socialRanges), end), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slgRes.cro, saved?.cro, offline, croText, effEnd, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
   const tier4View = useMemo(() => {
     const r = pick('tier4', tier4Text), l = pick('tier4list', tier4ListText)
     if (!r || !socialRanges) return null
@@ -461,7 +474,7 @@ function App() {
     if (!db || !dataEnd || !isDefault) return
     const live: [CacheName, { key: string; payload: unknown } | null | undefined, string | null][] = [
       ['social', socialResult, socialSqlText], ['startup', startupResult, startupSqlText],
-      ['slg', slgRes.slg, slgText], ['tier4', slgRes.tier4, tier4Text], ['tier4list', slgRes.tier4list, tier4ListText]]
+      ['slg', slgRes.slg, slgText], ['tier4', slgRes.tier4, tier4Text], ['tier4list', slgRes.tier4list, tier4ListText], ['cro', slgRes.cro, croText]]
     for (const [name, r, text] of live) {
       if (!r || r.key !== text) continue
       if (keepSaved(name)) continue
@@ -472,7 +485,7 @@ function App() {
       const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
       writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? noSaved()), [name]: c })) } })
     }
-  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, slgRes, slgText, tier4Text, tier4ListText, saved])
+  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, slgRes, slgText, tier4Text, tier4ListText, croText, saved])
   useEffect(() => {
     if (!db || !mcp || !dataEnd || !isDefault || !socialRanges || yt == null || saved === undefined) return
     let live = true
@@ -490,6 +503,7 @@ function App() {
       if (due(saved.slg ?? null) && route.tab !== 'workspaces' && !keepSaved('slg')) jobs.push(['slg', slgSql(sr)])
       if (due(saved.tier4 ?? null) && route.tab !== 'workspaces' && !keepSaved('tier4')) jobs.push(['tier4', tier4Sql(sr)])
       if (due(saved.tier4list ?? null) && route.tab !== 'workspaces' && !keepSaved('tier4list')) jobs.push(['tier4list', tier4ListSql(dataEnd)])
+      if (due(saved.cro ?? null) && route.tab !== 'workspaces' && !keepSaved('cro')) jobs.push(['cro', croSql(sr, dataEnd)])
       for (const [name, text] of jobs) {
         try {
           const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
@@ -510,7 +524,8 @@ function App() {
     if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
     const ws = workspacesSources(sql, latestDaySql(todayUTC()), sr ? slgSql([sr.cur, sr.prev]) : null)
     const t4 = tier4Sources(sr ? tier4Sql([sr.cur, sr.prev]) : null, effEnd ? tier4ListSql(effEnd) : null)
-    return { sources: [...ws.sources, ...t4.sources], queries: [...ws.queries, ...t4.queries], notes: [...(ws.notes ?? []), ...(t4.notes ?? [])] }
+    const cr = croSources(sr && effEnd ? croSql([sr.cur, sr.prev], effEnd) : null)
+    return { sources: [...ws.sources, ...cr.sources, ...t4.sources], queries: [...ws.queries, ...cr.queries, ...t4.queries], notes: [...(ws.notes ?? []), ...(cr.notes ?? []), ...(t4.notes ?? [])] }
   }, [route.tab, plan, effEnd, yt, sql])
 
   const v = view && 'v' in view ? view.v : null
@@ -555,6 +570,11 @@ function App() {
   const slgErr = slgProblem.slg ? problemCopy(slgProblem.slg).title : slgView && 'error' in slgView ? `Unexpected data from Sigma: ${slgView.error}` : null
   const slgCard = <PlgPipelineCard s={slgView && 's' in slgView ? slgView.s ?? null : null} loading={!!(slgView && 's' in slgView && slgView.stale)}
     error={slgErr ?? (offline && !saved?.slg ? 'No saved copy yet. It needs a Clay Sigma connection.' : null)} />
+  const croPane = route.tab !== 'workspaces' ? null
+    : slgProblem.cro && !croView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(slgProblem.cro).title}: {problemCopy(slgProblem.cro).body}</p>
+    : !croView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this section yet. It needs a Clay Sigma connection.' : 'Querying Sigma for landing-page conversion… this one scans site sessions and can take up to a minute.'}</p>
+    : 'error' in croView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {croView.error}</p>
+    : <CroView v={croView.v!} loading={croView.stale} />
   const tier4Pane = route.tab !== 'workspaces' ? null
     : slgProblem.tier4 && !tier4View ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(slgProblem.tier4).title}: {problemCopy(slgProblem.tier4).body}</p>
     : !tier4View ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this section yet. It needs a Clay Sigma connection.' : 'Querying Sigma for Tier 4 hand-raisers… first load takes 10–30 seconds.'}</p>
@@ -567,6 +587,7 @@ function App() {
       slg={slgCard}
       slgDrivers={slgView && 's' in slgView && slgView.s ? slgDrivers(slgView.s) : undefined}
       tier4={tier4Pane}
+      cro={croPane}
       health={health}
       tab={route.tab}
       startup={startupPane}

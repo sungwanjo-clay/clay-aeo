@@ -20,6 +20,9 @@ export const TABLES: Record<string, string> = {
   'a7defd23-614d-4c68-ad31-b807b7a164b0': 'FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES',
   '4d8a7488-9cde-4f4f-b451-a712f4e83183': 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL',
   '9a9c17db-c29f-4516-888d-02b939ae202c': 'DBT.PROD.INT_OPPORTUNITY_SOURCE_TOUCHPOINT_MAP',
+  '08b06a57-54a4-42dc-aa3c-d6222a15b09a': 'DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION',
+  '97cf52d9-8523-4af4-a02e-b8e8d8019b28': 'SEGMENT.MARKETING_WEBSITE.CONVERSION_BUTTON_CLICKED',
+  'cf3c596b-2dde-415a-b248-efda79af9fa3': 'DBT.PROD.MARKETING_WEBSITE_SESSIONS',
 }
 
 /** Sigma connection SQL → Snowflake SQL: warehouse table paths, and Snowflake's DATEADD for Sigma's DATE_ADD. */
@@ -88,6 +91,21 @@ export function startupSources(sql: string | null): TabSources {
       { name: 'Activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'First table within 7 days' },
     ],
     queries: sql ? [{ label: 'Startup program query (current filters)', sql, note: SIGMA_NOTE }] : [],
+  }
+}
+
+export function croSources(sql: string | null): TabSources {
+  return {
+    sources: [
+      { name: 'Entry sessions, landing page, channel, device', where: 'DBT.PROD.MARKETING_WEBSITE_SESSIONS', what: 'First-ever session per cookie (SESSION_ASC_RANKER = 1); WORKSPACE_STATUS = no existing workspace' },
+      { name: 'Homepage and pricing first views', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'site marketing_website, path / and /pricing, first-ever view per cookie since 2023' },
+      { name: 'Bot filter', where: 'DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION', what: 'BINARY_BOT_EXCLUSION = 1 and no Clay (numeric) user id' },
+      { name: 'Visitor → workspace', where: 'DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP, DBT.PROD.CUSTOMERS', what: 'Workspace created within 24 hours of the first visit; prior workspace = FIRST_SEEN before it' },
+      { name: 'CTA clicks', where: 'SEGMENT.MARKETING_WEBSITE.CONVERSION_BUTTON_CLICKED', what: 'BUTTON_TYPE Self-serve | Contact Form; ELEMENT_LOCATION → zone; 1 minute before to 24 hours after' },
+    ],
+    queries: sql ? [{ label: 'CRO query (current filters)', sql, note: 'Definitions from monty (Clay’s data analyst agent), growth-marketing landing-page playbook. ' + SIGMA_NOTE }] : [],
+    notes: ['The homepage launch date (2026-06-23, about 15:00 UTC) comes from the hero button ids switching in the click data; there is no deploy event in the warehouse.',
+      'The dbt model DBT.PROD.CONVERSION_BUTTON_CLICKED is not in Sigma, so the page reads its Segment source; counts can differ slightly where the model dedupes.'],
   }
 }
 

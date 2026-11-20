@@ -15,6 +15,7 @@ import { socialSql } from '@/lib/plg/social/sql'
 import { startupSql } from '@/lib/plg/startup/sql'
 import { slgSql } from '@/lib/plg/slg/sql'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
+import { croSql } from '@/lib/plg/cro/sql'
 import { OFFLINE_COMBOS, comboQs, rangeLabel, savedRanges } from '@/lib/plg/offline'
 
 export function latest() { return { connectionId: SIGMA.connectionId, sql: latestDaySql(todayUTC()) } }
@@ -43,6 +44,7 @@ export function defaults(dataEnd: string, ytDir: string) {
       startup: [...new Set(ranges.map(rangeLabel))],
       slg: [...new Set(ranges.map(rangeLabel))],
       tier4: [...new Set(ranges.map(rangeLabel))],
+      cro: [...new Set(ranges.map(rangeLabel))],
     },
     main: dashboardSql(base, plans),
     social: socialSql({ cur: base.summaries.cur, prev: base.summaries.prev, tagged, fallbacks, ranges }),
@@ -51,5 +53,6 @@ export function defaults(dataEnd: string, ytDir: string) {
     tier4: tier4Sql(ranges),
     // Not range-dependent: accounts with a Tier 4 touchpoint in the 180 days to dataEnd.
     tier4list: tier4ListSql(dataEnd),
+    cro: croSql(ranges, dataEnd),
   }
 }
