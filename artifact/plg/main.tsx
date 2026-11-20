@@ -483,7 +483,7 @@ function App() {
     : socialProblem && !socialView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(socialProblem).title}: {problemCopy(socialProblem).body}</p>
     : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for YouTube traffic… first load takes 10–30 seconds.'}</p>
     : 'error' in socialView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {socialView.error}</p>
-    : <SocialView s={socialView.s} loading={socialView.stale} thumbs={route.channel === "all" ? null : thumbs[route.channel] ?? null} />
+    : <SocialView s={socialView.s} loading={socialView.stale} thumbs={route.channel === "all" ? Object.assign({}, ...Object.values(thumbs)) : thumbs[route.channel] ?? null} />
   const startupPane = route.tab !== 'startup' ? null
     : startupProblem && !startupView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(startupProblem).title}: {problemCopy(startupProblem).body}</p>
     : !startupView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for startup program traffic… first load takes 10–30 seconds.'}</p>

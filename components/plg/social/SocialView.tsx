@@ -313,25 +313,48 @@ const PARAM_LABEL: Record<string, string> = { utm_source: 'Source', utm_medium: 
 type SVVideo = SV['videos'][number]
 type SVPeriod = SV['videoPeriod'][string] | undefined
 
-/** Inline expansion: the headline numbers only; the deep dive below has the rest. */
-function VideoSummary({ v, p, onDeep }: { v: SVVideo; p: SVPeriod; onDeep: () => void }) {
-  const stat = (label: string, val: React.ReactNode) => (
-    <div className="flex flex-col gap-0.5 min-w-[110px]"><span className="text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.1em', ...mono }}>{label}</span><span className="text-[20px]" style={mono}>{val}</span></div>
+/**
+ * Inline expansion: the six numbers that say whether a video works, each vs the period before.
+ * YouTube's side (views, thumbnail CTR, average view duration) then the handoff to Clay (CTA CTR, referral visits, new workspaces).
+ */
+function VideoSummary({ v, d, onDeep }: { v: SVVideo; d: SV['videoDeep'][string] | undefined; onDeep: () => void }) {
+  const t0 = d?.totals.cur, t1 = d?.totals.prev
+  const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`
+  const rr = (a?: number | null, b?: number | null) => (a != null && b ? a / b : null)
+  const avd = (t?: typeof t0) => (t?.views && t.minutes != null ? (t.minutes * 60) / t.views : null)
+  const chgEl = (cur: number | null, prev: number | null, unit: 'pct' | 'pp') => {
+    if (cur == null || prev == null || (unit === 'pct' && !prev)) return <span style={{ color: T.faint }}>– vs before</span>
+    const x = unit === 'pp' ? cur - prev : (cur - prev) / prev
+    const flat = Math.abs(x) < 0.0005
+    return <span style={{ color: deltaColor(flat ? 0 : x), ...mono }}>{flat ? '—' : x > 0 ? '▲' : '▼'}{unit === 'pp' ? `${Math.abs(x * 100).toFixed(1)}pp` : `${Math.abs(x * 100).toFixed(Math.abs(x) < 0.1 ? 1 : 0)}%`} <span style={{ color: T.muted, fontFamily: 'inherit' }}>vs before</span></span>
+  }
+  const stat = (label: string, val: React.ReactNode, c: React.ReactNode) => (
+    <div className="flex flex-col gap-0.5 min-w-[120px]">
+      <span className="text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.1em', ...mono }}>{label}</span>
+      <span className="text-[22px] leading-tight" style={mono}>{val}</span>
+      <span className="text-[12px]">{c}</span>
+    </div>
   )
+  const tctr = rr(t0?.clk, t0?.impr), ptctr = rr(t1?.clk, t1?.impr)
+  const cta = v.tagged ? rr(t0?.visits, t0?.views) : null, pcta = v.tagged ? rr(t1?.visits, t1?.views) : null
   return (
-    <div className="flex flex-col gap-3 min-w-0 flex-1">
-      <div className="flex flex-wrap gap-x-8 gap-y-3">
-        {stat('Views', fmtInt(p?.views ?? null))}
-        {stat('Impressions', p?.impressions != null ? fmtInt(p.impressions) : '–')}
-        {stat('Thumbnail CTR', p?.impressions ? fmtPct((p.imprClicks ?? 0) / p.impressions, 1) : '–')}
-        {stat('Referral visits', p?.visits != null ? fmtInt(p.visits) : '–')}
-        {stat('New workspaces', p?.newWs != null ? fmtInt(p.newWs) : '–')}
+    <div className="flex flex-col gap-4 min-w-0 flex-1">
+      <div className="flex flex-wrap gap-x-8 gap-y-4">
+        {stat('Views', fmtInt(t0?.views ?? null), chgEl(t0?.views ?? null, t1?.views ?? null, 'pct'))}
+        {stat('Thumbnail CTR', tctr != null ? fmtPct(tctr, 1) : '–', chgEl(tctr, ptctr, 'pp'))}
+        {stat('Avg view duration', avd(t0) != null ? dur(avd(t0)!) : '–', chgEl(avd(t0), avd(t1), 'pct'))}
+        {v.tagged ? <>
+          {stat('CTA CTR', cta != null ? fmtPct(cta, 1) : '–', chgEl(cta, pcta, 'pp'))}
+          {stat('Referral visits', fmtInt(t0?.visits ?? 0), chgEl(t0?.visits ?? 0, t1?.visits ?? 0, 'pct'))}
+          {stat('New workspaces', fmtInt(t0?.newWs ?? 0), chgEl(t0?.newWs ?? 0, t1?.newWs ?? 0, 'pct'))}
+        </> : <p className="text-[13px] self-center max-w-[320px]" style={{ color: T.muted }}>No tracked clay.com link, so referral visits and workspaces can’t be tied to this video.</p>}
       </div>
       <button type="button" onClick={onDeep} className="self-start rounded-full px-4 py-2 text-[14px] font-medium" style={{ background: T.ink, color: '#fff' }}>Open the deep dive ↓</button>
     </div>
   )
 }
 
+/** The Videos table's seven numbers, the same metrics as the tiles: reach (YouTube) then traffic and signups (Clay). */
 type DeepSel = { channels: string[]; videos: string[] }
 
 /**
@@ -620,7 +643,7 @@ function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: stri
             <tr key={v.id} style={{ borderBottom: open === v.id ? 'none' : `1px solid ${T.border}`, background: open === v.id || deep === v.id ? '#E8F6F8' : undefined }}>
               <td className="px-3 py-3 min-w-[300px] max-w-[380px]">
                 <div className="flex items-start gap-3">
-                  {creator && thumbs?.[v.id]
+                  {thumbs?.[v.id]
                     ? <button type="button" onClick={() => setOpen(open === v.id ? null : v.id)} aria-expanded={open === v.id} aria-label={`Open ${v.title}`} className="relative shrink-0 rounded-md overflow-hidden" style={{ width: 96, height: 54, background: T.tile }}>
                         <img src={thumbs[v.id]} alt="" width={96} height={54} style={{ width: 96, height: 54, objectFit: 'cover', display: 'block' }} />
                         <span className="absolute bottom-0.5 right-0.5 rounded px-1 text-[10px]" style={{ background: 'rgba(0,0,0,0.75)', color: '#fff', ...mono }}>{dur(v.durationSec)}</span>
@@ -640,7 +663,7 @@ function VideoTable({ s, sel, setSel, thumbs, onDeep, deep }: { s: SV; sel: stri
                 <td colSpan={8} className="px-3 pb-4">
                   <div className="flex flex-wrap items-start gap-5">
                     {thumbs?.[v.id] && <img src={thumbs[v.id]} alt={v.title} width={240} height={135} className="rounded-lg" style={{ width: 240, maxWidth: '100%', height: 'auto', display: 'block' }} />}
-                    <VideoSummary v={v} p={p} onDeep={() => onDeep(v.id)} />
+                    <VideoSummary v={v} d={s.videoDeep[v.id]} onDeep={() => onDeep(v.id)} />
                   </div>
                 </td>
               </tr>
