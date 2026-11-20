@@ -23,10 +23,11 @@ export function latest() { return { connectionId: SIGMA.connectionId, sql: lates
  */
 export function defaults(dataEnd: string, ytDir: string) {
   const quarters = resolveQuarters(DEFAULT_QUARTERS, [])
+  // Channel documents only: the collection also holds thumbs-<channelId> documents (images, no videos list).
   const yt = readdirSync(ytDir).filter(f => f.endsWith('.json')).map(f => {
     const j = JSON.parse(readFileSync(join(ytDir, f), 'utf8'))
     return (j && 'data' in j && Object.keys(j).length <= 3 ? j.data : j) as YtChannelDoc
-  })
+  }).filter(d => d && Array.isArray(d.videos))
   const tagged = taggedVideos(yt, dataEnd), fallbacks = channelFallbacks(yt, dataEnd)
   const plans = OFFLINE_COMBOS.map(c => planDashboard(new URLSearchParams(comboQs(c.preset, c.compare)), dataEnd, quarters))
   const ranges = savedRanges(plans)

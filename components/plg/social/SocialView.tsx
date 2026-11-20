@@ -348,7 +348,7 @@ function VideoDeepDive({ s, id, setId, thumbs }: { s: SV; id: string | null; set
     <div className="rounded-2xl p-4 flex flex-col gap-1.5" style={{ background: T.tile }}>
       <Eyebrow>{label}</Eyebrow>
       <span className="text-[26px] leading-none" style={mono}>{val}</span>
-      <span className="text-[13px]" style={{ color: T.muted }}>{d == null ? '– vs the period before' : <><span style={{ color: deltaColor(d), ...mono }}>{d > 0 ? '▲' : d < 0 ? '▼' : '—'}{unit === 'pp' ? `${Math.abs(d * 100).toFixed(1)}pp` : `${Math.abs(d * 100).toFixed(Math.abs(d) < 0.1 ? 1 : 0)}%`}</span> vs the period before</>}</span>
+      <span className="text-[13px]" style={{ color: T.muted }}>{d == null ? '– vs the period before' : <><span style={{ color: deltaColor(Math.abs(d) < 0.0005 ? 0 : d), ...mono }}>{Math.abs(d) < 0.0005 ? '—' : d > 0 ? '▲' : '▼'}{unit === 'pp' ? `${Math.abs(d * 100).toFixed(1)}pp` : `${Math.abs(d * 100).toFixed(Math.abs(d) < 0.1 ? 1 : 0)}%`}</span> vs the period before</>}</span>
     </div>
   )
   const fmtShortD = (d: string) => fmtShort(d)

@@ -11,7 +11,7 @@
  * Salesforce Tier 1–3 account among identified visitors. Domain = the workspace's billing domain
  * (CUSTOMERS.DOMAIN, business domains only); tier = STG_SALESFORCE__ACCOUNT.SALES_TIER_C.
  *
- * Row kinds (k), b = cur | prev:
+ * Row kinds (k), b = cur | prev (cday: visits per paid campaign per day, d = day|platform|campaign):
  *   vis   distinct visitors (n), identified visitors (a)
  *   cls   identified visitors by class (d = Tier 1..4 | No Salesforce account | Personal email | Academic | Invalid or missing domain):
  *         n distinct domains (business classes), a identified visitors, p new workspaces, x activated ≤7d, c paid
@@ -127,6 +127,9 @@ GROUP BY pc."b", pc."platform", pc."camp"
 UNION ALL
 SELECT 'dv', ${bucket('pv."day"')}, CAST(pv."day" AS string), COUNT(DISTINCT pv."aid"), 0, 0, 0, 0
 FROM ${src} pv WHERE ${bucket('pv."day"')} IS NOT NULL GROUP BY ${bucket('pv."day"')}, CAST(pv."day" AS string)
+UNION ALL
+SELECT 'cday', ${bucket('pv."day"')}, CAST(pv."day" AS string) || '|' || pv."platform" || '|' || pv."camp", COUNT(DISTINCT pv."aid"), 0, 0, 0, 0
+FROM ${src} pv WHERE pv."platform" IS NOT NULL AND ${bucket('pv."day"')} IS NOT NULL GROUP BY ${bucket('pv."day"')}, pv."day", pv."platform", pv."camp"
 UNION ALL
 SELECT 'dw', "b", CAST("d0" AS string), COUNT(DISTINCT "wid"), COUNT(DISTINCT CASE WHEN "act" = 1 THEN "wid" END),
        COUNT(DISTINCT CASE WHEN "cls" IN ('Tier 1', 'Tier 2', 'Tier 3') THEN "dom" END), 0, 0

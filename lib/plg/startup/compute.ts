@@ -84,7 +84,7 @@ export const ENABLEMENT = [
 function daily(rows: Row[], b: 'cur' | 'prev', range: [ISODate, ISODate]) {
   const v = new Map(rows.filter(r => r.k === 'dv' && r.b === b).map(r => [r.d.slice(0, 10), r.n]))
   const w = new Map(rows.filter(r => r.k === 'dw' && r.b === b).map(r => [r.d.slice(0, 10), r]))
-  const n = daysBetween(range[0], range[1]) + 1
+  const n = daysBetween(range[0], range[1])
   return Array.from({ length: Math.max(0, n) }, (_, i) => {
     const d = addDays(range[0], i); const x = w.get(d)
     return { d, visits: v.get(d) ?? 0, newWs: x?.n ?? 0, activated: x?.a ?? 0, mqal: x?.p ?? 0 }
@@ -111,8 +111,19 @@ export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODa
     const rel = r / pr - 1
     if (!move || rel < move.rel) move = { name: s.name, rl: s.rl!, r, pr, rel }
   }
+  // Paid campaign visits by day (campaign deep dive), keyed "platform|campaign", aligned to the period's days.
+  const campDays = (b: 'cur' | 'prev', range: [ISODate, ISODate]) => {
+    const m = new Map<string, Map<ISODate, number>>()
+    for (const r of o.rows) if (r.k === 'cday' && r.b === b) {
+      const [d, ...k] = r.d.split('|'); const key = k.join('|')
+      const mm = m.get(key) ?? new Map(); mm.set(d.slice(0, 10), (mm.get(d.slice(0, 10)) ?? 0) + r.n); m.set(key, mm)
+    }
+    const n = daysBetween(range[0], range[1])
+    return (key: string) => Array.from({ length: Math.max(0, n) }, (_, i) => { const d = addDays(range[0], i); return { d, visits: m.get(key)?.get(d) ?? 0 } })
+  }
+  const campaignDaily = { cur: campDays('cur', o.cur), prev: campDays('prev', o.prev), has: o.rows.some(r => r.k === 'cday') }
   return {
-    cur: o.cur, prev: o.prev, T, P, move, days, insight: startupInsight(T, P),
+    cur: o.cur, prev: o.prev, T, P, move, days, insight: startupInsight(T, P), campaignDaily,
     beforeLaunch: o.cur[1] < STARTUP.launch,
     rate,
   }
