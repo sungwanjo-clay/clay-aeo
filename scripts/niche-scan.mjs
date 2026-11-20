@@ -2,7 +2,9 @@
  * Weekly niche scan, step 1 of 2: pull what the GTM / cold email / AI lead-gen niche is watching from the YouTube Data
  * API (public data). Step 2 (scripts/niche-analyze.mjs) scores it and writes the dashboard's youtube/scan document.
  *
- *   NODE_USE_ENV_PROXY=1 node scripts/niche-scan.mjs <outDir> [--creators dist/creators/creators.json] [--prev <raw.json>] [--discover] [--resume]
+ *   NODE_USE_ENV_PROXY=1 node scripts/niche-scan.mjs <outDir> [--creators dist/creators/creators.json] [--prev-scan <scan.json>] [--discover] [--resume]
+ *
+ * --prev-scan is last week's youtube/scan document: its `tracked` list is this week's channel list.
  *
  * --resume reuses the searches and channel list already in <outDir>/raw.json (after a stopped or partial run) and only
  * pulls uploads again.
@@ -26,7 +28,10 @@ const outDir = args[0]
 if (!outDir) { console.error('usage: node scripts/niche-scan.mjs <outDir> [--creators <creators.json>] [--prev <raw.json>] [--discover]'); process.exit(2) }
 const opt = k => { const i = args.indexOf(k); return i > 0 ? args[i + 1] : null }
 const cfg = JSON.parse(readFileSync(resolve(import.meta.dirname, '../lib/plg/creators/scan.config.json'), 'utf8'))
-const prev = opt('--prev') && existsSync(opt('--prev')) ? JSON.parse(readFileSync(opt('--prev'), 'utf8')) : null
+const prevFile = opt('--prev-scan') ?? opt('--prev')
+const prevDoc = prevFile && existsSync(prevFile) ? JSON.parse(readFileSync(prevFile, 'utf8')) : null
+// Last week's channel list: a scan document's `tracked`, or (older runs) a raw pull's channels.
+const prev = prevDoc ? { channels: Object.fromEntries((prevDoc.tracked ?? Object.keys(prevDoc.channels ?? {})).map(id => [id, 1])) } : null
 const creators = opt('--creators') && existsSync(opt('--creators')) ? JSON.parse(readFileSync(opt('--creators'), 'utf8')) : null
 const resume = args.includes('--resume') && existsSync(resolve(outDir, 'raw.json')) ? JSON.parse(readFileSync(resolve(outDir, 'raw.json'), 'utf8')) : null
 const discover = !resume && (args.includes('--discover') || !prev)

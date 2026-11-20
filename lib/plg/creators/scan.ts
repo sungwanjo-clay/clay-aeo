@@ -46,6 +46,8 @@ export type ScanDoc = {
   /** Themes recommended in the previous scan, to mark what's new. */
   prevRecThemes?: ThemeId[]
   seen: string[]
+  /** Every tracked channel id, so next week's pull starts from the same list (scripts/niche-scan.mjs --prev-scan). */
+  tracked: string[]
 }
 
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null }
@@ -153,6 +155,7 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
     pulse: { newTotal: fresh.length, earlyHits: fresh.filter(r => r.x! >= 1.5).length, newVideos, newChannels: raw.newChannels, terms },
     prevRecThemes: prev?.recs?.map(r => r.theme) ?? prev?.prevRecThemes ?? [],
     seen: [...new Set([...seen, ...raw.videos.map(v => v.id)])],
+    tracked: Object.keys(raw.channels),
   }
 }
 
