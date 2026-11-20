@@ -50,8 +50,9 @@ function Kpis({ s }: { s: SV }) {
         tip={<>Workspaces created within {STARTUP.newWindowDays} days of a visit to the startup page, all tiers and email types.</>}>
         {dl(c.newWs, p.newWs)}<br /><span style={mono}>{fmtInt(c.newWsT13)}</span> at Tier 1–3
       </Tile>
-      <Tile label="Offer redeemed" value={<NC why="No offer sent yet" />} muted tip={<>Workspaces that used the startup discount. No offer has been sent yet.</>}>
-        No offer sent yet
+      <Tile label="Redemptions" value={<NC why="No offer sent yet; promo-code redemptions aren’t connected" />} muted
+        tip={<>Count of startup offer redemptions in the range: workspaces that applied the startup discount, from Stripe promo-code redemptions. Not connected until the discount exists and is wired up.</>}>
+        Not connected until the offer launches
       </Tile>
       <Tile label="Eligible workspaces" value={<NC why="Eligibility source isn’t in Snowflake yet" />} muted
         tip={<>New workspaces from companies that pass the Startup Offer Eligibility rule: verified Seed or Series A, VC-backed (Pre-Seed doesn’t qualify), and a net-new workspace. Backing from a partner firm can change the offer tier but doesn’t make a company eligible on its own. Comes from the eligibility workflow’s weekly snapshot in Snowflake, which isn’t hooked up yet.</>}>
@@ -240,6 +241,8 @@ function Progress({ s }: { s: SV }) {
     m('newWs', 'New workspaces', s.T.newWs, s.P.newWs, `By the visitor’s first visit day; a workspace counts if created within ${STARTUP.newWindowDays} days of it.`),
     m('mqal', 'MQALs (Tier 1–3 domains)', s.T.mqal, s.P.mqal, 'Tier 1–3 company domains with a new workspace, by first visit day.'),
     m('activated', 'Activated workspaces', s.T.activated, s.P.activated, 'New workspaces that ran a first table within 7 days, by first visit day.'),
+    { id: 'redemptions', label: 'Redemptions', fmt: fmtInt, points: [], summary: <span style={{ color: T.faint, fontStyle: 'italic' }}>Not connected</span>,
+      empty: 'Redemptions: Not connected. They appear here once the startup discount launches and promo-code redemptions are in Snowflake.' },
   ]
   return <ProgressChart title="Progress" metrics={cur.length ? metrics : metrics.map(x => ({ ...x, points: [] }))} />
 }
