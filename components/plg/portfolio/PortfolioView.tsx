@@ -23,7 +23,7 @@ const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
 const head = { color: T.muted, letterSpacing: '0.12em', fontFamily: T.mono, borderBottom: `1px solid ${T.border}` } as const
 const mono = { fontFamily: T.mono } as const
 const num = 'px-3 py-3 text-right whitespace-nowrap'
-const PAGE = 200
+const PAGE = 150
 
 function NC({ why }: { why?: string }) {
   return <span title={why} style={{ color: T.faint, fontStyle: 'italic' }}>Not connected</span>
@@ -186,6 +186,7 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
   meta: PortfolioMeta; firmIds: string[] | null; firmName: (id: string) => string; pick: (id: string | null) => void; selected: string | null
 }) {
   const [sort, setSort] = useState<Sort>({ key: 'firm', dir: 1 })
+  const [shownSrc, setShownSrc] = useState(PAGE)
   const cov = meta.sources ?? []
   const runs = meta.sourceRuns ?? []
   const ids = firmIds ?? [...new Set(cov.map(r => r.firm_id))]
@@ -220,7 +221,7 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
           {used.map(s => sortTh(s, SOURCE_LABEL[s] ?? s, true, true))}
           {sortTh('last', 'Last run', true, false)}
         </tr></thead>
-        <tbody>{sorted.map(id => (
+        <tbody>{sorted.slice(0, shownSrc).map(id => (
           <tr key={id} onClick={() => pick(selected === id ? null : id)} className="cursor-pointer"
             style={{ borderBottom: `1px solid ${T.border}`, background: selected === id ? '#E8F6F8' : undefined }}>
             <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(id)}</td>
@@ -239,8 +240,24 @@ function Sources({ meta, firmIds, firmName, pick, selected }: {
           </tr>
         ))}</tbody>
       </table></div>
+      <MoreLess total={sorted.length} shown={shownSrc} set={setShownSrc} what="firms" />
       <p className="text-[13px]" style={{ color: T.muted }}>Salesforce is our own CRM: it shows which accounts already list the firm as an investor, so it confirms rather than discovers.</p>
     </Card>
+  )
+}
+
+/** Row-count control under a long table: "Showing 150 of 258 · Show 108 more · Show all", or "Collapse to 150". */
+function MoreLess({ total, shown, set, what }: { total: number; shown: number; set: (n: number) => void; what: string }) {
+  if (total <= PAGE) return null
+  const btn = 'rounded-full px-4 py-2 text-[14px]'
+  const st = { background: '#fff', border: `1px solid ${T.border}`, color: T.ink }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[14px]" style={{ color: T.muted }}>
+      <span style={mono}>Showing {fmtInt(Math.min(shown, total))} of {fmtInt(total)} {what}</span>
+      {shown < total && <button type="button" className={btn} style={st} onClick={() => set(shown + PAGE)}>Show {fmtInt(Math.min(PAGE, total - shown))} more</button>}
+      {shown < total && total - shown > PAGE && <button type="button" className={btn} style={st} onClick={() => set(total)}>Show all</button>}
+      {shown > PAGE && <button type="button" className={btn} style={st} onClick={() => set(PAGE)}>Collapse to {PAGE}</button>}
+    </div>
   )
 }
 
@@ -268,6 +285,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const [q, setQ] = useState('')
   const [tier, setTier] = useState<TierFilter>('all')
   const [shown, setShown] = useState(PAGE)
+  const [firmShown, setFirmShown] = useState(PAGE)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
 
   const meta = data?.meta
@@ -480,7 +498,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
           <div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-[15px]" style={{ color: T.ink }}>
             <Head cols={firmCols} sort={firmSort} onSort={setFirmSort} />
             <tbody>
-              {sortedFirmRows.length ? sortedFirmRows.map(r => {
+              {sortedFirmRows.length ? sortedFirmRows.slice(0, firmShown).map(r => {
                 const f = firmsById.get(r.firm_id)
                 const on = firmId === r.firm_id
                 return (
@@ -531,6 +549,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               )
             })()}
           </table></div>
+          <MoreLess total={sortedFirmRows.length} shown={firmShown} set={setFirmShown} what="firms" />
           {firmsWithoutRoster > 0 && <p className="text-[13px]" style={{ color: T.muted }}>{fmtInt(firmsWithoutRoster)} more {firmsWithoutRoster === 1 ? 'firm' : 'firms'} in this cut {firmsWithoutRoster === 1 ? 'has' : 'have'} no roster yet.</p>}
           <ColDefs cols={firmCols} />
         </Card>
@@ -620,10 +639,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               </tr></tfoot>
             )}
           </table></div>
-          {list.length > shown && (
-            <button type="button" onClick={() => setShown(s => s + PAGE)} className="self-start rounded-full px-4 py-2 text-[14px]"
-              style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }}>Show {fmtInt(Math.min(PAGE, list.length - shown))} more</button>
-          )}
+          <MoreLess total={list.length} shown={shown} set={setShown} what="companies" />
           <ColDefs cols={COMPANY_COLS} />
         </Card>
       )}
