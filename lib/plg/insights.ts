@@ -19,13 +19,15 @@ export type Run =
   /** Change: pct = relative change (0.12 = 12%), pp = percentage points (already ×100), abs = count. goodUp: is up good? */
   | { k: 'chg'; v: number | null; unit: 'pct' | 'pp' | 'abs'; goodUp?: boolean }
 export type Para = Run[]
+/** A driver section: one lead line, one bullet per contributor, and an optional closing line. */
+export type Block = { lead: Para; bullets: Para[]; note?: Para | null }
 export type GoalLine = { tone: 'good' | 'bad' | 'flat'; para: Para }
 export type Insight = {
   title?: string
   /** One-line context, e.g. "Through Nov 17: one or more channels are lagging." */
   note?: string | null
   headline: Para[]
-  drivers: Para[]
+  drivers: (Para | Block)[]
   emerging: Para[]
   anomalies: Para[]
   goals: GoalLine[]
@@ -67,42 +69,39 @@ export function goalNote(cur: number, goal: number, floor?: { n: number; min: nu
 export type Item = { label: string; cur: number; prev: number; tags?: string[] }
 
 /**
- * One driver paragraph. `metric` is plural ("Views", "Referral visits"); `unit` the noun for an item's change
- * ("views", "visits"). Items below `minVolume` in both periods are never cited.
+ * One driver section. `metric` is the plural or mass noun ("Views", "Paying ARR"); `unit` the noun for an item's
+ * change ("views", "visits"). Items below `minVolume` in both periods are never cited.
+ *   Lead:    Views ▲23% · up 1,483 vs the period before
+ *   Bullets: "Title" +1,219 views · 82% of the net change · Peter Kang       (same direction only, top 3)
+ *            Offsetting: "Title" −147 views · offsets 10%                   (at most one)
+ *   Note:    Most of the change comes from one video.                       (when the move is 10%+)
  */
-export function driverPara(metric: string, unit: string, total: { cur: number; prev: number }, items: Item[], o: { minVolume?: number; usd?: boolean; noun?: string } = {}): Para | null {
+export function driverPara(metric: string, unit: string, total: { cur: number; prev: number }, items: Item[], o: { minVolume?: number; usd?: boolean; noun?: string; goodUp?: boolean } = {}): Block | null {
   const net = total.cur - total.prev
-  const fmt = (n: number) => (o.usd ? usd(Math.abs(n)) : `${int(Math.abs(n))} ${Math.abs(n) === 1 ? unit.replace(/s$/, '') : unit}`)
+  const amt = (n: number) => (o.usd ? usd(Math.abs(n)) : int(Math.abs(n)))
+  const fmt = (n: number) => (o.usd ? `${n > 0 ? '+' : '−'}${usd(Math.abs(n))}` : `${n > 0 ? '+' : '−'}${int(Math.abs(n))} ${Math.abs(n) === 1 ? unit.replace(/s$/, '') : unit}`)
   if (!total.cur && !total.prev) return null
-  if (net === 0) return [`${metric} are flat at ${o.usd ? usd(total.cur) : int(total.cur)} vs the period before.`]
+  if (net === 0) return { lead: [b(metric), ` flat at ${o.usd ? usd(total.cur) : int(total.cur)} vs the period before`], bullets: [] }
   const dir = Math.sign(net)
-  const out: Para = [`${metric} are ${dir > 0 ? 'up' : 'down'} ${o.usd ? usd(Math.abs(net)) : int(Math.abs(net))} vs the period before (`, chg(rel(total.cur, total.prev)), '). ']
+  const lead: Para = [b(metric), ' ', chg(rel(total.cur, total.prev), 'pct', o.goodUp ?? true), ` · ${dir > 0 ? 'up' : 'down'} ${amt(net)} vs the period before`]
   const min = o.minVolume ?? 0
   const eligible = items.filter(i => Math.max(i.cur, i.prev) >= min && i.cur !== i.prev)
   const same = eligible.filter(i => Math.sign(i.cur - i.prev) === dir).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
   const opp = eligible.filter(i => Math.sign(i.cur - i.prev) === -dir).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
-  const share = (i: Item) => `${Math.round(Math.abs(i.cur - i.prev) / Math.abs(net) * 100)}% of the net change`
+  const share = (i: Item) => `${Math.round(Math.abs(i.cur - i.prev) / Math.abs(net) * 100)}%`
   const top = same.slice(0, 3)
-  if (top.length) {
-    out.push(dir > 0 ? `Biggest gains: ` : `Biggest declines: `)
-    top.forEach((i, ix) => {
-      if (ix) out.push(ix === top.length - 1 ? ' and ' : '; ')
-      out.push(code(i.label), ` ${dir > 0 ? 'gained' : 'lost'} ${fmt(i.cur - i.prev)} (${[share(i), ...(i.tags ?? [])].join('; ')})`)
-    })
-    out.push('. ')
-  }
-  if (opp[0]) out.push('Offsetting: ', code(opp[0].label), ` ${dir > 0 ? 'down' : 'up'} ${fmt(opp[0].cur - opp[0].prev)} (offsetting ${share(opp[0])}). `)
-  // Interpretation (when the move is 10%+): how concentrated the change is. Descriptive only.
+  const bullets: Para[] = top.map(i => [code(i.label), ` ${fmt(i.cur - i.prev)} · ${share(i)} of the net change`, ...(i.tags?.length ? [` · ${i.tags.join(' · ')}`] : [])])
+  if (opp[0]) bullets.push(['Offsetting: ', code(opp[0].label), ` ${fmt(opp[0].cur - opp[0].prev)} · offsets ${share(opp[0])}`])
+  // How concentrated the change is (when the move is 10%+). Descriptive only.
+  let note: Para | null = null
   const r = rel(total.cur, total.prev)
   if (top.length && r != null && Math.abs(r) >= 0.1) {
     const s1 = Math.abs(top[0].cur - top[0].prev) / Math.abs(net)
     const s3 = top.reduce((a, i) => a + Math.abs(i.cur - i.prev), 0) / Math.abs(net)
     const noun = o.noun ?? 'items'
-    out.push(s1 >= 0.5 ? `Most of the change comes from one of the ${noun}.`
-      : s3 >= 0.8 ? `The top ${top.length} account for ${Math.round(s3 * 100)}% of the change.`
-      : `The change is spread across many ${noun}.`)
+    note = [s1 >= 0.5 ? `Most of the change comes from one of the ${noun}.` : s3 >= 0.8 ? `The top ${top.length} account for ${Math.round(s3 * 100)}% of the change.` : `The change is spread across many ${noun}.`]
   }
-  return out
+  return { lead, bullets, note }
 }
 
 /** Goal line: good when at/above goal or moving toward it, bad otherwise; names the biggest gap contributor if given. */
@@ -117,4 +116,24 @@ export function goalLine(label: string, cur: number | null, prev: number | null,
   if (gap && cur < goal) para.push(`. Biggest gap: ${gap}`)
   para.push('.')
   return { tone, para }
+}
+
+/**
+ * A rate paragraph: how much the rate moved, and whether the numerator or the denominator moved it.
+ * "Visit → workspace is down 3.4pp to 5.0% (▼3.4pp): new workspaces fell 50% (18 → 9) while visits fell 16% (215 → 180)."
+ * Adds a low-volume clause when the current denominator is under `minDen`.
+ */
+export function ratePara(label: string, num: { cur: number; prev: number; noun: string }, den: { cur: number; prev: number; noun: string }, minDen = 20): Para | null {
+  if (!den.cur || !den.prev) return null
+  const r = num.cur / den.cur, pr = num.prev / den.prev
+  const d = (r - pr) * 100
+  if (Math.abs(d) < 0.05) return [b(label), ` held at ${pct(r)}.`]
+  const move = (x: { cur: number; prev: number; noun: string }) => {
+    const c = rel(x.cur, x.prev)
+    return c == null ? `${x.noun} went from 0 to ${int(x.cur)}` : Math.abs(c) < 0.005 ? `${x.noun} held at ${int(x.cur)}`
+      : `${x.noun} ${c > 0 ? 'rose' : 'fell'} ${Math.abs(c * 100).toFixed(0)}% (${int(x.prev)} → ${int(x.cur)})`
+  }
+  const out: Para = [b(label), ' ', chg(d, 'pp'), ` · now ${pct(r)}: ${move(num)} while ${move(den)}.`]
+  if (den.cur < minDen) out.push(` This period rests on ${int(den.cur)} ${den.noun}, so a few people move the rate a lot.`)
+  return out
 }

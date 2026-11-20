@@ -4,7 +4,7 @@
  */
 import { addDays, daysBetween, type ISODate } from '../dates'
 import { STARTUP } from './sql'
-import { driverPara, headlineLine, type Insight, type Item, type Para } from '../insights'
+import { code, driverPara, headlineLine, ratePara, type Block, type Insight, type Item, type Para } from '../insights'
 
 type Row = { k: string; b: string; d: string; n: number; a: number; p: number; x: number; c: number }
 
@@ -119,7 +119,15 @@ export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODa
 }
 export type StartupViewModel = ReturnType<typeof buildStartup>
 
-/** What moved on the startup program (lib/plg/insights.ts rules). Drivers are the paid platforms and campaigns. */
+/**
+ * What moved on the startup program (lib/plg/insights.ts rules, same as Media properties):
+ *  - Visits, driven by paid campaign, with unpaid traffic as one residual item.
+ *  - New workspaces, driven by who the visitor is (Tier 1–3 / Tier 4 / no Salesforce account / personal / academic).
+ *  - MQALs by tier.
+ *  - Rate paragraphs (visit → workspace, activation, paid) saying whether the numerator or the denominator moved.
+ *  - Emerging: a campaign with 20+ visits that grew 5× or is new. Anomalies: one campaign that wasn't there before
+ *    bringing 80%+ of visits (often bot or misfiring ad traffic). Both omitted when nothing qualifies.
+ */
 function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
   if (T.visits < 1 && P.visits < 1) return { headline: [], drivers: [], emerging: [], anomalies: [], goals: [], empty: 'No startup-page visits in either period.' }
   const r = (n: number, d: number) => (d >= 1 ? n / d : null)
@@ -132,16 +140,36 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
     headlineLine('Paid rate', r(T.paid, T.newWs), r(P.paid, P.newWs), { kind: 'rate' }),
   ]
   const camp = (x: StartupPeriod['campaigns'][number]) => `${x.platform}${x.campaign && x.campaign !== '(no campaign)' ? ` · ${x.campaign}` : ' · no campaign'}`
-  const items = (f: (x: StartupPeriod['campaigns'][number]) => number) => {
+  const byCampaign = (f: (x: StartupPeriod['campaigns'][number]) => number, total: { cur: number; prev: number }, rest: string) => {
     const m = new Map<string, Item>()
     for (const x of T.campaigns) m.set(camp(x), { label: camp(x), cur: f(x), prev: 0 })
     for (const x of P.campaigns) { const k = camp(x); const it = m.get(k) ?? { label: k, cur: 0, prev: 0 }; it.prev = f(x); m.set(k, it) }
-    return [...m.values()]
+    const items = [...m.values()]
+    const pc = items.reduce((a, i) => a + i.cur, 0), pp = items.reduce((a, i) => a + i.prev, 0)
+    if (total.cur - pc || total.prev - pp) items.push({ label: rest, cur: total.cur - pc, prev: total.prev - pp })
+    return items
   }
+  // Who the new workspaces are: Tier 1–3 by tier, then the reasons a workspace isn't Tier 1–3.
+  const who = (x: StartupPeriod) => new Map([...x.tiers.map(t => [t.tier, t.newWs] as const), ...x.reasons.map(rr => [rr.reason, rr.people] as const)])
+  const wc = who(T), wp = who(P)
+  const whoItems: Item[] = [...new Set([...wc.keys(), ...wp.keys()])].map(k => ({ label: k, cur: wc.get(k) ?? 0, prev: wp.get(k) ?? 0 }))
+  const mqalItems: Item[] = T.tiers.map((t, i) => ({ label: t.tier, cur: t.mqal, prev: P.tiers[i]?.mqal ?? 0 }))
   const drivers = [
-    driverPara('Visits', 'visits', { cur: T.visits, prev: P.visits }, items(x => x.visits), { minVolume: 5, noun: 'campaigns' }),
-    driverPara('New workspaces', 'workspaces', { cur: T.newWs, prev: P.newWs }, items(x => x.newWs), { noun: 'campaigns' }),
-  ].filter((p): p is Para => !!p)
-  const lowVol = T.visits < 20 ? 'Fewer than 20 visits this period, so rates swing on a handful of people.' : null
-  return { note: lowVol, headline, drivers, emerging: [], anomalies: [], goals: [] }
+    driverPara('Visits', 'visits', { cur: T.visits, prev: P.visits }, byCampaign(x => x.visits, { cur: T.visits, prev: P.visits }, 'Unpaid traffic (organic, direct, referral)'), { minVolume: 3, noun: 'traffic sources' }),
+    driverPara('New workspaces', 'workspaces', { cur: T.newWs, prev: P.newWs }, whoItems, { noun: 'visitor types' }),
+    T.mqal || P.mqal ? driverPara('MQALs', 'MQALs', { cur: T.mqal, prev: P.mqal }, mqalItems, { noun: 'tiers' }) : null,
+    ratePara('Visit → workspace', { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }, { cur: T.visits, prev: P.visits, noun: 'visits' }),
+    ratePara('Activation rate', { cur: T.activated, prev: P.activated, noun: 'activated workspaces' }, { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }),
+    T.paid || P.paid ? ratePara('Paid rate', { cur: T.paid, prev: P.paid, noun: 'paying workspaces' }, { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }) : null,
+  ].filter((p): p is Para | Block => !!p)
+  const emerging: Para[] = []
+  const anomalies: Para[] = []
+  for (const x of T.campaigns) {
+    const before = P.campaigns.find(y => camp(y) === camp(x))?.visits ?? 0
+    if (x.visits >= 20 && (before === 0 || x.visits >= before * 5) && emerging.length < 2)
+      emerging.push([code(camp(x)), `: ${x.visits.toLocaleString('en-US')} visits this period${before ? ` (vs ${before.toLocaleString('en-US')})` : ' (new)'}; ${x.newWs} new workspaces, ${x.mqal} MQALs.`])
+    if (before === 0 && T.visits >= 50 && x.visits >= T.visits * 0.8)
+      anomalies.push([code(camp(x)), ` brought ${Math.round(x.visits / T.visits * 100)}% of this period’s visits (${x.visits.toLocaleString('en-US')}) and had none the period before, with ${x.newWs} new workspaces. Traffic this concentrated from one new source is often bot or misfiring ad traffic.`])
+  }
+  return { headline, drivers, emerging, anomalies, goals: [] }
 }

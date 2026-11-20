@@ -1,5 +1,5 @@
 /** What moved on the Workspaces tab (lib/plg/insights.ts rules), for the selected range vs the comparison range. */
-import { chg, driverPara, headlineLine, type Insight, type Item, type Para } from './insights'
+import { chg, driverPara, headlineLine, type Block, type Insight, type Item, type Para } from './insights'
 import type { DashboardPayload } from './plan'
 
 const int = (n: number) => Math.round(n).toLocaleString('en-US')
@@ -23,7 +23,7 @@ export function workspacesInsight(v: DashboardPayload): Insight {
   const channels: Item[] = v.table.groups.flatMap(g => g.children.map(c => ({ label: pretty(c.label), cur: c.cur, prev: c.prev, tags: [g.row.label] })))
   const drivers = [
     driverPara('New workspaces', 'workspaces', { cur: k.total, prev: k.prevTotal }, channels, { minVolume: 10, noun: 'channels' }),
-  ].filter((p): p is Para => !!p)
+  ].filter((p): p is Block => !!p)
   const anomalies: Para[] = []
   if (v.quality.shift.fired) anomalies.push([`High-quality share of non-personal workspaces moved `, chg(v.quality.shift.shiftPp, 'pp'),
     ` while non-personal volume held roughly flat: about ${int(v.quality.shift.reclassified)} workspaces look reclassified from high to low quality, so the HQ figures reflect a scoring change more than a change in signups.`])

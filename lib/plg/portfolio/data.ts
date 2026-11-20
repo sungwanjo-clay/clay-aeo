@@ -3,7 +3,7 @@
  * read from the Supabase dashboard views. All counts are companies, from the last COMPLETE non-staging
  * snapshot. Nothing here queries Sigma; Clay does the Snowflake lookup upstream.
  */
-import { driverPara, headlineLine, type Insight, type Para } from '../insights'
+import { code, driverPara, headlineLine, pct, ratePara, usd, type Block, type Insight, type Para } from '../insights'
 export type Cut = 'partnered' | 'pending' | 'not_partnered'
 export type CutFilter = Cut | 'all'
 
@@ -179,15 +179,37 @@ export function csvOf(rows: CompanyRow[], firmName: (id: string) => string): str
 }
 
 /**
- * What moved on the Portfolio tab: the latest weekly snapshot vs the one before (lib/plg/insights.ts rules).
- * Drivers are firms. Before a second week closes there is nothing to compare, and it says so.
+ * What moved on the Portfolio tab (lib/plg/insights.ts rules, same as Media properties): the latest weekly snapshot vs
+ * the one before, drivers are firms.
+ *  - Verified companies, companies with a Clay workspace, paying companies, paying ARR and churned ARR (up is bad).
+ *  - Rate paragraphs: workspace penetration (with a workspace ÷ verified) and paying share (paying ÷ with a workspace).
+ *  - Where it stands: how concentrated paying ARR is across firms. Shown even before there's a week to compare.
+ *  - Emerging: firms new to the snapshot, or whose paying ARR grew $50K+. Anomalies: a firm whose verified list fell
+ *    by half or more (usually a source run that failed, not companies leaving). Omitted when nothing qualifies.
  */
 export function portfolioInsight(meta: PortfolioMeta, cut: CutFilter, firmName: (id: string) => string, inCut: (firmId: string) => boolean): Insight {
   const latest = meta.latest?.snapshot_date ?? null, prev = meta.previous ?? null
   const c = countsFor(meta, latest, cut, null), p = countsFor(meta, prev, cut, null)
   const base: Insight = { headline: [], drivers: [], emerging: [], anomalies: [], goals: [] }
   if (!c) return { ...base, empty: 'No closed weekly snapshot yet.' }
-  if (!p) return { ...base, empty: `The week of ${latest} is the first closed snapshot, so there's nothing to compare yet: week-over-week movement starts after the next weekly publish. Today: ${c.portfolio.toLocaleString('en-US')} verified companies, ${c.with_workspace.toLocaleString('en-US')} with a Clay workspace, ${c.paying_now.toLocaleString('en-US')} paying.` }
+  const rows = (d: string | null) => new Map(d ? meta.firmRows.filter(r => r.snapshot_date === d && inCut(r.firm_id)).map(r => [r.firm_id, r]) : [])
+  const L = rows(latest), P = rows(prev)
+  const int = (n: number) => Math.round(n).toLocaleString('en-US')
+  // Where it stands: concentration of paying ARR (informative with or without a previous week).
+  const stands: Para = []
+  if (meta.arrConnected && (c.paying_arr_usd ?? 0) > 0) {
+    const top = [...L.values()].filter(r => (r.paying_arr_usd ?? 0) > 0).sort((a, b) => (b.paying_arr_usd ?? 0) - (a.paying_arr_usd ?? 0)).slice(0, 3)
+    const share = (n: number) => `${Math.round(n / (c.paying_arr_usd ?? 1) * 100)}%`
+    stands.push(`${int(c.paying_now)} portfolio companies pay ${usd(c.paying_arr_usd ?? 0)} ARR, ${int(c.with_workspace)} of ${int(c.portfolio)} verified companies (${pct(c.with_workspace / Math.max(1, c.portfolio))}) have a Clay workspace. `)
+    if (top.length) {
+      stands.push('The largest backers by paying ARR: ')
+      top.forEach((r, i) => { if (i) stands.push(i === top.length - 1 ? ' and ' : '; '); stands.push(code(firmName(r.firm_id)), ` ${usd(r.paying_arr_usd ?? 0)} (${share(r.paying_arr_usd ?? 0)} of the total; ${int(r.paying_now)} paying)`) })
+      stands.push('. A company backed by several firms counts under each of them, so firm shares add up to more than 100%.')
+    }
+  }
+  if (!p) return { ...base, drivers: stands.length ? [stands] : [], empty: stands.length ? null : `The week of ${latest} is the first closed snapshot, so there's nothing to compare yet.`,
+    headline: [headlineLine('Verified portfolio companies', c.portfolio, null), headlineLine('With a Clay workspace', c.with_workspace, null), headlineLine('Paying now', c.paying_now, null),
+      headlineLine('Paying ARR', c.paying_arr_usd ?? null, null, { kind: 'usd' })] }
   const headline: Para[] = [
     headlineLine('Verified portfolio companies', c.portfolio, p.portfolio),
     headlineLine('With a Clay workspace', c.with_workspace, p.with_workspace),
@@ -195,14 +217,31 @@ export function portfolioInsight(meta: PortfolioMeta, cut: CutFilter, firmName: 
     headlineLine('Paying ARR', c.paying_arr_usd ?? null, p.paying_arr_usd ?? null, { kind: 'usd' }),
     headlineLine('Churned ARR', c.churned_arr_usd ?? null, p.churned_arr_usd ?? null, { kind: 'usd' }),
   ]
-  const rows = (d: string) => new Map(meta.firmRows.filter(r => r.snapshot_date === d && inCut(r.firm_id)).map(r => [r.firm_id, r]))
-  const L = rows(latest!), P = rows(prev!)
   const items = (f: (r: Counts) => number) => [...new Set([...L.keys(), ...P.keys()])].map(id => ({ label: firmName(id), cur: L.get(id) ? f(L.get(id)!) : 0, prev: P.get(id) ? f(P.get(id)!) : 0 }))
   const drivers = [
     driverPara('Verified companies', 'companies', { cur: c.portfolio, prev: p.portfolio }, items(r => r.portfolio), { noun: 'firms' }),
     driverPara('Companies with a Clay workspace', 'companies', { cur: c.with_workspace, prev: p.with_workspace }, items(r => r.with_workspace), { noun: 'firms' }),
+    driverPara('Paying companies', 'companies', { cur: c.paying_now, prev: p.paying_now }, items(r => r.paying_now), { noun: 'firms' }),
     c.paying_arr_usd != null && p.paying_arr_usd != null
       ? driverPara('Paying ARR', 'ARR', { cur: c.paying_arr_usd, prev: p.paying_arr_usd }, items(r => r.paying_arr_usd ?? 0), { usd: true, noun: 'firms' }) : null,
-  ].filter((x): x is Para => !!x)
-  return { ...base, headline, drivers }
+    c.churned_arr_usd != null && p.churned_arr_usd != null && (c.churned_arr_usd || p.churned_arr_usd)
+      ? driverPara('Churned ARR', 'ARR', { cur: c.churned_arr_usd, prev: p.churned_arr_usd }, items(r => r.churned_arr_usd ?? 0), { usd: true, noun: 'firms', goodUp: false }) : null,
+    ratePara('Workspace penetration', { cur: c.with_workspace, prev: p.with_workspace, noun: 'companies with a workspace' }, { cur: c.portfolio, prev: p.portfolio, noun: 'verified companies' }),
+    ratePara('Paying share', { cur: c.paying_now, prev: p.paying_now, noun: 'paying companies' }, { cur: c.with_workspace, prev: p.with_workspace, noun: 'companies with a workspace' }),
+    stands.length ? stands : null,
+  ].filter((x): x is Para | Block => !!x)
+  const emerging: Para[] = []
+  for (const [id, r] of L) {
+    if (emerging.length >= 3) break
+    const b = P.get(id)
+    if (!b && r.portfolio >= 10) emerging.push([code(firmName(id)), ` (new this week): ${int(r.portfolio)} verified companies, ${int(r.with_workspace)} with a workspace, ${int(r.paying_now)} paying.`])
+    else if (b && (r.paying_arr_usd ?? 0) - (b.paying_arr_usd ?? 0) >= 50_000) emerging.push([code(firmName(id)), `: paying ARR ${usd(b.paying_arr_usd ?? 0)} → ${usd(r.paying_arr_usd ?? 0)}; ${int(r.paying_now)} paying companies.`])
+  }
+  const anomalies: Para[] = []
+  for (const [id, b] of P) {
+    const r = L.get(id)
+    if (b.portfolio >= 20 && (!r || r.portfolio <= b.portfolio / 2))
+      anomalies.push([code(firmName(id)), `: verified companies ${int(b.portfolio)} → ${int(r?.portfolio ?? 0)}. A drop this size usually means a source run failed this week rather than companies leaving the portfolio.`])
+  }
+  return { ...base, headline, drivers, emerging, anomalies: anomalies.slice(0, 5) }
 }

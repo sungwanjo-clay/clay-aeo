@@ -7,7 +7,7 @@
  * Analytics access. Nothing downstream substitutes a value.
  */
 import { addDays, daysBetween, minDate, type ISODate } from '../dates'
-import { code, driverPara, headlineLine, pct as pctTxt, type Insight, type Item, type Para } from '../insights'
+import { code, driverPara, headlineLine, pct as pctTxt, type Block, type Insight, type Item, type Para } from '../insights'
 import { CHANNELS, COHORT_DAYS, NO_ANALYTICS, OFFER_PAGE_PATTERNS, STEP_GOALS, TIER_LABELS, type CreatorChannel } from './config'
 import type { ChannelFallback, TaggedVideo } from './sql'
 
@@ -16,7 +16,9 @@ export interface YtVideo {
   campaign: string | null
   destination: string | null
   destinationKind: 'clay' | 'short_unresolved' | 'external' | 'none'
-  links: { url: string; kind: string; campaign: string | null }[]
+  /** full = the link as written with its query string; params = every query parameter (absent in older syncs). */
+  links: { url: string; full?: string; params?: Record<string, string>; kind: string; campaign: string | null }[]
+  likes?: number | null; comments?: number | null; publishedAt?: string; live?: boolean
   /** [day, views, minutes, avgViewPct, subsGained] */
   daily: [ISODate, number, number, number, number][]
   cohort28: { start: ISODate; end: ISODate; days: number; views: number; minutes: number; avgViewPct: number; subsGained: number } | null
@@ -105,7 +107,7 @@ export function buildSocial(o: {
   function cutOf(k: 'dev' | 'geo', keys: string[]) {
     const m = new Map<string, { name: string; visits: number; captures: number; newWs: number }>()
     for (const r of rows) {
-      if (r.k !== k || r.b !== 'coh' || !keys.includes(r.key)) continue
+      if (r.k !== k || r.b !== 'cur' || !keys.includes(r.key)) continue
       const e = m.get(r.d) ?? { name: r.d, visits: 0, captures: 0, newWs: 0 }
       e.visits += r.n; e.captures += r.a; e.newWs += r.p
       m.set(r.d, e)
@@ -151,6 +153,8 @@ export function buildSocial(o: {
         cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews, impressions: impr28, imprClicks: clicks28,
         views, viewsPending: analytics && !coh?.views, minutes: coh?.minutes ?? 0, avgViewPct: analytics && coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
         destination: v.destination, campaign: v.campaign, tagged: isTracked, offerPage,
+        links: v.links, likes: v.likes ?? null, comments: v.comments ?? null, publishedAt: v.publishedAt ?? null, live: !!v.live,
+        avgViewPct28: coh?.avgViewPct ?? null, subsGained28: coh?.subsGained ?? null,
         visits: vis?.n ?? null, captures: offerPage && form ? form.n : null,
         newWs: ws?.n ?? null, activated: ws?.a ?? null, paid: ws?.p ?? null, expanded: ws?.x ?? null, churned: ws?.c ?? null,
         visitRate: isTracked && views ? (vis?.n ?? 0) / views : null,
@@ -279,8 +283,37 @@ export function buildSocial(o: {
     return { channel: c.ch.label, visits: sum(pick('vis').map(r => r.n)), newWs: sum(ws.map(r => r.n)), activated: sum(ws.map(r => r.a)), paid: sum(ws.map(r => r.p)),
       tiersNew: ws.reduce((acc, r) => addT(acc, r.t), zeroT()) }
   }).filter(b => b.visits || b.newWs)
-  const trackedIds = scopeVideos.filter(v => v.tagged).map(v => v.id)
+  const trackedIds = [...new Set([...scopeVideos.filter(v => v.tagged).map(v => v.id), ...inScope.map(c => `ch:${c.ch.id}`)])]
   const cuts = { device: cutOf('dev', trackedIds), geo: cutOf('geo', trackedIds) }
+
+  // ── Videos table: every number for the selected dates, the same window as the tiles and the channel totals ──
+  // Views run through the last day YouTube has delivered (ytCurEnd). Each channel's views from videos older than the
+  // sync window go in one "older videos" row, so the rows add up to the channel's total.
+  type VP = { impressions: number | null; imprClicks: number | null; minutes: number | null; views: number | null; visits: number | null; captures: number | null; newWs: number | null; activated: number | null; paid: number | null; tiersNew: number[] | null; tiersExisting: number[] | null }
+  const videoPeriod: Record<string, VP> = {}
+  const olderVideos: { channel: string; views: number | null; visits: number; newWs: number; activated: number; paid: number; tiersNew: number[] }[] = []
+  for (const c of inScope) {
+    const doc = c.doc!
+    const inR = (d: ISODate) => d >= o.cur[0] && d <= ytCurEnd
+    let listed = 0
+    const listedIds = new Set(c.videos.map(v => v.id))
+    for (const v of c.videos) {
+      const dv = doc.videos.find(x => x.id === v.id)
+      const views = c.analytics && dv ? sum(dv.daily.filter(r => inR(r[0])).map(r => r[1])) : null
+      listed += views ?? 0
+      const vis = one('vis', 'cur', v.id), ws = one('ws', 'cur', v.id), ex = one('ex', 'cur', v.id), form = one('form', 'cur', v.id)
+      const imp = dv?.impressions ? dv.impressions.filter(r => inR(r[0])) : null
+      videoPeriod[v.id] = { impressions: imp ? sum(imp.map(r => r[1])) : null, imprClicks: imp ? sum(imp.map(r => r[2])) : null,
+        minutes: c.analytics && dv ? sum(dv.daily.filter(r => inR(r[0])).map(r => r[2])) : null, views, visits: v.tagged ? vis.n : null, captures: v.tagged && v.offerPage ? form.n : null, newWs: v.tagged ? ws.n : null, activated: v.tagged ? ws.a : null,
+        paid: v.tagged ? ws.p : null, tiersNew: v.tagged ? ws.t : null, tiersExisting: v.tagged ? ex.t : null }
+    }
+    const chViews = c.analytics ? sum(doc.daily.filter(r => inR(r[0])).map(r => r[1])) : null
+    const olderIds = doc.videos.filter(v => !listedIds.has(v.id)).map(v => v.id)
+    const ows = olderIds.map(id => one('ws', 'cur', id))
+    const older = { channel: c.ch.label, views: chViews != null ? chViews - listed : null, visits: sum(olderIds.map(id => one('vis', 'cur', id).n)),
+      newWs: sum(ows.map(x => x.n)), activated: sum(ows.map(x => x.a)), paid: sum(ows.map(x => x.p)), tiersNew: ows.reduce((acc, x) => addT(acc, x.t), zeroT()) }
+    if ((older.views ?? 0) > 0 || older.visits || older.newWs) olderVideos.push(older)
+  }
 
   // ── Funnel: one row per count and one per rate, grouped by stage ──────────
   // Names are shared with the tiles, the trend picker and the tables, so a metric reads the same everywhere.
@@ -436,12 +469,12 @@ export function buildSocial(o: {
     const keyed = (kind: 'vis' | 'ws') => [...scopeKeys].map(k => ({ label: keyLabel(k), cur: one(kind, 'cur', k).n, prev: one(kind, 'prev', k).n,
       tags: o.scope === 'all' && !k.startsWith('ch:') && chOf(k) ? [`creator: ${chOf(k)}`] : [] })).filter(x => x.cur || x.prev)
     const views = byId('views'), visits = byId('visits'), ws = byId('ws')
-    const drivers: Para[] = []
+    const drivers: (Para | Block)[] = []
     if (views.cur != null && views.prev != null) { const d = driverPara('Views', 'views', { cur: views.cur, prev: views.prev }, viewItems, { minVolume: 50, noun: 'videos' }); if (d) drivers.push(d) }
     const dv = driverPara('Referral visits', 'visits', { cur: pc.visits, prev: pp.visits }, keyed('vis'), { minVolume: 3, noun: 'videos' }); if (dv) drivers.push(dv)
     if (pc.newWs || pp.newWs) { const d = driverPara('New workspaces', 'workspaces', { cur: pc.newWs, prev: pp.newWs }, keyed('ws'), { noun: 'videos' }); if (d) drivers.push(d) }
     // Emerging: in-window videos with 500+ views this period, 5× the period before (or published in the last 10 days), thumbnail CTR ≥ 2%.
-    const cited = new Set(drivers.flat().filter((x): x is { k: 'code'; s: string } => typeof x !== 'string' && x.k === 'code').map(x => x.s))
+    const cited = new Set(drivers.flatMap(d => (Array.isArray(d) ? d : [d.lead, ...d.bullets].flat())).filter((x): x is { k: 'code'; s: string } => typeof x !== 'string' && x.k === 'code').map(x => x.s))
     const emerging: Para[] = []
     for (const c of withViews) for (const v of c.doc!.videos) {
       if (emerging.length >= 2) break
@@ -523,7 +556,7 @@ export function buildSocial(o: {
     affiliateVisitors: one('vis', 'cur', 'affiliate').n,
     tiers: { labels: TIER_LABELS, fresh: withUntagged ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
     videos: scopeVideos,
-    persona, signupMonths, backCatalog, cuts,
+    persona, signupMonths, backCatalog, cuts, videoPeriod, olderVideos,
     trend, range: { cur: o.cur, prev: o.prev },
   }
 }

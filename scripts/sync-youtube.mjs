@@ -90,7 +90,9 @@ function parseLinks(description) {
     const host = u.hostname.replace(/^www\./, '')
     const utm = Object.fromEntries(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'].map(k => [k, u.searchParams.get(k)?.toLowerCase() ?? null]))
     const kind = host === 'clay.link' ? 'clay_short' : host === 'dub.sh' ? 'short' : /(^|\.)clay\.com$/.test(host) ? 'clay' : 'external'
-    return { url: `${host}${u.pathname}`.replace(/\/$/, ''), host, kind, ...utm }
+    // full: the link as written (trailing punctuation trimmed); params: every query parameter (UTMs, affiliate codes like via).
+    const full = raw.replace(/[.,;:!?'"]+$/, '')
+    return { url: `${host}${u.pathname}`.replace(/\/$/, ''), full, params: Object.fromEntries(u.searchParams), host, kind, ...utm }
   }).filter(Boolean)
   const clayLinks = links.filter(l => l.kind === 'clay' || l.kind === 'clay_short')
   const tagged = clayLinks.find(l => l.utm_campaign)
@@ -99,7 +101,7 @@ function parseLinks(description) {
     campaign: tagged?.utm_campaign ?? null,
     destination: primary ? primary.url : null,
     destinationKind: primary ? (primary.kind === 'clay_short' || primary.kind === 'short' ? 'short_unresolved' : primary.kind) : 'none',
-    links: links.filter(l => l.kind !== 'external').map(l => ({ url: l.url, kind: l.kind, campaign: l.utm_campaign })),
+    links: links.filter(l => l.kind !== 'external').map(l => ({ url: l.url, full: l.full, params: l.params, kind: l.kind, campaign: l.utm_campaign })),
   }
 }
 const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10)
@@ -191,7 +193,7 @@ for (const ch of CHANNELS) {
   } while (page)
   const vids = []
   for (let i = 0; i < ids.length; i += 50) {
-    const v = await get(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${ids.slice(i, i + 50).join(',')}`)
+    const v = await get(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics,liveStreamingDetails&id=${ids.slice(i, i + 50).join(',')}`)
     vids.push(...v.items)
   }
   const state = { analyticsAccess: true, analyticsError: null }
@@ -218,6 +220,10 @@ for (const ch of CHANNELS) {
     videos.push({
       id: v.id, title: v.snippet.title, published, durationSec: isoDur(v.contentDetails.duration),
       lifetimeViews: Number(v.statistics.viewCount ?? 0), ...parseLinks(v.snippet.description ?? ''),
+      // For the expanded video row: engagement and format.
+      likes: v.statistics.likeCount != null ? Number(v.statistics.likeCount) : null,
+      comments: v.statistics.commentCount != null ? Number(v.statistics.commentCount) : null,
+      publishedAt: v.snippet.publishedAt, live: !!v.liveStreamingDetails,
       // [day, views, minutes, avgViewPct, subsGained]
       daily: rows.filter(r => r[1] > 0 || r[2] > 0).map(r => [r[0], r[1], r[2], r[3], r[4]]),
       // [day, impressions, thumbnail clicks] from the Reporting API (owner token only; null = not connected or outside the window)

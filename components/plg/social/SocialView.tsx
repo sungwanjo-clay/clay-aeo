@@ -295,15 +295,85 @@ function Funnel({ s }: { s: SV }) {
   )
 }
 
+/** UTM and affiliate parameters, in the order a social or affiliate manager reads them. */
+const PARAM_LABEL: Record<string, string> = { utm_source: 'Source', utm_medium: 'Medium', utm_campaign: 'Campaign', utm_content: 'Content', utm_term: 'Term', via: 'Affiliate code (via)', ref: 'Referral (ref)' }
+type SVVideo = SV['videos'][number]
+type SVPeriod = SV['videoPeriod'][string] | undefined
+
+/** Expanded video: these dates, launch and lifetime, about, then every clay.com link with its parameters broken out. */
+function VideoDetails({ v, p }: { v: SVVideo; p: SVPeriod }) {
+  const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`
+  const format = v.live ? 'Live stream' : v.durationSec <= 60 ? 'Short' : 'Video'
+  const when = v.publishedAt ? new Date(v.publishedAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short' }) : fmtShort(v.published)
+  const eng = v.likes != null && v.lifetimeViews ? (v.likes + (v.comments ?? 0)) / v.lifetimeViews : null
+  const Col = ({ title, rows }: { title: string; rows: [string, React.ReactNode][] }) => (
+    <div className="flex flex-col gap-1 min-w-[200px]">
+      <Eyebrow>{title}</Eyebrow>
+      <dl className="grid gap-x-4 gap-y-1 text-[14px]" style={{ gridTemplateColumns: 'auto 1fr', color: T.ink }}>
+        {rows.map(([k, val]) => [<dt key={`${k}-k`} style={{ color: T.muted }}>{k}</dt>, <dd key={`${k}-v`} style={mono}>{val}</dd>])}
+      </dl>
+    </div>
+  )
+  const links = v.links ?? []
+  return (
+    <div className="flex flex-col gap-4 min-w-0 flex-1">
+      <div className="flex flex-wrap gap-x-10 gap-y-4">
+        <Col title="These dates" rows={[
+          ['Views', fmtInt(p?.views ?? null)],
+          ['Impressions', p?.impressions != null ? fmtInt(p.impressions) : '–'],
+          ['Thumbnail CTR', p?.impressions ? fmtPct((p.imprClicks ?? 0) / p.impressions, 1) : '–'],
+          ['Avg view duration', p?.views && p.minutes != null ? dur(p.minutes * 60 / p.views) : '–'],
+          ['Referral visits', p?.visits != null ? fmtInt(p.visits) : 'in channel row'],
+        ]} />
+        <Col title="Launch and lifetime" rows={[
+          [`Views, first ${COHORT_DAYS} days`, v.views != null ? fmtInt(v.views) : '–'],
+          [`Avg viewed, first ${COHORT_DAYS} days`, v.avgViewPct != null ? fmtPct(v.avgViewPct, 0) : '–'],
+          [`Subscribers, first ${COHORT_DAYS} days`, v.subsGained ? `+${fmtInt(v.subsGained)}` : '–'],
+          ['Lifetime views', fmtInt(v.lifetimeViews)],
+          ['Likes · comments', v.likes != null ? `${fmtInt(v.likes)} · ${fmtInt(v.comments ?? 0)}` : '–'],
+          ['Engagement rate', eng != null ? fmtPct(eng, 1) : '–'],
+        ]} />
+        <Col title="About" rows={[
+          ['Published', when],
+          ['Length', dur(v.durationSec)],
+          ['Format', format],
+          ['Matched by', v.campaign ? 'utm_campaign in the link' : v.tagged ? 'channel rule' : 'not matched'],
+        ]} />
+      </div>
+      <div className="flex flex-col gap-2 min-w-0">
+        <Eyebrow>Links in the description</Eyebrow>
+        {links.length ? links.map(l => {
+          const params = Object.entries(l.params ?? {})
+          return (
+            <div key={l.full ?? l.url} className="flex flex-col gap-1.5 min-w-0">
+              <code className="text-[13px] break-all" style={{ ...mono, color: T.ink }}>{l.full ?? l.url}</code>
+              {params.length > 0 ? <div className="flex flex-wrap gap-1.5">
+                {params.sort(([a], [b]) => (a in PARAM_LABEL ? Object.keys(PARAM_LABEL).indexOf(a) : 99) - (b in PARAM_LABEL ? Object.keys(PARAM_LABEL).indexOf(b) : 99)).map(([k, val]) => (
+                  <span key={k} className="rounded-full px-2.5 py-0.5 text-[12px]" style={{ background: '#fff', border: `1px solid ${T.border}`, color: T.ink }}>
+                    <span style={{ color: T.muted }}>{PARAM_LABEL[k] ?? k}</span> <span style={mono}>{val}</span>
+                  </span>))}
+              </div> : <span className="text-[12px]" style={{ color: T.faint }}>{l.full ? 'No UTM or tracking parameters' : 'Parameters arrive with the next YouTube sync'}</span>}
+            </div>
+          )
+        }) : <span className="text-[13px]" style={{ color: T.faint }}>No clay.com or short links in the description.</span>}
+      </div>
+    </div>
+  )
+}
+
 function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; setSel: (id: string | null) => void; thumbs?: Record<string, string> | null }) {
   const [sort, setSort] = useState<'workspaces' | 'visit' | 'newest'>('workspaces')
   const [open, setOpen] = useState<string | null>(null)
   const creator = s.scope !== 'all'
-  const cols = 9 + (s.videos.some(v => v.offerPage && v.tagged) ? 1 : 0)
+  const cols = 10 + (s.videos.some(v => v.offerPage && v.tagged) ? 1 : 0)
+  // Every column is for the selected dates (s.videoPeriod), like the tiles; "First 28 days" is the one exception, labelled.
+  const P = (id: string) => s.videoPeriod[id]
+  const ctr = (id: string) => { const p = P(id); return p?.visits != null && p.views ? p.visits / p.views : null }
+  const wsr = (id: string, offer: boolean) => { const p = P(id); const den = offer ? p?.captures : p?.visits; return p?.newWs != null && den ? p.newWs / den : null }
   const rows = [...s.videos].sort((a, b) =>
     sort === 'newest' ? b.published.localeCompare(a.published)
-      : sort === 'visit' ? (b.visitRate ?? -1) - (a.visitRate ?? -1) || (b.views ?? b.lifetimeViews) - (a.views ?? a.lifetimeViews)
-        : (b.newWs ?? -1) - (a.newWs ?? -1) || (b.views ?? b.lifetimeViews) - (a.views ?? a.lifetimeViews))
+      : sort === 'visit' ? (ctr(b.id) ?? -1) - (ctr(a.id) ?? -1) || (P(b.id)?.views ?? 0) - (P(a.id)?.views ?? 0)
+        : (P(b.id)?.newWs ?? -1) - (P(a.id)?.newWs ?? -1) || (P(b.id)?.views ?? 0) - (P(a.id)?.views ?? 0))
   const showCapture = s.videos.some(v => v.offerPage && v.tagged)
   const dur = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
   const rateCell = (r: number | null, goal: number) => (
@@ -312,14 +382,14 @@ function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; set
   return (
     <section className="flex flex-col gap-4">
       <H2>Videos</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Each video over its first {COHORT_DAYS} days after publish. Rates in orange are below goal. Existing = workspaces that already existed when someone in them visited from the video.{creator && ' Select a video to open it; its device and geo cut shows further down.'}</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>Everything here is for the selected dates, the same window as the tiles: a channel’s video rows plus its older-videos row add up to its total. First {COHORT_DAYS} days is each video’s views after it was published, for comparing launches. Rates in orange are below goal. Existing = workspaces that already existed when someone in them visited from the video.{creator && ' Select a video to open it; its device and geo cut shows further down.'}</p>
       <div className="self-start"><Segmented ariaLabel="Sort videos" value={sort} onChange={setSort}
         options={[{ id: 'workspaces', label: 'Most workspaces' }, { id: 'visit', label: 'Best CTA CTR' }, { id: 'newest', label: 'Newest' }]} /></div>
       <Card className="overflow-x-auto">
         <table className="w-full min-w-[1320px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
             <th className={`${th} text-left`}>Video</th>
-            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>CTA CTR</th>
+            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`} title={`Views in each video’s first ${COHORT_DAYS} days after publish`}>First {COHORT_DAYS} days</th><th className={`${th} text-right`}>CTA CTR</th>
             {showCapture && <th className={`${th} text-right`}>Email capture rate</th>}
             <th className={`${th} text-right`}>Visit → workspace</th><th className={`${th} text-right`}>New workspaces</th>
             <th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paying</th>
@@ -336,6 +406,7 @@ function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; set
                   </div>
                 </td>
                 <td className={num} style={mono}>{c.views != null ? fmtInt(c.views) : '–'}</td>
+                <td className={num} style={{ color: T.faint }}>–</td>
                 <td className={num} style={mono}>{fmtPct(c.views ? c.visits / c.views : null, 1)}</td>
                 {showCapture && <td className={num} style={{ color: T.faint }}>–</td>}
                 <td className={num} style={mono}>{fmtPct(c.visits ? c.newWs / c.visits : null, 1)}</td>
@@ -366,19 +437,20 @@ function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; set
               </td>
               <td className={num} style={mono}>{!v.analytics
                 ? <span title={`${fmtInt(v.lifetimeViews)} lifetime public views (Data API)`}><NC why={`${NO_ANALYTICS} ${fmtInt(v.lifetimeViews)} lifetime public views.`} /></span>
-                : v.views ? fmtInt(v.views) : <span style={{ color: T.faint }}>pending</span>}</td>
+                : fmtInt(P(v.id)?.views ?? 0)}</td>
+              <td className={num} style={{ ...mono, color: T.muted }}>{!v.analytics ? '–' : v.views ? fmtInt(v.views) : <span style={{ color: T.faint }}>pending</span>}</td>
               <td className={num} style={mono}>{!v.tagged
                 ? <span className="text-[12px] whitespace-nowrap" style={{ color: T.faint, fontFamily: 'inherit' }}
                     title={s.channelLevel ? 'This channel’s links all use one code, so its traffic is in the Whole channel row.' : 'The description has no clay.com link with a campaign that maps to this video, so its traffic can’t be told apart.'}>
                     {s.channelLevel ? 'in channel row' : 'no tracked link'}</span>
-                : !v.analytics ? <NC why={NO_ANALYTICS} /> : rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
-              {showCapture && <td className={num} style={mono}>{v.offerPage ? rateCell(v.captureRate, STEP_GOALS.capture) : '–'}</td>}
-              <td className={num} style={mono}>{rateCell(v.wsRate, v.offerPage ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace)}</td>
-              <td className={num} style={mono}>{v.newWs != null ? fmtInt(v.newWs) : '–'}</td>
-              <td className={num} style={mono}>{v.activated != null ? fmtInt(v.activated) : '–'}</td>
-              <td className={num} style={mono}>{v.paid != null ? fmtInt(v.paid) : '–'}</td>
-              <td className={num}><Tiers t={v.tiersNew ? v.tiersNew.slice(0, 4) : null} /></td>
-              <td className={num} style={{ color: T.muted }}><Tiers t={v.tiersExisting ? v.tiersExisting.slice(0, 4) : null} /></td>
+                : !v.analytics ? <NC why={NO_ANALYTICS} /> : rateCell(ctr(v.id), STEP_GOALS.viewToVisit)}</td>
+              {showCapture && <td className={num} style={mono}>{v.offerPage ? rateCell(P(v.id)?.captures != null && P(v.id)?.visits ? P(v.id)!.captures! / P(v.id)!.visits! : null, STEP_GOALS.capture) : '–'}</td>}
+              <td className={num} style={mono}>{v.tagged ? rateCell(wsr(v.id, v.offerPage), v.offerPage ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace) : '–'}</td>
+              <td className={num} style={mono}>{P(v.id)?.newWs != null ? fmtInt(P(v.id)!.newWs) : '–'}</td>
+              <td className={num} style={mono}>{P(v.id)?.activated != null ? fmtInt(P(v.id)!.activated) : '–'}</td>
+              <td className={num} style={mono}>{P(v.id)?.paid != null ? fmtInt(P(v.id)!.paid) : '–'}</td>
+              <td className={num}><Tiers t={P(v.id)?.tiersNew ? P(v.id)!.tiersNew!.slice(0, 4) : null} /></td>
+              <td className={num} style={{ color: T.muted }}><Tiers t={P(v.id)?.tiersExisting ? P(v.id)!.tiersExisting!.slice(0, 4) : null} /></td>
             </tr>,
             open === v.id && (
               <tr key={`${v.id}-open`} style={{ borderBottom: `1px solid ${T.border}`, background: '#E8F6F8' }}>
@@ -387,13 +459,7 @@ function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; set
                     {thumbs?.[v.id] && <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="rounded-lg overflow-hidden shrink-0" style={{ maxWidth: '100%' }}>
                       <img src={thumbs[v.id]} alt={v.title} width={320} height={180} style={{ width: 320, maxWidth: '100%', height: 'auto', display: 'block' }} />
                     </a>}
-                    <dl className="grid gap-x-6 gap-y-1 text-[14px]" style={{ gridTemplateColumns: 'auto 1fr', color: T.ink }}>
-                      <dt style={{ color: T.muted }}>Published</dt><dd style={mono}>{fmtShort(v.published)}{!v.cohortComplete && ` · day ${v.cohortDay} of ${COHORT_DAYS}`}</dd>
-                      <dt style={{ color: T.muted }}>Length</dt><dd style={mono}>{dur(v.durationSec)}</dd>
-                      <dt style={{ color: T.muted }}>Lifetime views</dt><dd style={mono}>{fmtInt(v.lifetimeViews)}</dd>
-                      {v.impressions != null && <><dt style={{ color: T.muted }}>Impressions, first {COHORT_DAYS} days</dt><dd style={mono}>{fmtInt(v.impressions)}{v.imprClicks != null && v.impressions ? ` · thumbnail CTR ${pctDp(v.imprClicks / v.impressions)}` : ''}</dd></>}
-                      <dt style={{ color: T.muted }}>Link</dt><dd className="break-all" style={mono}>{v.destination ?? 'No clay.com link'}{v.campaign ? ` · ${v.campaign}` : ''}</dd>
-                    </dl>
+<VideoDetails v={v} p={P(v.id)} />
                     {v.tagged && <button type="button" onClick={() => setSel(sel === v.id ? null : v.id)} aria-pressed={sel === v.id}
                       className="rounded-full px-4 py-2 text-[14px] self-start" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
                       {sel === v.id ? 'Show the whole channel in device & geo' : 'Cut device & geo by this video'}</button>}
@@ -402,17 +468,18 @@ function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; set
               </tr>
             ),
             ])}
-            {s.backCatalog.map(b => (
-              <tr key={`bc-${b.channel}`} style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
+            {s.olderVideos.map(b => (
+              <tr key={`old-${b.channel}`} style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
                 <td className="px-3 py-3">
                   <div className="flex items-start gap-3">
                     <span className="text-[12px] pt-1 w-10 shrink-0 text-right" style={{ color: T.faint, ...mono }}>—</span>
-                    <span><span className="font-semibold">Back catalog (earlier videos)</span>
-                      <span className="block text-[13px]" style={{ color: T.muted, ...mono }}>Past their first {COHORT_DAYS} days · these dates · {b.channel}</span></span>
+                    <span><span className="font-semibold">Older videos · {b.channel}</span>
+                      <span className="block text-[13px]" style={{ color: T.muted }}>Videos published before the sync window, during these dates</span></span>
                   </div>
                 </td>
+                <td className={num} style={mono}>{b.views != null ? fmtInt(b.views) : '–'}</td>
                 <td className={num} style={{ color: T.faint }}>–</td>
-                <td className={num} style={mono} title="Visitors during these dates">{fmtInt(b.visits)} visits</td>
+                <td className={num} style={mono}>{b.views ? fmtPct(b.visits / b.views, 1) : '–'}</td>
                 {showCapture && <td className={num} style={{ color: T.faint }}>–</td>}
                 <td className={num} style={mono}>{fmtPct(b.visits ? b.newWs / b.visits : null, 1)}</td>
                 <td className={num} style={mono}>{fmtInt(b.newWs)}</td>
