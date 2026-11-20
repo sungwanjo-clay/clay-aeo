@@ -3,6 +3,7 @@
  * read from the Supabase dashboard views. All counts are companies, from the last COMPLETE non-staging
  * snapshot. Nothing here queries Sigma; Clay does the Snowflake lookup upstream.
  */
+import { driverPara, headlineLine, type Insight, type Para } from '../insights'
 export type Cut = 'partnered' | 'pending' | 'not_partnered'
 export type CutFilter = Cut | 'all'
 
@@ -175,4 +176,33 @@ export function csvOf(rows: CompanyRow[], firmName: (id: string) => string): str
   const lines = rows.map(r => [r.name, r.domain, r.firms.map(firmName).join('; '), r.inDenominator ? 'yes' : (r.notCountedReason ?? 'no'),
     r.lookup, r.hasWorkspace, r.workspaces, r.everPaid, r.payingNow, r.payingArr ?? '', r.churnedArr ?? '', r.churnedAt ?? '', r.totalFunding ?? '', r.salesTier ?? '', r.eligibleToDate, r.redemption, r.stage, r.lastRoundAt].map(esc).join(','))
   return [head.join(','), ...lines].join('\n') + '\n'
+}
+
+/**
+ * What moved on the Portfolio tab: the latest weekly snapshot vs the one before (lib/plg/insights.ts rules).
+ * Drivers are firms. Before a second week closes there is nothing to compare, and it says so.
+ */
+export function portfolioInsight(meta: PortfolioMeta, cut: CutFilter, firmName: (id: string) => string, inCut: (firmId: string) => boolean): Insight {
+  const latest = meta.latest?.snapshot_date ?? null, prev = meta.previous ?? null
+  const c = countsFor(meta, latest, cut, null), p = countsFor(meta, prev, cut, null)
+  const base: Insight = { headline: [], drivers: [], emerging: [], anomalies: [], goals: [] }
+  if (!c) return { ...base, empty: 'No closed weekly snapshot yet.' }
+  if (!p) return { ...base, empty: `The week of ${latest} is the first closed snapshot, so there's nothing to compare yet: week-over-week movement starts after the next weekly publish. Today: ${c.portfolio.toLocaleString('en-US')} verified companies, ${c.with_workspace.toLocaleString('en-US')} with a Clay workspace, ${c.paying_now.toLocaleString('en-US')} paying.` }
+  const headline: Para[] = [
+    headlineLine('Verified portfolio companies', c.portfolio, p.portfolio),
+    headlineLine('With a Clay workspace', c.with_workspace, p.with_workspace),
+    headlineLine('Paying now', c.paying_now, p.paying_now),
+    headlineLine('Paying ARR', c.paying_arr_usd ?? null, p.paying_arr_usd ?? null, { kind: 'usd' }),
+    headlineLine('Churned ARR', c.churned_arr_usd ?? null, p.churned_arr_usd ?? null, { kind: 'usd' }),
+  ]
+  const rows = (d: string) => new Map(meta.firmRows.filter(r => r.snapshot_date === d && inCut(r.firm_id)).map(r => [r.firm_id, r]))
+  const L = rows(latest!), P = rows(prev!)
+  const items = (f: (r: Counts) => number) => [...new Set([...L.keys(), ...P.keys()])].map(id => ({ label: firmName(id), cur: L.get(id) ? f(L.get(id)!) : 0, prev: P.get(id) ? f(P.get(id)!) : 0 }))
+  const drivers = [
+    driverPara('Verified companies', 'companies', { cur: c.portfolio, prev: p.portfolio }, items(r => r.portfolio), { noun: 'firms' }),
+    driverPara('Companies with a Clay workspace', 'companies', { cur: c.with_workspace, prev: p.with_workspace }, items(r => r.with_workspace), { noun: 'firms' }),
+    c.paying_arr_usd != null && p.paying_arr_usd != null
+      ? driverPara('Paying ARR', 'ARR', { cur: c.paying_arr_usd, prev: p.paying_arr_usd }, items(r => r.paying_arr_usd ?? 0), { usd: true, noun: 'firms' }) : null,
+  ].filter((x): x is Para => !!x)
+  return { ...base, headline, drivers }
 }

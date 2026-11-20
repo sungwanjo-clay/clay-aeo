@@ -9,7 +9,9 @@ import CumulativeChart from './CumulativeChart'
 import TierPacing from './TierPacing'
 import ChannelTable from './ChannelTable'
 import { DomainQuality, McpByPlatform } from './McpAndQuality'
-import { Commentary, DataQualityStrip, Discuss, RestatementBanner } from './Narrative'
+import { DataQualityStrip, RestatementBanner } from './Narrative'
+import WhatMoved from './WhatMoved'
+import { workspacesInsight } from '@/lib/plg/workspacesInsight'
 import { Eyebrow, Pill, Segmented, T } from './ui'
 
 export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio'
@@ -146,6 +148,8 @@ export default function DashboardView({ sources, health, v, loading, error, noti
           <TierPacing v={v} />
         </div>
 
+        <WhatMoved insight={workspacesInsight(v)} />
+
         <ChannelTable v={v} />
 
         <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-2">
@@ -153,8 +157,6 @@ export default function DashboardView({ sources, health, v, loading, error, noti
           <DomainQuality v={v} />
         </div>
 
-        <Commentary v={v} />
-        <Discuss v={v} />
         <DataQualityStrip v={v} />
       </div>}
       {sources}

@@ -3,41 +3,6 @@ import type { DashboardPayload } from '@/lib/plg/load'
 import { fmtShort } from '@/lib/plg/dates'
 import { Card, H2, T, fmtInt, fmtPctSigned, fmtSigned } from './ui'
 
-export function Commentary({ v }: { v: DashboardPayload }) {
-  const c = v.commentary
-  if (!c) return null
-  return (
-    <section className="rounded-[28px] p-6 sm:p-10 flex flex-col gap-6" style={{ background: T.tile }}>
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <H2>Channel commentary</H2>
-        <p className="text-[13px] uppercase" style={{ letterSpacing: '0.14em', color: T.muted, fontFamily: T.mono }}>
-          Written for {c.label}
-        </p>
-      </div>
-      <ul className="flex flex-col gap-4 list-disc pl-6 text-[16px] sm:text-[18px] leading-relaxed" style={{ color: T.ink }}>
-        {c.bullets.map((b, i) => (
-          <li key={i}><strong>{b.lead}</strong> — {b.body}</li>
-        ))}
-      </ul>
-      <p className="text-[13px]" style={{ color: T.muted }}>
-        Generated from week-over-week movers (|Δ| ≥ 30). Describes what moved, not why. Always the last complete Mon–Sun week, whatever the filter.
-      </p>
-    </section>
-  )
-}
-
-export function Discuss({ v }: { v: DashboardPayload }) {
-  if (!v.discuss.length) return null
-  return (
-    <Card className="p-6 sm:p-10 flex flex-col gap-4">
-      <H2>Discuss</H2>
-      <ol className="flex flex-col gap-3 list-decimal pl-6 text-[16px] sm:text-[17px] leading-relaxed" style={{ color: T.ink }}>
-        {v.discuss.map((q, i) => <li key={i}>{q}</li>)}
-      </ol>
-    </Card>
-  )
-}
-
 function Row({ tone, children }: { tone: 'ok' | 'warn' | 'info'; children: React.ReactNode }) {
   const Icon = tone === 'ok' ? CheckCircle2 : tone === 'warn' ? AlertTriangle : Info
   const color = tone === 'ok' ? '#1E7A46' : tone === 'warn' ? '#9A5B00' : T.muted

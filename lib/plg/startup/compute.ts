@@ -4,6 +4,7 @@
  */
 import { addDays, daysBetween, type ISODate } from '../dates'
 import { STARTUP } from './sql'
+import { driverPara, headlineLine, type Insight, type Item, type Para } from '../insights'
 
 type Row = { k: string; b: string; d: string; n: number; a: number; p: number; x: number; c: number }
 
@@ -61,13 +62,23 @@ export const STEPS: FunnelStep[] = [
   { k: null, rl: 'Share of all new workspaces', key: true, name: 'Eligible workspaces', lever: 'Startup Offer Eligibility · verified Seed or Series A, VC-backed, net-new workspace',
     nc: 'Eligibility comes from the eligibility workflow’s weekly snapshot in Snowflake, which isn’t hooked up yet' },
   { h: 'Email' },
-  { k: null, rl: 'Send rate', name: 'Email sends', lever: 'Lifecycle (Inflection)', nc: NO_LIFECYCLE },
-  { k: null, rl: 'Open rate', name: 'Email opens', lever: 'Lifecycle (Inflection)', nc: NO_LIFECYCLE },
+  { k: null, name: 'Email sends', lever: 'Lifecycle (Inflection) · offer emails sent', nc: NO_LIFECYCLE },
+  { k: null, rl: 'Email open rate', name: 'Email opens', lever: 'Email opens ÷ email sends', nc: NO_LIFECYCLE },
+  { k: null, rl: 'Email click-through rate', name: 'Email clicks', lever: 'Email clicks ÷ email opens', nc: NO_LIFECYCLE },
   { h: 'Outcome' },
-  { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Stripe discount', nc: 'No offer sent yet' },
-  { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated', lever: 'Snowflake · first table run within 7 days' },
-  { k: null, rl: 'Paid rate', name: 'Paid (discounted price)', lever: 'Stripe · first discounted invoice paid', nc: 'No offer sent yet' },
+  { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Redeemed ÷ eligible workspaces offered · Stripe discount', nc: 'No offer sent yet' },
+  { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated workspaces', lever: 'Snowflake · first table run within 7 days' },
+  { k: 'paid', p: 'newWs', rl: 'Paid rate', name: 'Paying workspaces', lever: 'Snowflake · CUSTOMERS first invoice (the discounted price once the offer launches)' },
 ]
+
+/** Enablement after redemption: the educational email series and how much of it each redeemer completes. */
+export const ENABLEMENT = [
+  { label: 'Enablement emails sent', def: 'Educational emails sent after a workspace redeems the offer', nc: 'The enablement series isn’t built yet; sends will come from Lifecycle (Inflection)' },
+  { label: 'Email open rate', def: 'Enablement emails opened ÷ sent', nc: 'Lifecycle email events aren’t in Snowflake yet' },
+  { label: 'Email click-through rate', def: 'Clicks to the material ÷ opens', nc: 'Lifecycle email events aren’t in Snowflake yet' },
+  { label: 'Material completed', def: 'Share of the videos and lessons sent that each redeemer finished, averaged across redeemers', nc: 'Needs a completion source for the videos (watch progress) and lessons' },
+  { label: 'Redeemers who finished everything', def: 'Redeemed workspaces that completed every piece sent', nc: 'Needs the same completion source' },
+] as const
 
 /** Daily series for one range: visits (by visit day), and new workspaces, MQAL domains and activated (by first visit day). */
 function daily(rows: Row[], b: 'cur' | 'prev', range: [ISODate, ISODate]) {
@@ -101,9 +112,36 @@ export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODa
     if (!move || rel < move.rel) move = { name: s.name, rl: s.rl!, r, pr, rel }
   }
   return {
-    cur: o.cur, prev: o.prev, T, P, move, days,
+    cur: o.cur, prev: o.prev, T, P, move, days, insight: startupInsight(T, P),
     beforeLaunch: o.cur[1] < STARTUP.launch,
     rate,
   }
 }
 export type StartupViewModel = ReturnType<typeof buildStartup>
+
+/** What moved on the startup program (lib/plg/insights.ts rules). Drivers are the paid platforms and campaigns. */
+function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
+  if (T.visits < 1 && P.visits < 1) return { headline: [], drivers: [], emerging: [], anomalies: [], goals: [], empty: 'No startup-page visits in either period.' }
+  const r = (n: number, d: number) => (d >= 1 ? n / d : null)
+  const headline = [
+    headlineLine('Visits', T.visits, P.visits),
+    headlineLine('New workspaces', T.newWs, P.newWs),
+    headlineLine('MQALs (Tier 1–3 domains)', T.mqal, P.mqal),
+    headlineLine('Visit → workspace', r(T.newWs, T.visits), r(P.newWs, P.visits), { kind: 'rate' }),
+    headlineLine('Activation rate', r(T.activated, T.newWs), r(P.activated, P.newWs), { kind: 'rate' }),
+    headlineLine('Paid rate', r(T.paid, T.newWs), r(P.paid, P.newWs), { kind: 'rate' }),
+  ]
+  const camp = (x: StartupPeriod['campaigns'][number]) => `${x.platform}${x.campaign && x.campaign !== '(no campaign)' ? ` · ${x.campaign}` : ' · no campaign'}`
+  const items = (f: (x: StartupPeriod['campaigns'][number]) => number) => {
+    const m = new Map<string, Item>()
+    for (const x of T.campaigns) m.set(camp(x), { label: camp(x), cur: f(x), prev: 0 })
+    for (const x of P.campaigns) { const k = camp(x); const it = m.get(k) ?? { label: k, cur: 0, prev: 0 }; it.prev = f(x); m.set(k, it) }
+    return [...m.values()]
+  }
+  const drivers = [
+    driverPara('Visits', 'visits', { cur: T.visits, prev: P.visits }, items(x => x.visits), { minVolume: 5, noun: 'campaigns' }),
+    driverPara('New workspaces', 'workspaces', { cur: T.newWs, prev: P.newWs }, items(x => x.newWs), { noun: 'campaigns' }),
+  ].filter((p): p is Para => !!p)
+  const lowVol = T.visits < 20 ? 'Fewer than 20 visits this period, so rates swing on a handful of people.' : null
+  return { note: lowVol, headline, drivers, emerging: [], anomalies: [], goals: [] }
+}

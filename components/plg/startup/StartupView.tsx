@@ -1,7 +1,8 @@
 'use client'
 
 import type { FunnelStep, StartupPeriod, StartupViewModel as SV } from '@/lib/plg/startup/compute'
-import { STEPS } from '@/lib/plg/startup/compute'
+import { ENABLEMENT, STEPS } from '@/lib/plg/startup/compute'
+import WhatMoved from '../WhatMoved'
 import { STARTUP } from '@/lib/plg/startup/sql'
 import { fmtShort } from '@/lib/plg/dates'
 import ProgressChart, { type ProgressMetric } from '../ProgressChart'
@@ -64,11 +65,17 @@ function Kpis({ s }: { s: SV }) {
 
 function RateCards({ s }: { s: SV }) {
   if (s.beforeLaunch || s.T.visits < 1) return null
+  // Same names and definitions as the Media properties rate tiles where the metric is the same.
+  const LIFE = 'Lifecycle email events aren’t in Snowflake yet'
   const cards: { label: string; k: keyof StartupPeriod | null; p?: keyof StartupPeriod; desc: string; nc?: string }[] = [
-    { label: 'Visit → application', k: null, desc: 'Applications ÷ visits', nc: 'Typeform responses aren’t in Snowflake' },
+    { label: 'Application rate', k: null, desc: 'Applications ÷ visits', nc: 'Typeform responses aren’t in Snowflake' },
     { label: 'Visit → workspace', k: 'newWs', p: 'visits', desc: 'New workspaces ÷ visits' },
-    { label: 'Redemption rate', k: null, desc: 'Redeemed ÷ new workspaces', nc: 'No offer sent yet' },
+    { label: 'Tier 1–3 share', k: 'newWsT13', p: 'newWs', desc: 'Tier 1–3 workspaces ÷ new workspaces' },
+    { label: 'Email open rate', k: null, desc: 'Email opens ÷ email sends', nc: LIFE },
+    { label: 'Email click-through rate', k: null, desc: 'Email clicks ÷ email opens', nc: LIFE },
+    { label: 'Redemption rate', k: null, desc: 'Redeemed ÷ eligible workspaces offered', nc: 'No offer sent yet' },
     { label: 'Activation rate', k: 'activated', p: 'newWs', desc: 'Activated ÷ new workspaces' },
+    { label: 'Paid rate', k: 'paid', p: 'newWs', desc: 'Paying ÷ new workspaces' },
   ]
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
@@ -79,7 +86,8 @@ function RateCards({ s }: { s: SV }) {
           <Card key={c.label} className="p-5 flex flex-col gap-2">
             <Eyebrow>{c.label}</Eyebrow>
             <p className="text-[32px] leading-none" style={{ ...mono, color: c.nc ? T.faint : T.ink }}>{c.nc ? <span className="text-[20px]"><NC why={c.nc} /></span> : fmtPct(r, dp(r))}</p>
-            <p className="text-[14px]" style={{ color: T.muted }}>{r != null && pr != null ? <>{ppTxt(r, pr)} vs previous period ({fmtPct(pr, dp(pr))})</> : c.nc ?? c.desc}</p>
+            <p className="text-[14px]" style={{ color: T.muted }}>{r != null && pr != null ? <>{ppTxt(r, pr)} vs previous period ({fmtPct(pr, dp(pr))})</> : c.nc ? c.desc : <>– vs previous period</>}</p>
+            {!c.nc && <p className="text-[12px]" style={{ color: T.faint }}>{c.desc}</p>}
           </Card>
         )
       })}
@@ -247,11 +255,26 @@ function Progress({ s }: { s: SV }) {
   return <ProgressChart title="Progress" metrics={cur.length ? metrics : metrics.map(x => ({ ...x, points: [] }))} />
 }
 
-const DISCUSS = [
-  'Where is the biggest leak between visit and new workspace, and who owns it?',
-  'Is the MQAL rate low because of who applies or because the criteria are too strict?',
-  'How many eligible workspaces will get the offer, and when does the first send go out?',
-]
+/** After redemption: the educational series and how much of it redeemers complete. Placeholders until the series exists. */
+function Enablement() {
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-4">
+      <H2>After redemption: enablement</H2>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each workspace that redeems the offer gets a series of educational emails with videos and lessons. These show whether the emails get opened and how much of the material each redeemer completes.</p>
+      <div className="overflow-x-auto -mx-5 sm:mx-0">
+        <table className="w-full min-w-[640px] text-[15px]" style={{ color: T.ink }}>
+          <thead><tr style={head}><th className={`${th} text-left`}>Metric</th><th className={`${th} text-right`}>This period</th><th className={`${th} text-left`}>Definition</th></tr></thead>
+          <tbody>{ENABLEMENT.map(m => (
+            <tr key={m.label} style={{ borderBottom: `1px solid ${T.border}` }}>
+              <td className="px-3 py-3 font-semibold">{m.label}</td>
+              <td className={num}><NC why={m.nc} /></td>
+              <td className="px-3 py-3 text-[14px]" style={{ color: T.muted }}>{m.def}</td>
+            </tr>))}</tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
 
 export default function StartupView({ s, loading }: { s: SV; loading: boolean }) {
   return (
@@ -259,14 +282,12 @@ export default function StartupView({ s, loading }: { s: SV; loading: boolean })
       <Kpis s={s} />
       <Progress s={s} />
       <RateCards s={s} />
+      <WhatMoved insight={s.insight} />
       <Funnel s={s} />
       <TiersAndReasons s={s} />
       <Campaigns s={s} />
+      <Enablement />
       <p className="text-[14px]" style={{ color: T.muted }}>Partner penetration and portfolio companies are on the <a href="#portfolio" className="underline">Portfolio</a> tab.</p>
-      <section className="flex flex-col gap-3">
-        <Eyebrow>Discuss</Eyebrow>
-        <ul className="list-disc pl-6 flex flex-col gap-2 text-[17px]" style={{ color: T.ink }}>{DISCUSS.map(q => <li key={q}>{q}</li>)}</ul>
-      </section>
     </div>
   )
 }

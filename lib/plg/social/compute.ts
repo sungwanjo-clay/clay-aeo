@@ -7,6 +7,7 @@
  * Analytics access. Nothing downstream substitutes a value.
  */
 import { addDays, daysBetween, minDate, type ISODate } from '../dates'
+import { code, driverPara, goalLine, headlineLine, pct as pctTxt, type GoalLine, type Insight, type Item, type Para } from '../insights'
 import { CHANNELS, COHORT_DAYS, NO_ANALYTICS, OFFER_PAGE_PATTERNS, STEP_GOALS, TIER_LABELS, type CreatorChannel } from './config'
 import type { ChannelFallback, TaggedVideo } from './sql'
 
@@ -409,27 +410,90 @@ export function buildSocial(o: {
   const exp = pc.expanded + (withUntagged ? untagged.ws.x : 0); const churn = pc.churned + (withUntagged ? untagged.ws.c : 0)
   const scopeChannel = o.scope === 'all' ? null : CHANNELS.find(c => c.id === o.scope)!
 
-  // ── What moved: plain-language summary vs the period before; flags big drops, prescribes nothing ──
-  // A count is a "big drop" when it falls 25% or more from at least 20; a rate when it falls 25% or more in relative terms.
+  // ── What moved (lib/plg/insights.ts rules) ─────────────────────────────────
   const liveRows = channelRows.filter((r): r is Extract<(typeof channelRows)[number], { connected: true }> => r.connected)
-  const driver = (k: 'impressions' | 'views' | 'visits' | 'newWs') => {
-    if (o.scope !== 'all') return null
-    const ch = liveRows.map(r => ({ label: r.label, d: (r[k] ?? 0) - (r.prev[k] ?? 0), ok: r[k] != null && r.prev[k] != null })).filter(x => x.ok && x.d !== 0)
-    const top = ch.sort((a, b) => Math.abs(b.d) - Math.abs(a.d))[0]
-    return top ? `${top.label} ${top.d > 0 ? '+' : '−'}${Math.abs(Math.round(top.d)).toLocaleString('en-US')}` : null
-  }
-  type Move = { id: string; label: string; kind: 'count' | 'rate'; cur: number; prev: number; change: number; drop: boolean; driver: string | null }
-  const mv = (f: FRow, drv: string | null = null): Move | null => {
-    if (f.cur == null || f.prev == null) return null
-    const change = f.kind === 'rate' ? f.cur - f.prev : f.prev ? (f.cur - f.prev) / f.prev : 0
-    const rel = f.prev ? (f.cur - f.prev) / f.prev : 0
-    const drop = f.kind === 'count' ? rel <= -0.25 && f.prev >= 20 : rel <= -0.25 && f.prev > 0
-    return { id: f.id, label: f.label, kind: f.kind, cur: f.cur, prev: f.prev, change, drop, driver: drv }
-  }
-  const moves = [mv(byId('impressions'), driver('impressions')), mv(byId('views'), driver('views')), mv(byId('thumb_ctr')), mv(byId('visits'), driver('visits')),
-    mv(byId('cta_ctr')), mv(byId('ws'), driver('newWs')), mv(byId('t13'))].filter((m): m is Move => !!m)
-  const syncAge = inScope.length ? (Date.now() - Math.min(...inScope.map(c => Date.parse(c.doc!.fetchedAt)))) / 36e5 : null
-  const urgent = syncAge != null && syncAge > 48 ? `YouTube data was last synced ${Math.round(syncAge / 24)} days ago, so views and impressions are out of date.` : null
+  const insight: Insight = (() => {
+    const title = (id: string) => scopeVideos.find(v => v.id === id)?.title ?? null
+    const chOf = (id: string) => scopeVideos.find(v => v.id === id)?.channel ?? null
+    const curEnd = ytCurEnd, prevEnd = ytPrevEnd
+    const inR = (d: ISODate, a: ISODate, e: ISODate) => d >= a && d <= e
+    // Views per in-window video over the aligned days; the rest of each channel's views is its back catalog.
+    const viewItems: Item[] = []
+    for (const c of withViews) {
+      const doc = c.doc!
+      let vc = 0, vp = 0
+      for (const v of doc.videos) {
+        const cur = sum(v.daily.filter(r => inR(r[0], o.cur[0], curEnd)).map(r => r[1]))
+        const prev = sum(v.daily.filter(r => inR(r[0], o.prev[0], prevEnd)).map(r => r[1]))
+        if (!cur && !prev) continue
+        vc += cur; vp += prev
+        viewItems.push({ label: v.title, cur, prev, tags: o.scope === 'all' ? [`creator: ${c.ch.label}`] : [] })
+      }
+      const tc = sum(doc.daily.filter(r => inR(r[0], o.cur[0], curEnd)).map(r => r[1])), tp = sum(doc.daily.filter(r => inR(r[0], o.prev[0], prevEnd)).map(r => r[1]))
+      if (tc - vc || tp - vp) viewItems.push({ label: `${c.ch.label}: older videos`, cur: tc - vc, prev: tp - vp })
+    }
+    // Referral visits and new workspaces per tracked key (video, channel-wide link).
+    const keyLabel = (k: string) => k.startsWith('ch:') ? `${CHANNELS.find(c => `ch:${c.id}` === k)?.label ?? k}: channel link` : title(k) ?? k
+    const keyed = (kind: 'vis' | 'ws') => [...scopeKeys].map(k => ({ label: keyLabel(k), cur: one(kind, 'cur', k).n, prev: one(kind, 'prev', k).n,
+      tags: o.scope === 'all' && !k.startsWith('ch:') && chOf(k) ? [`creator: ${chOf(k)}`] : [] })).filter(x => x.cur || x.prev)
+    const views = byId('views'), visits = byId('visits'), ws = byId('ws')
+    const drivers: Para[] = []
+    if (views.cur != null && views.prev != null) { const d = driverPara('Views', 'views', { cur: views.cur, prev: views.prev }, viewItems, { minVolume: 50, noun: 'videos' }); if (d) drivers.push(d) }
+    const dv = driverPara('Referral visits', 'visits', { cur: pc.visits, prev: pp.visits }, keyed('vis'), { minVolume: 3, noun: 'videos' }); if (dv) drivers.push(dv)
+    if (pc.newWs || pp.newWs) { const d = driverPara('New workspaces', 'workspaces', { cur: pc.newWs, prev: pp.newWs }, keyed('ws'), { noun: 'videos' }); if (d) drivers.push(d) }
+    // Emerging: in-window videos with 500+ views this period, 5× the period before (or published in the last 10 days), thumbnail CTR ≥ 2%.
+    const cited = new Set(drivers.flat().filter((x): x is { k: 'code'; s: string } => typeof x !== 'string' && x.k === 'code').map(x => x.s))
+    const emerging: Para[] = []
+    for (const c of withViews) for (const v of c.doc!.videos) {
+      if (emerging.length >= 2) break
+      const cur = sum(v.daily.filter(r => inR(r[0], o.cur[0], curEnd)).map(r => r[1])), prev = sum(v.daily.filter(r => inR(r[0], o.prev[0], prevEnd)).map(r => r[1]))
+      const imp = (v.impressions ?? []).filter(r => inR(r[0], o.cur[0], curEnd)); const ii = sum(imp.map(r => r[1])), ic2 = sum(imp.map(r => r[2]))
+      const ctr = ii ? ic2 / ii : null
+      const fresh = v.published >= addDays(o.dataEnd, -10)
+      if (cur >= 500 && (fresh || cur >= prev * 5) && (ctr == null || ctr >= 0.02) && !cited.has(v.title))
+        emerging.push([code(v.title), ` (${c.ch.label}${fresh ? ', new' : ''}): ${cur.toLocaleString('en-US')} views this period${fresh ? '' : ` (vs ${prev.toLocaleString('en-US')})`}${ctr != null ? `; thumbnail CTR ${pctTxt(ctr)}` : ''}.`])
+    }
+    // Anomalies: 10× views with an implausible thumbnail CTR (3× the channel's) or almost no watch time (≤ 10% of the channel's per view).
+    const anomalies: Para[] = []
+    for (const c of withViews) {
+      const doc = c.doc!
+      const chDays = doc.daily.filter(r => inR(r[0], o.cur[0], curEnd)); const chViews = sum(chDays.map(r => r[1])), chMin = sum(chDays.map(r => r[2]))
+      const chImp = (doc.impressionsDaily ?? []).filter(r => inR(r[0], o.cur[0], curEnd)); const chCtr = sum(chImp.map(r => r[1])) ? sum(chImp.map(r => r[2])) / sum(chImp.map(r => r[1])) : null
+      for (const v of doc.videos) {
+        const d = v.daily.filter(r => inR(r[0], o.cur[0], curEnd)); const cur = sum(d.map(r => r[1])), mins = sum(d.map(r => r[2]))
+        const prev = sum(v.daily.filter(r => inR(r[0], o.prev[0], prevEnd)).map(r => r[1]))
+        if (cur < 500 || cur < Math.max(1, prev) * 10) continue
+        const imp = (v.impressions ?? []).filter(r => inR(r[0], o.cur[0], curEnd)); const ctr = sum(imp.map(r => r[1])) ? sum(imp.map(r => r[2])) / sum(imp.map(r => r[1])) : null
+        const watch = cur ? mins / cur : null, chWatch = chViews ? chMin / chViews : null
+        const badCtr = ctr != null && chCtr != null && ctr >= chCtr * 3, badWatch = watch != null && chWatch != null && watch <= chWatch * 0.1
+        if (badCtr || badWatch) anomalies.push([code(v.title), ` (${c.ch.label}): ${cur.toLocaleString('en-US')} views this period (${prev ? `${Math.round(cur / prev)}×` : 'from none'} the period before)`,
+          ...(ctr != null ? [` at ${pctTxt(ctr)} thumbnail CTR (channel ${pctTxt(chCtr)})`] : []), ...(watch != null ? [`, ${(watch * 60).toFixed(0)} s watched per view (channel ${((chWatch ?? 0) * 60).toFixed(0)} s)`] : []), '. This pattern usually means embedded autoplay or bot views.'])
+      }
+    }
+    // Goals, naming the channel furthest below each one (All channels).
+    const gapFor = (f: (r: (typeof liveRows)[number]) => number | null) => {
+      if (o.scope !== 'all') return null
+      const xs = liveRows.map(r => ({ l: r.label, v: f(r) })).filter((x): x is { l: string; v: number } => x.v != null).sort((a, c) => a.v - c.v)
+      return xs.length > 1 ? `${xs[0].l} at ${pctTxt(xs[0].v)}` : null
+    }
+    const goals = [
+      goalLine('CTA CTR', byId('cta_ctr').cur, byId('cta_ctr').prev, STEP_GOALS.viewToVisit, gapFor(r => (r.analytics && r.views ? r.visits / r.views : null))),
+      showEmailSteps ? goalLine('Email capture rate', byId('capture_rate').cur, byId('capture_rate').prev, STEP_GOALS.capture) : null,
+      goalLine('Visit → workspace', byId('ws_rate').cur, byId('ws_rate').prev, showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace, null,
+        { n: showEmailSteps ? pc.captures : pc.visits, min: 20, what: showEmailSteps ? 'email captures' : 'referral visits' }),
+    ].filter((g): g is GoalLine => !!g)
+    const hl = (id: string, kind: 'count' | 'rate' = 'count', goal?: number | null, floor?: { n: number; min: number; what: string }) => {
+      const f = byId(id); return f.nc ? null : headlineLine(f.label, f.cur, f.prev, { kind, goal, floor })
+    }
+    const headline = [hl('impressions'), hl('views'), hl('thumb_ctr', 'rate'), hl('visits'), hl('cta_ctr', 'rate', STEP_GOALS.viewToVisit),
+      showEmailSteps ? hl('capture_rate', 'rate', STEP_GOALS.capture) : null,
+      hl('ws'), hl('t13')].filter((x): x is Para => !!x)
+    const syncAge = inScope.length ? (Date.now() - Math.min(...inScope.map(c => Date.parse(c.doc!.fetchedAt)))) / 36e5 : null
+    const notes = [ytLastDay && ytLastDay < o.cur[1] ? `YouTube numbers run through ${ytLastDay}; one or more channels report 2–3 days late, so both periods use the same ${ytDays} days.` : null,
+      syncAge != null && syncAge > 48 ? `YouTube data was last synced ${Math.round(syncAge / 24)} days ago.` : null].filter(Boolean)
+    return { note: notes.join(' ') || null, headline, drivers, emerging, anomalies, goals }
+  })()
+
   // Channels matched as a whole (one affiliate code or link for every video, e.g. Eric's ?via=bb305b): visits and workspaces
   // exist only for the channel, so the Videos table gets one channel row instead of a column of dashes per video.
   const channelLevel = scopeChannel?.fallback && !scopeVideos.some(v => v.tagged) ? (() => {
@@ -463,7 +527,7 @@ export function buildSocial(o: {
       cohortVideos: o.mode === 'cohort' ? (pc.videos ?? 0) : null,
       pendingVideos: pc.pending,
     },
-    funnel, rateTiles, showEmailSteps, moves, urgent,
+    funnel, rateTiles, showEmailSteps, insight,
     afterSignup: {
       n: allNew, free: allNew - paid, paidOnly: Math.max(0, paid - exp - churn), expanded: exp, churned: churn,
       plans: withUntagged ? plansOf([...rows.filter(r => r.k === 'plan' && r.b === 'cur' && (scopeKeys.has(r.key) || r.key === 'untagged'))]) : pc.plans,

@@ -9,12 +9,14 @@
  * as of the last complete weekly snapshot. Clay does the Snowflake lookup; this tab doesn't query Sigma.
  */
 import { useMemo, useState } from 'react'
+import WhatMoved from '../WhatMoved'
 import ProgressChart, { type ProgressMetric } from '../ProgressChart'
 import { addDays, fmtShort, mondayOf } from '@/lib/plg/dates'
 import { Card, Eyebrow, H2, InfoTip, Pill, Segmented, T, fmtInt, fmtPct, fmtPp } from '../ui'
 import {
   CUT_LABEL, STATUS_FILTERS, countsFor, csvOf, filterCompanies, rate,
   type CompanyRow, type Counts, type CutFilter, type PortfolioData, type PortfolioMeta, type StatusFilter, SOURCE_LABEL,
+  portfolioInsight,
 } from '@/lib/plg/portfolio/data'
 
 const th = 'px-3 py-3 text-[12px] font-medium uppercase whitespace-nowrap'
@@ -462,6 +464,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
         </section>
 
         {progress.length > 0 && <ProgressChart title="Progress" metrics={progress} />}
+        <WhatMoved insight={portfolioInsight(meta, cut, firmName, id => cut === 'all' || firmsById.get(id)?.partnership_cut === cut)} />
 
         <Card className="p-5 sm:p-8 flex flex-col gap-4">
           <H2>Firms</H2>

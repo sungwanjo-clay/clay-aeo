@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { SocialMode, SocialViewModel as SV } from '@/lib/plg/social/compute'
+import WhatMoved from '../WhatMoved'
 import { CHANNELS, COHORT_DAYS, NOT_CONNECTED, NO_ANALYTICS, STEP_GOALS, TIER_LABELS } from '@/lib/plg/social/config'
 import { fmtShort } from '@/lib/plg/dates'
 import { Card, Delta, Eyebrow, H2, Segmented, T, deltaColor, fmtInt, fmtK, fmtPct, fmtPctSigned, fmtPp } from '../ui'
@@ -133,29 +134,6 @@ function RateTiles({ s }: { s: SV }) {
   )
 }
 
-/** What moved vs the period before. Informative only; big drops are marked, nothing is assigned. */
-function Moves({ s }: { s: SV }) {
-  if (!s.moves.length && !s.urgent) return null
-  const line = (m: (typeof s.moves)[number]) => {
-    const fmt = (v: number) => (m.kind === 'rate' ? pctDp(v) : fmtInt(v))
-    const ch = m.kind === 'rate' ? `${m.change >= 0 ? 'up' : 'down'} ${fmtPp(Math.abs(m.change * 100)).replace(/^[+−]/, '')}`
-      : m.change === 0 ? 'flat' : `${m.change > 0 ? 'up' : 'down'} ${Math.abs(m.change * 100).toFixed(0)}%`
-    return <><b>{m.label}</b> {fmt(m.cur)}, {ch} from {fmt(m.prev)}{m.driver && <span style={{ color: T.muted }}> · biggest change: {m.driver}</span>}</>
-  }
-  const drops = s.moves.filter(m => m.drop), rest = s.moves.filter(m => !m.drop)
-  return (
-    <Card className="p-5 sm:p-8 flex flex-col gap-3">
-      <H2>What moved</H2>
-      <p className="text-[14px]" style={{ color: T.muted }}>This period vs the period before, over the days both have.</p>
-      {s.urgent && <p className="rounded-xl px-4 py-2 text-[14px]" style={{ background: '#FCE9E2', color: T.neg }}>{s.urgent}</p>}
-      <ul className="flex flex-col gap-2 text-[15px]" style={{ color: T.ink }}>
-        {drops.map(m => <li key={m.id} className="flex items-start gap-2"><span className="rounded-full px-2 py-0.5 text-[12px] shrink-0" style={{ background: T.amberBg, color: T.amberInk }}>Big drop</span><span>{line(m)}</span></li>)}
-        {rest.map(m => <li key={m.id} className="flex items-start gap-2"><span className="w-[70px] shrink-0" /><span>{line(m)}</span></li>)}
-      </ul>
-    </Card>
-  )
-}
-
 function Trend({ s }: { s: SV }) {
   const first = s.trend.find(t => t.available)?.metric ?? s.trend[0].metric
   const [metric, setMetric] = useState<string>(first)
@@ -214,8 +192,6 @@ function Trend({ s }: { s: SV }) {
     </Card>
   )
 }
-const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
-
 function ChannelsTable({ s }: { s: SV }) {
   const live = s.channelRows.filter((r): r is Extract<(typeof s.channelRows)[number], { connected: true }> => r.connected)
   const tot = (f: (r: (typeof live)[number]) => number | null) => { const xs = live.map(f).filter((x): x is number => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) : null }
@@ -581,7 +557,7 @@ export default function SocialView({ s, loading, thumbs }: { s: SV; loading: boo
       <Kpis s={s} />
       <Trend s={s} />
       <RateTiles s={s} />
-      <Moves s={s} />
+      <WhatMoved insight={s.insight} />
       {s.scope === 'all' ? <ChannelsTable s={s} /> : <Funnel s={s} />}
       <VideoTable s={s} sel={sel} setSel={setSel} thumbs={thumbs} />
       <TierMix s={s} />
