@@ -23,7 +23,9 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
      it): `YOUTUBE_PREV_DIR=W/prev/youtube node scripts/sync-youtube.mjs`. It writes `dist/youtube/<channelId>.json` and
      prints one line per channel. A channel that fails keeps its previous file, so write only the files it printed
      `→ dist/youtube/…` for.
-   - Write those files with one `ArtifactData` `batch`: `set` `youtube/<channelId>` from each file, with `if_version`
+   - Write those files with one `ArtifactData` `batch`: `set` `youtube/<channelId>` from each file, and
+     `youtube/thumbs-<channelId>` from each `thumbs-<channelId>.json` it printed (thumbnails; a batch is capped at 1 MB, so
+     split it if needed), with `if_version`
      from `W/prev`. Skip any file over 250 KB and report it.
    - If the variable isn't set, or the sync fails, report `youtube: not synced (<reason>)` and carry on with the copies
      in `W/prev`.

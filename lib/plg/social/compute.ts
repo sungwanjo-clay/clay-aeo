@@ -281,65 +281,52 @@ export function buildSocial(o: {
   const trackedIds = scopeVideos.filter(v => v.tagged).map(v => v.id)
   const cuts = { device: cutOf('dev', trackedIds), geo: cutOf('geo', trackedIds) }
 
-  // ── Funnel (email steps only when an in-scope video links to the offer page) ──
+  // ── Funnel: one row per count and one per rate, grouped by stage ──────────
+  // Names are shared with the tiles, the trend picker and the tables, so a metric reads the same everywhere.
   const periodVideos = o.mode === 'cohort' ? scopeVideos.filter(v => inCohort(v.published, o.cur)) : scopeVideos
   const showEmailSteps = periodVideos.some(v => v.offerPage && v.tagged)
-  const wsBase = showEmailSteps ? pc.captures : pc.visits
-  const wsRate = rate(pc.newWs, wsBase)
-  type Step = { id: string; stage: string; label: string; lever: string; source: string; cur: number | null; prev: number | null; rate: number | null; prevRate: number | null; goal: number | null; notConnected?: boolean; ncLabel?: string; why?: string; impact: number | null; goalNote?: string }
-  const nc = (id: string, stage: string, label: string, lever: string, source: string, goal: number | null, why: string): Step =>
-    ({ id, stage, label, lever, source, cur: null, prev: null, rate: null, prevRate: null, goal, notConnected: true, impact: null, why })
   const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
-  const imprLive = inScope.length > 0 && inScope.every(c => c.imprState === 'live')
-  const imprPartial = imprLive && pc.imprHave < pc.imprDays
-  // Shown even while Google is still backfilling (partial periods are flagged on the row, not hidden).
-  const imprKnown = imprLive
-  const firstReport = inScope.flatMap(c => [...c.imprDays]).sort()[0]
-  const imprWhy = inScope.some(c => c.imprState === 'none')
-    ? 'Needs the channel owner’s one-time sign-in (YouTube Reporting API, channel_reach_basic_a1)'
-    : imprPartial
-      ? `Google has delivered impressions for ${pc.imprHave} of ${pc.imprDays} days in this period so far (reports start ${firstReport}, about 30 days before the report job was set up). Impressions and view rate show once every day is in, so they're never compared with views from other days.`
-      : 'Report job is set up; Google delivers the first daily files about 48 hours after setup'
-  const steps: Step[] = [
-    { id: 'impr', stage: 'Reach', label: 'Impressions', lever: 'Thumbnail, title, topic, cadence',
-      source: imprPartial ? `YouTube Reporting API · partial: ${pc.imprHave} of ${pc.imprDays} days delivered so far` : 'YouTube Reporting API', cur: pc.impressions, prev: pp.impressions, rate: null, prevRate: null, goal: null,
-      notConnected: !imprKnown, why: imprWhy, impact: null },
-    { id: 'views', stage: 'Reach', label: 'Views', lever: 'Thumbnail & title', source: 'YouTube Analytics API', cur: pc.views, prev: pp.views,
-      rate: imprKnown ? rate(pc.views, pc.impressions) : null, prevRate: imprKnown ? rate(pp.views, pp.impressions) : null, goal: null,
-      notConnected: !viewsKnown, why: NO_ANALYTICS, impact: null },
-    { id: 'visits', stage: 'Click', label: showEmailSteps ? 'Offer page visits' : 'Site visits (tagged links)', lever: 'CTA: pinned comment, description, end screen', source: 'Snowflake · MARKETING_PAGEVIEWS', cur: pc.visits, prev: pp.visits,
-      rate: rate(pc.visits, pc.views), prevRate: rate(pp.visits, pp.views), goal: STEP_GOALS.viewToVisit,
-      // Extra new workspaces if this step hit goal, holding every later step at today's rate.
-      impact: pc.views ? Math.max(0, (pc.views * STEP_GOALS.viewToVisit - pc.visits) * (rate(pc.newWs, pc.visits) ?? 0)) : null },
-  ]
-  // Email steps always show; placeholders until the data exists. Captures are real only for offer-page links.
+  const IMPR_NC = 'Needs the channel owner’s one-time sign-in (YouTube Reporting API)'
   const LIFECYCLE = 'Lifecycle email sends, opens and clicks (Inflection) aren’t in Snowflake yet'
-  steps.push(
-    showEmailSteps
-      ? { id: 'captures', stage: 'Capture', label: 'Email captures', lever: 'Offer page headline & form', source: 'Snowflake · SEGMENT.VERCEL.FORM_SUBMITTED', cur: pc.captures, prev: pp.captures,
-          rate: rate(pc.captures, pc.visits), prevRate: rate(pp.captures, pp.visits), goal: STEP_GOALS.capture,
-          impact: pc.visits ? Math.max(0, (pc.visits * STEP_GOALS.capture - pc.captures) * (rate(pc.newWs, pc.captures) ?? 0)) : 0 }
-      : nc('captures', 'Capture', 'Email captures', 'Offer page headline & form', 'Snowflake · SEGMENT.VERCEL.FORM_SUBMITTED', STEP_GOALS.capture,
-          'No video in scope links to an email-capture page yet, so there is nothing to capture'),
-    nc('qualified', 'Capture', 'MQALs (Tier 1–3 domains)', 'Who the video attracts', 'Captured email domain → Salesforce tier', STEP_GOALS.qualified,
-      'Captured emails aren’t stored in Snowflake, so their domains can’t be tiered yet'),
-    nc('sends', 'Nurture', 'Email sends', 'Every MQAL gets the follow-up email', 'Lifecycle (Inflection)', null, LIFECYCLE),
-    nc('opens', 'Nurture', 'Email opens', 'Subject line & send time', 'Lifecycle (Inflection)', STEP_GOALS.open, LIFECYCLE),
-    nc('clicks', 'Nurture', 'Email clicks', 'Email body & CTA', 'Lifecycle (Inflection)', STEP_GOALS.click, LIFECYCLE),
-  )
-  steps.push({ id: 'ws', stage: 'Workspaces', label: 'New workspaces (first touch)', lever: 'Signup flow', source: 'Snowflake · FIRST_TOUCH_ATTRIBUTION', cur: pc.newWs, prev: pp.newWs,
-    rate: wsRate, prevRate: rate(pp.newWs, showEmailSteps ? pp.captures : pp.visits),
-    goal: showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace,
-    goalNote: showEmailSteps ? 'of captures (placeholder while opens/clicks aren’t connected)' : 'of site visits',
-    impact: wsBase ? Math.max(0, wsBase * (showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace) - pc.newWs) : 0 })
-  // Downstream of signup (as in the mockup): rates are ÷ new workspaces.
-  steps.push(
-    { id: 'activated', stage: 'Workspaces', label: 'Activated workspaces', lever: 'First table run within 7 days', source: 'Snowflake · FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION',
-      cur: pc.activated, prev: pp.activated, rate: rate(pc.activated, pc.newWs), prevRate: rate(pp.activated, pp.newWs), goal: null, impact: null },
-    { id: 'paid', stage: 'Workspaces', label: 'Paid workspaces', lever: 'First invoice paid', source: 'Snowflake · CUSTOMERS',
-      cur: pc.paid, prev: pp.paid, rate: rate(pc.paid, pc.newWs), prevRate: rate(pp.paid, pp.newWs), goal: null, impact: null },
-  )
-  const leak = steps.filter(s => s.impact != null && s.impact > 0).sort((a, b) => b.impact! - a.impact!)[0] ?? null
+  const NO_CAPTURE = 'No video in scope links to an email-capture page yet'
+  // The period before counts only when Google has delivered every day of it (reports start ~30 days before the job).
+  const prevImprOk = !!ip && ip.imprHave >= ip.imprDays
+  const curImprOk = !!ic
+  type FRow = { id: string; stage: string; kind: 'count' | 'rate'; label: string; def: string; cur: number | null; prev: number | null; goal?: number | null; nc?: string | null; partial?: string | null }
+  const cnt = (id: string, stage: string, label: string, def: string, cur: number | null, prev: number | null, nc?: string | null, partial?: string | null): FRow =>
+    ({ id, stage, kind: 'count', label, def, cur: nc ? null : cur, prev: nc ? null : prev, nc: nc ?? null, partial: partial ?? null })
+  const rt = (id: string, stage: string, label: string, def: string, cur: number | null, prev: number | null, goal: number | null, nc?: string | null): FRow =>
+    ({ id, stage, kind: 'rate', label, def, cur: nc ? null : cur, prev: nc ? null : prev, goal, nc: nc ?? null })
+  const wsRateDef = showEmailSteps ? 'New workspaces ÷ email captures' : 'New workspaces ÷ referral visits'
+  const t13 = (x: number[]) => x[0] + x[1] + x[2]
+  const noViews = !withViews.length ? NO_ANALYTICS : null
+  const funnel: FRow[] = [
+    cnt('impressions', 'Reach', 'Impressions', 'Thumbnail impressions on YouTube', curImprOk ? ic!.impressions : null, prevImprOk ? ip!.impressions : null, !withImpr.length ? IMPR_NC : null,
+      ip && !prevImprOk ? 'The period before isn’t fully delivered by YouTube yet' : null),
+    rt('thumb_ctr', 'Reach', 'Thumbnail CTR', 'Thumbnail clicks ÷ impressions', rate(ic?.imprClicks ?? null, ic?.impressions ?? null), prevImprOk ? rate(ip!.imprClicks, ip!.impressions) : null, null, !withImpr.length ? IMPR_NC : null),
+    cnt('views', 'Reach', 'Views', 'YouTube views', vc?.views ?? null, vp?.views ?? null, noViews),
+    cnt('visits', 'Click', 'Referral visits', 'Visitors from the creators’ clay.com links', pc.visits, pp.visits),
+    rt('cta_ctr', 'Click', 'CTA CTR', 'Referral visits ÷ views', rate(vc?.visits ?? null, vc?.views ?? null), rate(vp?.visits ?? null, vp?.views ?? null), STEP_GOALS.viewToVisit, noViews),
+    cnt('captures', 'Capture', 'Email captures', 'Offer-page form submits', pc.captures, pp.captures, showEmailSteps ? null : NO_CAPTURE),
+    rt('capture_rate', 'Capture', 'Email capture rate', 'Email captures ÷ referral visits', rate(pc.captures, pc.visits), rate(pp.captures, pp.visits), STEP_GOALS.capture, showEmailSteps ? null : NO_CAPTURE),
+    cnt('mqal', 'Capture', 'MQALs (Tier 1–3 domains)', 'Captured emails at Tier 1–3 companies', null, null, 'Captured emails aren’t stored in Snowflake, so their domains can’t be tiered yet'),
+    cnt('sends', 'Nurture', 'Email sends', 'Follow-up emails sent', null, null, LIFECYCLE),
+    cnt('opens', 'Nurture', 'Email opens', 'Follow-up emails opened', null, null, LIFECYCLE),
+    rt('open_rate', 'Nurture', 'Email open rate', 'Email opens ÷ email sends', null, null, STEP_GOALS.open, LIFECYCLE),
+    cnt('clicks', 'Nurture', 'Email clicks', 'Clicks in the follow-up email', null, null, LIFECYCLE),
+    rt('click_rate', 'Nurture', 'Email click-through rate', 'Email clicks ÷ email opens', null, null, STEP_GOALS.click, LIFECYCLE),
+    cnt('ws', 'Workspaces', 'New workspaces', 'First-touch workspaces from the creators’ links', pc.newWs, pp.newWs),
+    rt('ws_rate', 'Workspaces', 'Visit → workspace', wsRateDef, rate(pc.newWs, showEmailSteps ? pc.captures : pc.visits), rate(pp.newWs, showEmailSteps ? pp.captures : pp.visits),
+      showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace),
+    cnt('t13', 'Workspaces', 'Tier 1–3 workspaces', 'New workspaces at Salesforce Tier 1–3 companies', t13(pc.tiersNew), t13(pp.tiersNew)),
+    cnt('activated', 'Workspaces', 'Activated workspaces', 'Ran a first table within 7 days', pc.activated, pp.activated),
+    rt('activation_rate', 'Workspaces', 'Activation rate', 'Activated ÷ new workspaces', rate(pc.activated, pc.newWs), rate(pp.activated, pp.newWs), null),
+    cnt('paid', 'Workspaces', 'Paying workspaces', 'New workspaces with a paid invoice', pc.paid, pp.paid),
+    rt('paid_rate', 'Workspaces', 'Paid rate', 'Paying ÷ new workspaces', rate(pc.paid, pc.newWs), rate(pp.paid, pp.newWs), null),
+  ]
+  const byId = (id: string) => funnel.find(f => f.id === id)!
+  /** Rate tiles under the chart, same order and names as the funnel's rate rows. */
+  const rateTiles = ['thumb_ctr', 'cta_ctr', 'capture_rate', 'open_rate', 'click_rate', 'ws_rate', 'activation_rate', 'paid_rate'].map(byId)
 
   // ── All channels rows ──────────────────────────────────────────────────────
   const untagged = { visits: one('vis', 'cur', 'untagged').n, prevVisits: one('vis', 'prev', 'untagged').n, ws: one('ws', 'cur', 'untagged'), prevWs: one('ws', 'prev', 'untagged') }
@@ -349,9 +336,10 @@ export function buildSocial(o: {
   const channelRows = channels.map(c => {
     if (!c.doc) return { id: c.ch.id, label: c.ch.label, connected: false } as const
     const cc = c as Ch
-    const t = totals(cc, 'cur')
+    const t = totals(cc, 'cur'), tp = totals(cc, 'prev')
     return {
       id: c.ch.id, label: c.ch.label, connected: true as const, handle: c.doc.handle, analytics: cc.analytics,
+      prev: { impressions: tp.impressions, views: tp.views, visits: tp.visits, newWs: tp.newWs },
       views: t.views, impressions: t.impressions, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
       existing: t.existing, tiersExisting: t.tiersExisting,
       trackedCount: cc.videos.filter(v => v.tagged).length, videoCount: cc.videos.length,
@@ -373,8 +361,8 @@ export function buildSocial(o: {
   const dayVals = (day: ISODate): DayVals => {
     const ws = dayRows('wsday', day, wsMatch)
     return {
-      impr: ytDay(withImpr, day, c => c.doc!.impressionsDaily!.find(r => r[0] === day)?.[1] ?? 0),
-      clk: ytDay(withImpr, day, c => c.doc!.impressionsDaily!.find(r => r[0] === day)?.[2] ?? 0),
+      impr: withImpr.some(c => !c.imprDays.has(day)) ? null : ytDay(withImpr, day, c => c.doc!.impressionsDaily!.find(r => r[0] === day)?.[1] ?? 0),
+      clk: withImpr.some(c => !c.imprDays.has(day)) ? null : ytDay(withImpr, day, c => c.doc!.impressionsDaily!.find(r => r[0] === day)?.[2] ?? 0),
       views: ytDay(withViews, day, c => c.doc!.daily.find(r => r[0] === day)?.[1] ?? 0),
       visits: sum(dayRows('vday', day, k => scopeKeys.has(k)).map(r => r.n)),
       viewVisits: sum(dayRows('vday', day, k => viewKeys.has(k)).map(r => r.n)),
@@ -393,8 +381,8 @@ export function buildSocial(o: {
     { metric: 'visits', label: 'Referral visits', kind: 'count', num: x => x.visits },
     { metric: 'cta_ctr', label: 'CTA CTR', kind: 'rate', num: x => (x.views == null ? null : x.viewVisits), den: x => x.views, note: 'Referral visits ÷ views, channels with views only' },
     { metric: 't13', label: 'Tier 1–3 workspaces', kind: 'count', num: x => x.t13 },
-    { metric: 'ws', label: 'All workspaces', kind: 'count', num: x => x.ws },
-    { metric: 'activated', label: 'Activated', kind: 'count', num: x => x.act, note: 'Ran a first table within 7 days; the last 7 days are still filling in' },
+    { metric: 'ws', label: 'New workspaces', kind: 'count', num: x => x.ws },
+    { metric: 'activated', label: 'Activated workspaces', kind: 'count', num: x => x.act, note: 'Ran a first table within 7 days; the last 7 days are still filling in' },
     { metric: 'paid', label: 'Paying workspaces', kind: 'count', num: x => x.paid },
   ]
   // Totals over the days both periods have (so a lagging YouTube day never counts against one side only).
@@ -420,6 +408,28 @@ export function buildSocial(o: {
   const paid = pc.paid + (withUntagged ? untagged.ws.p : 0); const paidPrev = pp.paid + (withUntagged ? untagged.prevWs.p : 0)
   const exp = pc.expanded + (withUntagged ? untagged.ws.x : 0); const churn = pc.churned + (withUntagged ? untagged.ws.c : 0)
   const scopeChannel = o.scope === 'all' ? null : CHANNELS.find(c => c.id === o.scope)!
+
+  // ── What moved: plain-language summary vs the period before; flags big drops, prescribes nothing ──
+  // A count is a "big drop" when it falls 25% or more from at least 20; a rate when it falls 25% or more in relative terms.
+  const liveRows = channelRows.filter((r): r is Extract<(typeof channelRows)[number], { connected: true }> => r.connected)
+  const driver = (k: 'impressions' | 'views' | 'visits' | 'newWs') => {
+    if (o.scope !== 'all') return null
+    const ch = liveRows.map(r => ({ label: r.label, d: (r[k] ?? 0) - (r.prev[k] ?? 0), ok: r[k] != null && r.prev[k] != null })).filter(x => x.ok && x.d !== 0)
+    const top = ch.sort((a, b) => Math.abs(b.d) - Math.abs(a.d))[0]
+    return top ? `${top.label} ${top.d > 0 ? '+' : '−'}${Math.abs(Math.round(top.d)).toLocaleString('en-US')}` : null
+  }
+  type Move = { id: string; label: string; kind: 'count' | 'rate'; cur: number; prev: number; change: number; drop: boolean; driver: string | null }
+  const mv = (f: FRow, drv: string | null = null): Move | null => {
+    if (f.cur == null || f.prev == null) return null
+    const change = f.kind === 'rate' ? f.cur - f.prev : f.prev ? (f.cur - f.prev) / f.prev : 0
+    const rel = f.prev ? (f.cur - f.prev) / f.prev : 0
+    const drop = f.kind === 'count' ? rel <= -0.25 && f.prev >= 20 : rel <= -0.25 && f.prev > 0
+    return { id: f.id, label: f.label, kind: f.kind, cur: f.cur, prev: f.prev, change, drop, driver: drv }
+  }
+  const moves = [mv(byId('impressions'), driver('impressions')), mv(byId('views'), driver('views')), mv(byId('thumb_ctr')), mv(byId('visits'), driver('visits')),
+    mv(byId('cta_ctr')), mv(byId('ws'), driver('newWs')), mv(byId('t13'))].filter((m): m is Move => !!m)
+  const syncAge = inScope.length ? (Date.now() - Math.min(...inScope.map(c => Date.parse(c.doc!.fetchedAt)))) / 36e5 : null
+  const urgent = syncAge != null && syncAge > 48 ? `YouTube data was last synced ${Math.round(syncAge / 24)} days ago, so views and impressions are out of date.` : null
   // Channels matched as a whole (one affiliate code or link for every video, e.g. Eric's ?via=bb305b): visits and workspaces
   // exist only for the channel, so the Videos table gets one channel row instead of a column of dashes per video.
   const channelLevel = scopeChannel?.fallback && !scopeVideos.some(v => v.tagged) ? (() => {
@@ -436,9 +446,9 @@ export function buildSocial(o: {
       newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: withUntagged ? untagged.ws.n : null },
       activated: { cur: act, prev: actPrev, delta: pct(act, actPrev), rate: rate(act, allNew) },
       paid: { cur: paid, prev: paidPrev, delta: pct(paid, paidPrev), rate: rate(paid, allNew), churned: churn },
-      impressions: { cur: ic?.impressions ?? null, prev: ip?.impressions ?? null, delta: pct(ic?.impressions ?? null, ip?.impressions ?? null),
-                     excluded: inScope.filter(c => c.imprState !== 'live').map(c => c.ch.label) },
-      thumbCtr: { cur: rate(ic?.imprClicks ?? null, ic?.impressions ?? null), prev: rate(ip?.imprClicks ?? null, ip?.impressions ?? null) },
+      impressions: { cur: ic?.impressions ?? null, prev: prevImprOk ? ip!.impressions : null, delta: prevImprOk ? pct(ic?.impressions ?? null, ip!.impressions) : null,
+                     prevPartial: !!ip && !prevImprOk, excluded: inScope.filter(c => c.imprState !== 'live').map(c => c.ch.label) },
+      thumbCtr: { cur: rate(ic?.imprClicks ?? null, ic?.impressions ?? null), prev: prevImprOk ? rate(ip!.imprClicks, ip!.impressions) : null },
       ctaCtr: { cur: rate(vc?.visits ?? null, vc?.views ?? null), prev: rate(vp?.visits ?? null, vp?.views ?? null) },
       tier13: (() => {
         const t = (x: number[]) => x[0] + x[1] + x[2]
@@ -453,7 +463,7 @@ export function buildSocial(o: {
       cohortVideos: o.mode === 'cohort' ? (pc.videos ?? 0) : null,
       pendingVideos: pc.pending,
     },
-    steps, leak, showEmailSteps,
+    funnel, rateTiles, showEmailSteps, moves, urgent,
     afterSignup: {
       n: allNew, free: allNew - paid, paidOnly: Math.max(0, paid - exp - churn), expanded: exp, churned: churn,
       plans: withUntagged ? plansOf([...rows.filter(r => r.k === 'plan' && r.b === 'cur' && (scopeKeys.has(r.key) || r.key === 'untagged'))]) : pc.plans,

@@ -88,23 +88,71 @@ function KpiTile({ label, value, delta, badge, foot, muted }: {
 
 function Kpis({ s }: { s: SV }) {
   const k = s.kpis
-  const lag = s.mode === 'cohort' ? <>Videos in their first {COHORT_DAYS} days during these dates.</>
-    : s.yt.lagging && s.yt.lastDay ? <>Through {fmtShort(s.yt.lastDay)}: YouTube reports 2–3 days late, so both periods use the same {s.yt.days} days.</> : null
+  const lag = s.yt.lagging && s.yt.lastDay ? <>Through {fmtShort(s.yt.lastDay)}: YouTube reports 2–3 days late, so both periods use the same {s.yt.days} days.</> : null
   const excl = (xs: string[]) => (xs.length ? <> Excludes {xs.join(', ')} (not connected).</> : null)
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
       <KpiTile label="Impressions" value={k.impressions.cur == null ? <NC inline why="Needs the channel owner’s one-time sign-in (YouTube Reporting API)" /> : fmtK(k.impressions.cur)}
         muted={k.impressions.cur == null} delta={k.impressions.delta}
-        foot={<>{lag}{excl(k.impressions.excluded)}</>} />
+        foot={<>{k.impressions.prevPartial ? 'The period before isn’t fully delivered by YouTube, so there’s no comparison. ' : ''}{lag}{excl(k.impressions.excluded)}</>} />
       <KpiTile label="Views" value={k.views.cur == null ? <NC inline why={NO_ANALYTICS} /> : fmtK(k.views.cur)} muted={k.views.cur == null} delta={k.views.delta}
-        badge={{ label: 'Thumbnail CTR', cur: k.thumbCtr.cur, prev: k.thumbCtr.prev, title: 'Thumbnail clicks ÷ impressions, from YouTube. Change is in percentage points.' }}
         foot={<>{fmtInt(k.views.minutes / 60)} watch hours.{excl(k.views.excluded)}</>} />
       <KpiTile label="Referral visits" value={fmtInt(k.visits.cur)} delta={k.visits.delta}
-        badge={{ label: 'CTA CTR', cur: k.ctaCtr.cur, prev: k.ctaCtr.prev, title: 'Visitors from the creators’ links ÷ views (channels with views only). Change is in percentage points.' }}
         foot={<>Visitors from the creators’ clay.com links.{k.visits.untagged != null && <> Plus {fmtInt(k.visits.untagged)} from untagged YouTube links.</>}</>} />
       <KpiTile label="Tier 1–3 workspaces" value={fmtInt(k.tier13.cur)} delta={k.tier13.delta}
         foot={<>Of {fmtInt(k.newWs.cur)} new workspaces · {fmtInt(k.activated.cur)} activated · {fmtInt(k.paid.cur)} paying{k.tier13.untagged != null && <> · incl. untagged YouTube</>}</>} />
     </div>
+  )
+}
+
+const pctDp = (v: number | null | undefined) => fmtPct(v, v != null && v < 0.1 ? 1 : 0)
+const ppDelta = (cur: number | null, prev: number | null) => {
+  if (cur == null || prev == null) return null
+  const d = (cur - prev) * 100
+  return Math.abs(d) < 0.05 ? 0 : d
+}
+
+/** Rate tiles under the chart: same names and definitions as the funnel's rate rows. */
+function RateTiles({ s }: { s: SV }) {
+  return (
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+      {s.rateTiles.map(t => {
+        const d = ppDelta(t.cur, t.prev)
+        return (
+          <Card key={t.id} className="p-5 flex flex-col gap-2">
+            <Eyebrow>{t.label}</Eyebrow>
+            <p className="text-[32px] leading-none" style={{ ...mono, color: t.nc ? T.faint : T.ink }}>{t.nc ? <span className="text-[20px]"><NC why={t.nc} /></span> : pctDp(t.cur)}</p>
+            <p className="text-[14px]" style={{ color: T.muted }}>
+              {t.nc ? t.def : d != null ? <><span style={{ ...mono, color: deltaColor(d) }}>{fmtPp(d)}</span> vs previous period ({pctDp(t.prev)})</> : <>{t.def} · – vs previous period</>}
+            </p>
+            {!t.nc && <p className="text-[12px]" style={{ color: T.faint }}>{t.def}{t.goal != null && <> · goal {pctDp(t.goal)}</>}</p>}
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
+/** What moved vs the period before. Informative only; big drops are marked, nothing is assigned. */
+function Moves({ s }: { s: SV }) {
+  if (!s.moves.length && !s.urgent) return null
+  const line = (m: (typeof s.moves)[number]) => {
+    const fmt = (v: number) => (m.kind === 'rate' ? pctDp(v) : fmtInt(v))
+    const ch = m.kind === 'rate' ? `${m.change >= 0 ? 'up' : 'down'} ${fmtPp(Math.abs(m.change * 100)).replace(/^[+−]/, '')}`
+      : m.change === 0 ? 'flat' : `${m.change > 0 ? 'up' : 'down'} ${Math.abs(m.change * 100).toFixed(0)}%`
+    return <><b>{m.label}</b> {fmt(m.cur)}, {ch} from {fmt(m.prev)}{m.driver && <span style={{ color: T.muted }}> · biggest change: {m.driver}</span>}</>
+  }
+  const drops = s.moves.filter(m => m.drop), rest = s.moves.filter(m => !m.drop)
+  return (
+    <Card className="p-5 sm:p-8 flex flex-col gap-3">
+      <H2>What moved</H2>
+      <p className="text-[14px]" style={{ color: T.muted }}>This period vs the period before, over the days both have.</p>
+      {s.urgent && <p className="rounded-xl px-4 py-2 text-[14px]" style={{ background: '#FCE9E2', color: T.neg }}>{s.urgent}</p>}
+      <ul className="flex flex-col gap-2 text-[15px]" style={{ color: T.ink }}>
+        {drops.map(m => <li key={m.id} className="flex items-start gap-2"><span className="rounded-full px-2 py-0.5 text-[12px] shrink-0" style={{ background: T.amberBg, color: T.amberInk }}>Big drop</span><span>{line(m)}</span></li>)}
+        {rest.map(m => <li key={m.id} className="flex items-start gap-2"><span className="w-[70px] shrink-0" /><span>{line(m)}</span></li>)}
+      </ul>
+    </Card>
   )
 }
 
@@ -185,7 +233,7 @@ function ChannelsTable({ s }: { s: SV }) {
           <thead><tr style={head}>
             <th className={`${th} text-left`}>Channel</th>
             <th className={`${th} text-right`}>Impressions</th><th className={`${th} text-right`}>Views</th>
-            <th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>New WS</th><th className={`${th} text-right`}>Tiers · new WS</th>
+            <th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>New workspaces</th><th className={`${th} text-right`}>Tiers · new workspaces</th>
           </tr></thead>
           <tbody>
             {s.channelRows.map(r => r.connected ? (
@@ -226,7 +274,7 @@ function ChannelsTable({ s }: { s: SV }) {
       </p>
       {s.unmapped.length > 0 && (
         <p className="text-[13px]" style={{ color: T.muted }} title="These carry Peter’s pk_yt_ prefix but no current video description links them, so they aren’t assigned to a video or counted as referral visits.">
-          Not counted: {s.unmapped.map(u => <span key={u.campaign} style={mono}>{u.campaign} ({fmtInt(u.visits)} visitors, {fmtInt(u.ws)} new WS)</span>).reduce<React.ReactNode[]>((acc, x, i) => (i ? [...acc, ', ', x] : [x]), [])} — campaign links no current video description uses. Add them back to a description to count them.
+          Not counted: {s.unmapped.map(u => <span key={u.campaign} style={mono}>{u.campaign} ({fmtInt(u.visits)} visitors, {fmtInt(u.ws)} new workspaces)</span>).reduce<React.ReactNode[]>((acc, x, i) => (i ? [...acc, ', ', x] : [x]), [])} — campaign links no current video description uses. Add them back to a description to count them.
         </p>
       )}
     </Card>
@@ -237,28 +285,31 @@ function Funnel({ s }: { s: SV }) {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Funnel</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Count at each step and the conversion rate from the step before it. Activated and paid are rates of new workspaces. The email steps are placeholders until their data is connected (hover “Not connected” for what’s missing).</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each count, then its step rate on its own row. Counts change in %, rates in percentage points (pp). Email steps are placeholders until their data is connected (hover “Not connected” for what’s missing).</p>
       {s.channel?.fallbackNote && <p className="text-[13px]" style={{ color: T.faint }}>{s.channel.fallbackNote}</p>}
       <div className="overflow-x-auto -mx-5 sm:mx-0">
-        <table className="w-full min-w-[640px] text-[15px]" style={{ color: T.ink }}>
+        <table className="w-full min-w-[700px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left`}>Step · source</th><th className={`${th} text-right`}>Count</th><th className={`${th} text-right`}>Δ</th>
-            <th className={`${th} text-right`}>Step rate</th>
+            <th className={`${th} text-left`}>Step</th><th className={`${th} text-right`}>This period</th><th className={`${th} text-right`}>Period before</th>
+            <th className={`${th} text-right`}>Change</th><th className={`${th} text-right`}>Goal</th>
           </tr></thead>
-          <tbody>{s.steps.map((st, i) => {
-            const stageHead = i === 0 || s.steps[i - 1].stage !== st.stage
-            const blank = !!st.notConnected
-            const first = st.id === 'impr'
+          <tbody>{s.funnel.map((f, i) => {
+            const stageHead = i === 0 || s.funnel[i - 1].stage !== f.stage
+            const isRate = f.kind === 'rate'
+            const fmt = (v: number | null) => (v == null ? '–' : isRate ? pctDp(v) : fmtInt(v))
+            const d = isRate ? ppDelta(f.cur, f.prev) : f.cur != null && f.prev ? (f.cur - f.prev) / f.prev : null
+            const below = isRate && f.goal != null && f.cur != null && f.cur < f.goal
             return [
-              stageHead && <tr key={`h-${st.id}`}><td colSpan={4} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{st.stage}</td></tr>,
-              <tr key={st.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td className="px-3 py-3">
-                  <p className="font-semibold">{st.label}</p>
-                  <p className="text-[13px]" style={{ color: T.muted }}>{st.source}</p>
+              stageHead && <tr key={`h-${f.id}`}><td colSpan={5} className="px-3 pt-5 pb-1 text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.12em', ...mono }}>{f.stage}</td></tr>,
+              <tr key={f.id} style={{ borderBottom: `1px solid ${T.border}`, background: isRate ? '#FAF9F6' : undefined }}>
+                <td className={isRate ? 'px-3 py-2 pl-8' : 'px-3 py-3'}>
+                  <p className={isRate ? 'text-[14px]' : 'font-semibold'}>{isRate && <span style={{ color: T.faint }}>↳ </span>}{f.label}</p>
+                  <p className="text-[13px]" style={{ color: T.muted }}>{f.def}{f.partial && <> · {f.partial}</>}</p>
                 </td>
-                <td className={num} style={mono}>{blank ? <NC why={st.why} label={st.ncLabel} /> : st.cur == null ? <span style={{ color: T.faint }}>pending</span> : fmtInt(st.cur)}</td>
-                <td className={num} style={{ ...mono, color: deltaColor(st.cur != null && st.prev ? st.cur - st.prev : null) }}>{blank ? '' : fmtPctSigned(st.cur != null && st.prev ? (st.cur - st.prev) / st.prev : null)}</td>
-                <td className={num} style={mono}>{first ? '' : blank ? <NC why={st.why} /> : st.rate == null && st.id === 'visits' && !s.yt.viewsKnown ? <NC why={NO_ANALYTICS} /> : st.rate == null && st.id === 'views' ? <NC why={s.steps[0]?.why} label={s.steps[0]?.ncLabel} /> : fmtPct(st.rate, st.rate != null && st.rate < 0.1 ? 1 : 0)}</td>
+                <td className={num} style={{ ...mono, color: below ? T.neg : T.ink }}>{f.nc ? <NC why={f.nc} /> : fmt(f.cur)}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{f.nc ? '' : fmt(f.prev)}</td>
+                <td className={num} style={{ ...mono, color: deltaColor(d) }}>{f.nc || d == null ? (f.nc ? '' : '–') : isRate ? fmtPp(d) : fmtPctSigned(d)}</td>
+                <td className={num} style={{ ...mono, color: T.muted }}>{f.goal != null ? pctDp(f.goal) : ''}</td>
               </tr>,
             ]
           })}</tbody>
@@ -268,9 +319,11 @@ function Funnel({ s }: { s: SV }) {
   )
 }
 
-function VideoTable({ s }: { s: SV }) {
+function VideoTable({ s, sel, setSel, thumbs }: { s: SV; sel: string | null; setSel: (id: string | null) => void; thumbs?: Record<string, string> | null }) {
   const [sort, setSort] = useState<'workspaces' | 'visit' | 'newest'>('workspaces')
-  const [sel, setSel] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
+  const creator = s.scope !== 'all'
+  const cols = 9 + (s.videos.some(v => v.offerPage && v.tagged) ? 1 : 0)
   const rows = [...s.videos].sort((a, b) =>
     sort === 'newest' ? b.published.localeCompare(a.published)
       : sort === 'visit' ? (b.visitRate ?? -1) - (a.visitRate ?? -1) || (b.views ?? b.lifetimeViews) - (a.views ?? a.lifetimeViews)
@@ -282,19 +335,18 @@ function VideoTable({ s }: { s: SV }) {
   )
   return (
     <section className="flex flex-col gap-4">
-      <Eyebrow>Deep dive</Eyebrow>
       <H2>Videos</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>Rates in orange are below goal. Each video is measured over its first {COHORT_DAYS} days after publish. Existing = workspaces that already existed when someone in them visited from the video. Select a video to cut it by device and geo below; select it again to go back to the whole channel.</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>Each video over its first {COHORT_DAYS} days after publish. Rates in orange are below goal. Existing = workspaces that already existed when someone in them visited from the video.{creator && ' Select a video to open it; its device and geo cut shows further down.'}</p>
       <div className="self-start"><Segmented ariaLabel="Sort videos" value={sort} onChange={setSort}
-        options={[{ id: 'workspaces', label: 'Most workspaces' }, { id: 'visit', label: 'Best view → visit' }, { id: 'newest', label: 'Newest' }]} /></div>
+        options={[{ id: 'workspaces', label: 'Most workspaces' }, { id: 'visit', label: 'Best CTA CTR' }, { id: 'newest', label: 'Newest' }]} /></div>
       <Card className="overflow-x-auto">
         <table className="w-full min-w-[1320px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
             <th className={`${th} text-left`}>Video</th>
-            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Visit %</th>
-            {showCapture && <th className={`${th} text-right`}>Capture %</th>}
-            <th className={`${th} text-right`}>New WS %</th><th className={`${th} text-right`}>New WS</th>
-            <th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paid</th>
+            <th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>CTA CTR</th>
+            {showCapture && <th className={`${th} text-right`}>Email capture rate</th>}
+            <th className={`${th} text-right`}>Visit → workspace</th><th className={`${th} text-right`}>New workspaces</th>
+            <th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paying</th>
             <th className={`${th} text-right`}>New T1·T2·T3·T4</th><th className={`${th} text-right`}>Existing T1·T2·T3·T4</th>
           </tr></thead>
           <tbody>
@@ -317,14 +369,19 @@ function VideoTable({ s }: { s: SV }) {
                 <td className={num}><Tiers t={c.tiersNew.slice(0, 4)} /></td>
                 <td className={num} style={{ color: T.muted }}><Tiers t={c.tiersExisting.slice(0, 4)} /></td>
               </tr>) })()}
-            {rows.map(v => (
-            <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}`, background: sel === v.id ? '#E8F6F8' : undefined }}>
-              <td className="px-3 py-3 min-w-[300px]">
+            {rows.map(v => [
+            <tr key={v.id} style={{ borderBottom: open === v.id ? 'none' : `1px solid ${T.border}`, background: open === v.id || sel === v.id ? '#E8F6F8' : undefined }}>
+              <td className="px-3 py-3 min-w-[380px]">
                 <div className="flex items-start gap-3">
-                  <span className="text-[12px] pt-1 w-10 shrink-0 text-right" style={{ color: T.faint, ...mono }}>{dur(v.durationSec)}</span>
+                  {creator && thumbs?.[v.id]
+                    ? <button type="button" onClick={() => setOpen(open === v.id ? null : v.id)} aria-expanded={open === v.id} aria-label={`Open ${v.title}`} className="relative shrink-0 rounded-md overflow-hidden" style={{ width: 96, height: 54, background: T.tile }}>
+                        <img src={thumbs[v.id]} alt="" width={96} height={54} style={{ width: 96, height: 54, objectFit: 'cover', display: 'block' }} />
+                        <span className="absolute bottom-0.5 right-0.5 rounded px-1 text-[10px]" style={{ background: 'rgba(0,0,0,0.75)', color: '#fff', ...mono }}>{dur(v.durationSec)}</span>
+                      </button>
+                    : <span className="text-[12px] pt-1 w-10 shrink-0 text-right" style={{ color: T.faint, ...mono }}>{dur(v.durationSec)}</span>}
                   <span>
-                    {v.tagged
-                      ? <button type="button" onClick={() => setSel(sel === v.id ? null : v.id)} aria-pressed={sel === v.id} className="font-semibold text-left hover:underline">{v.title}</button>
+                    {creator
+                      ? <button type="button" onClick={() => setOpen(open === v.id ? null : v.id)} aria-expanded={open === v.id} className="font-semibold text-left hover:underline">{v.title}</button>
                       : <span className="font-semibold">{v.title}</span>}
                     <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="ml-2 text-[12px] hover:underline" style={{ color: T.muted }}>YouTube ↗</a>
                     <span className="block text-[13px]" style={{ color: T.muted, ...mono }}>{fmtShort(v.published)} · {v.channel}{!v.cohortComplete && ` · day ${v.cohortDay} of ${COHORT_DAYS}`}</span>
@@ -346,7 +403,29 @@ function VideoTable({ s }: { s: SV }) {
               <td className={num} style={mono}>{v.paid != null ? fmtInt(v.paid) : '–'}</td>
               <td className={num}><Tiers t={v.tiersNew ? v.tiersNew.slice(0, 4) : null} /></td>
               <td className={num} style={{ color: T.muted }}><Tiers t={v.tiersExisting ? v.tiersExisting.slice(0, 4) : null} /></td>
-            </tr>))}
+            </tr>,
+            open === v.id && (
+              <tr key={`${v.id}-open`} style={{ borderBottom: `1px solid ${T.border}`, background: '#E8F6F8' }}>
+                <td colSpan={cols} className="px-3 pb-4">
+                  <div className="flex flex-wrap items-start gap-5">
+                    {thumbs?.[v.id] && <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noreferrer" className="rounded-lg overflow-hidden shrink-0" style={{ maxWidth: '100%' }}>
+                      <img src={thumbs[v.id]} alt={v.title} width={320} height={180} style={{ width: 320, maxWidth: '100%', height: 'auto', display: 'block' }} />
+                    </a>}
+                    <dl className="grid gap-x-6 gap-y-1 text-[14px]" style={{ gridTemplateColumns: 'auto 1fr', color: T.ink }}>
+                      <dt style={{ color: T.muted }}>Published</dt><dd style={mono}>{fmtShort(v.published)}{!v.cohortComplete && ` · day ${v.cohortDay} of ${COHORT_DAYS}`}</dd>
+                      <dt style={{ color: T.muted }}>Length</dt><dd style={mono}>{dur(v.durationSec)}</dd>
+                      <dt style={{ color: T.muted }}>Lifetime views</dt><dd style={mono}>{fmtInt(v.lifetimeViews)}</dd>
+                      {v.impressions != null && <><dt style={{ color: T.muted }}>Impressions, first {COHORT_DAYS} days</dt><dd style={mono}>{fmtInt(v.impressions)}{v.imprClicks != null && v.impressions ? ` · thumbnail CTR ${pctDp(v.imprClicks / v.impressions)}` : ''}</dd></>}
+                      <dt style={{ color: T.muted }}>Link</dt><dd className="break-all" style={mono}>{v.destination ?? 'No clay.com link'}{v.campaign ? ` · ${v.campaign}` : ''}</dd>
+                    </dl>
+                    {v.tagged && <button type="button" onClick={() => setSel(sel === v.id ? null : v.id)} aria-pressed={sel === v.id}
+                      className="rounded-full px-4 py-2 text-[14px] self-start" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
+                      {sel === v.id ? 'Show the whole channel in device & geo' : 'Cut device & geo by this video'}</button>}
+                  </div>
+                </td>
+              </tr>
+            ),
+            ])}
             {s.backCatalog.map(b => (
               <tr key={`bc-${b.channel}`} style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
                 <td className="px-3 py-3">
@@ -369,7 +448,6 @@ function VideoTable({ s }: { s: SV }) {
             ))}</tbody>
         </table>
       </Card>
-      <Cuts s={s} sel={sel} onClear={() => setSel(null)} />
     </section>
   )
 }
@@ -381,18 +459,18 @@ function Cuts({ s, sel, onClear }: { s: SV; sel: string | null; onClear: () => v
   const offer = v ? v.offerPage : s.videos.some(x => x.offerPage && x.tagged)
   const total = device.reduce((a, r) => a + r.visits, 0)
   const capRate = (r: { visits: number; captures: number }) => (offer ? fmtPct(r.visits ? r.captures / r.visits : null, 0) : '–')
-  const empty = <tr><td colSpan={5} className="px-3 py-4" style={{ color: T.muted }}>No tagged visits for this selection.</td></tr>
+  const empty = <tr><td colSpan={5} className="px-3 py-4" style={{ color: T.muted }}>No referral visits for this selection.</td></tr>
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-        <h3 className="text-[20px] font-bold" style={{ color: T.ink, letterSpacing: '-0.02em' }}>Cut by device and geo · {v ? v.title : `${s.channel?.label ?? 'All channels'}’s channel`}</h3>
+        <H2>Device and geo · {v ? v.title : s.channel ? `${s.channel.label}’s channel` : 'All channels'}</H2>
         {v && <button type="button" onClick={onClear} className="rounded-full px-4 py-2 text-[14px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>Show whole channel</button>}
       </div>
       <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
         <Card className="p-5 sm:p-6 flex flex-col gap-3 overflow-x-auto">
           <Eyebrow>Device</Eyebrow>
           <table className="w-full min-w-[440px] text-[15px]" style={{ color: T.ink }}>
-            <thead><tr style={head}><th className={`${th} text-left`}>Device</th><th className={`${th} text-right`}>Visits</th><th className={`${th} text-right`}>Share</th><th className={`${th} text-right`}>Visit → capture</th><th className={`${th} text-right`}>New WS</th></tr></thead>
+            <thead><tr style={head}><th className={`${th} text-left`}>Device</th><th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>Share</th><th className={`${th} text-right`}>Email capture rate</th><th className={`${th} text-right`}>New workspaces</th></tr></thead>
             <tbody>{device.length ? device.map(r => (
               <tr key={r.name} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3">{r.name}</td><td className={num} style={mono}>{fmtInt(r.visits)}</td>
@@ -404,7 +482,7 @@ function Cuts({ s, sel, onClear }: { s: SV; sel: string | null; onClear: () => v
         <Card className="p-5 sm:p-6 flex flex-col gap-3 overflow-x-auto">
           <Eyebrow>Geo</Eyebrow>
           <table className="w-full min-w-[440px] text-[15px]" style={{ color: T.ink }}>
-            <thead><tr style={head}><th className={`${th} text-left`}>Region</th><th className={`${th} text-right`}>Visits</th><th className={`${th} text-right`}>Visit → capture</th><th className={`${th} text-right`}>MQAL rate</th><th className={`${th} text-right`}>New WS</th></tr></thead>
+            <thead><tr style={head}><th className={`${th} text-left`}>Region</th><th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>Email capture rate</th><th className={`${th} text-right`}>MQAL rate</th><th className={`${th} text-right`}>New workspaces</th></tr></thead>
             <tbody>{geo.length ? geo.map(r => (
               <tr key={r.name} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3">{r.name}</td><td className={num} style={mono}>{fmtInt(r.visits)}</td>
@@ -415,7 +493,7 @@ function Cuts({ s, sel, onClear }: { s: SV; sel: string | null; onClear: () => v
           </table>
         </Card>
       </div>
-      <p className="text-[13px]" style={{ color: T.muted }}>Clicks and click → visit need YouTube link-click data (not connected). Device is the visitor’s OS (iOS isn’t reported, so it shows as Unknown); region is the browser timezone. New workspaces are matched to the visit through Clay’s cookie map, so a few land in Unknown.</p>
+      <p className="text-[13px]" style={{ color: T.muted }}>YouTube link clicks need YouTube link-click data (not connected). Device is the visitor’s OS (iOS isn’t reported, so it shows as Unknown); region is the browser timezone. New workspaces are matched to the visit through Clay’s cookie map, so a few land in Unknown.</p>
     </>
   )
 }
@@ -427,7 +505,7 @@ function AfterSignup({ s }: { s: SV }) {
   )
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-5">
-      <H2>After signup: did they pay, expand or churn?</H2>
+      <H2>After signup: pay, expand or churn</H2>
       <p className="text-[15px]" style={{ color: T.muted }}>{fmtInt(a.n)} workspaces created from video in this range, status today. Expanded = upgraded plan or bought more credits.</p>
       <div className="flex flex-wrap gap-x-8 gap-y-2">{chip('Still on Free', a.free)}{chip('Paid', a.paidOnly)}{chip('Paid & expanded', a.expanded)}{chip('Paid, then churned', a.churned)}</div>
       <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
@@ -443,7 +521,7 @@ function AfterSignup({ s }: { s: SV }) {
           </tr>)) : <tr><td colSpan={5} className="px-3 py-4" style={{ color: T.muted }}>No new workspaces from video in this range.</td></tr>}</tbody>
       </table></div>
       <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-[15px]" style={{ color: T.ink }}>
-        <thead><tr style={head}><th className={`${th} text-left`}>Signup month</th><th className={`${th} text-right`}>New WS</th><th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paid</th><th className={`${th} text-right`}>Expanded</th><th className={`${th} text-right`}>Churned</th></tr></thead>
+        <thead><tr style={head}><th className={`${th} text-left`}>Signup month</th><th className={`${th} text-right`}>New workspaces</th><th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paid</th><th className={`${th} text-right`}>Expanded</th><th className={`${th} text-right`}>Churned</th></tr></thead>
         <tbody>{s.signupMonths.length ? s.signupMonths.map(m => (
           <tr key={m.month} style={{ borderBottom: `1px solid ${T.border}` }}>
             <td className="px-3 py-3 font-semibold">{monthLabel(m.month)}</td>
@@ -492,41 +570,23 @@ function TierMix({ s }: { s: SV }) {
   )
 }
 
-const DISCUSS = [
-  'Where is the biggest leak for each channel, and who owns the fix?',
-  'Is visit → email capture an offer page problem or a traffic-quality problem? Check the device and geo cuts.',
-  'Of the workspaces that came from video, how many paid? Which plan, and is anyone churning?',
-]
-function Discuss() {
+/**
+ * Same layout on All channels and each creator: four tiles, the trend, rate tiles, what moved, then the channels table
+ * (All) or the funnel (creator), videos, persona and tier mix, after signup, device and geo.
+ */
+export default function SocialView({ s, loading, thumbs }: { s: SV; loading: boolean; thumbs?: Record<string, string> | null }) {
+  const [sel, setSel] = useState<string | null>(null)
   return (
-    <section className="flex flex-col gap-3">
-      <Eyebrow>Discuss</Eyebrow>
-      <ul className="list-disc pl-6 flex flex-col gap-2 text-[17px]" style={{ color: T.ink }}>{DISCUSS.map(q => <li key={q}>{q}</li>)}</ul>
-    </section>
-  )
-}
-
-export default function SocialView({ s, loading }: { s: SV; loading: boolean }) {
-  const body = s.scope !== 'all' ? (
-    <>
+    <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
       <Kpis s={s} />
       <Trend s={s} />
-      <Funnel s={s} />
+      <RateTiles s={s} />
+      <Moves s={s} />
+      {s.scope === 'all' ? <ChannelsTable s={s} /> : <Funnel s={s} />}
+      <VideoTable s={s} sel={sel} setSel={setSel} thumbs={thumbs} />
+      <TierMix s={s} />
       <AfterSignup s={s} />
-      <TierMix s={s} />
-      <Discuss />
-      <VideoTable s={s} />
-    </>
-  ) : (
-    <>
-      <Kpis s={s} />
-      <Trend s={s} />
-      <ChannelsTable s={s} />
-      <TierMix s={s} />
-      <Discuss />
-    </>
-  )
-  return (
-    <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>{body}</div>
+      <section className="flex flex-col gap-4"><Cuts s={s} sel={sel} onClear={() => setSel(null)} /></section>
+    </div>
   )
 }

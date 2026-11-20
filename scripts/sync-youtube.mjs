@@ -243,6 +243,25 @@ for (const ch of CHANNELS) {
     daily: daily.map(r => [r[0], r[1], r[2], r[3], r[4], r[5]]), videos,
   }
   writeFileSync(resolve(outDir, `${ch.id}.json`), JSON.stringify(doc))
+  // Thumbnails for the Videos table (creator tabs). The page can't load images from other hosts, so they travel as
+  // data: URIs in their own document, youtube/thumbs-<channelId>, 320×180, videos inside the sync window only.
+  // Needs i.ytimg.com in the environment's allowed hosts; without it the table shows the video length instead.
+  const thumbs = {}
+  for (const v of vids.filter(x => x.snippet.publishedAt.slice(0, 10) >= since)) {
+    const url = v.snippet.thumbnails?.medium?.url ?? `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      thumbs[v.id] = `data:${res.headers.get('content-type') ?? 'image/jpeg'};base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`
+    } catch { /* host not allowed or offline */ }
+  }
+  if (Object.keys(thumbs).length) {
+    const tdoc = JSON.stringify({ channelId: ch.id, fetchedAt: new Date().toISOString(), thumbs })
+    if (tdoc.length < 250_000) {
+      writeFileSync(resolve(outDir, `thumbs-${ch.id}.json`), tdoc)
+      console.log(`${ch.key}: ${Object.keys(thumbs).length} thumbnails → dist/youtube/thumbs-${ch.id}.json (${(tdoc.length / 1024).toFixed(0)} KB)`)
+    } else console.warn(`${ch.key}: thumbnails skipped (${(tdoc.length / 1024).toFixed(0)} KB is over the document cap)`)
+  } else console.warn(`${ch.key}: no thumbnails downloaded (is i.ytimg.com allowed?)`)
   if (reach) console.log(`${ch.key}: impressions job ${reach.created ? 'created' : 'exists'}; ${reachData?.files ?? 0} report files read${reachData?.failed.length ? `, ${reachData.failed.length} failed (${carried.length} kept from the previous run)` : ''}${reachData?.files ? '' : ' (first files arrive ~48h after the job is created)'}`)
   if (!state.analyticsAccess) console.warn(`${ch.key}: no Analytics access (${state.analyticsError}); stored Data API metadata only`)
   console.log(`${ch.key}: ${daily.length} days, ${videos.length} videos → dist/youtube/${ch.id}.json (${(JSON.stringify(doc).length / 1024).toFixed(0)} KB)`)

@@ -163,6 +163,8 @@ function App() {
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
+  // Video thumbnails per channel (youtube/thumbs-<channelId>, data: URIs written by the YouTube sync).
+  const [thumbs, setThumbs] = useState<Record<string, Record<string, string>>>({})
   // Portfolio tab: synced from the Supabase reporting views into db `portfolio/*` (undefined = loading, null = not synced).
   const [portfolio, setPortfolio] = useState<PortfolioData | null | undefined>(undefined)
   const [downloads, setDownloads] = useState<any>(null)
@@ -191,6 +193,8 @@ function App() {
       setDb(d)
       Promise.all((['main', 'social', 'startup'] as const).map(n => readCached(d, n)))
         .then(([main, social, startup]) => setSaved({ main, social, startup })).catch(() => setSaved({ main: null, social: null, startup: null }))
+      Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/thumbs-${c.youtubeId}`).get().then((x: any) => [c.id, x?.exists ? x.data()?.thumbs ?? null : null] as const).catch(() => [c.id, null] as const)))
+        .then(xs => setThumbs(Object.fromEntries(xs.filter(([, t]) => t)) as Record<string, Record<string, string>>)).catch(() => {})
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
         .then(snaps => setYt(snaps.filter(x => x?.exists).map(x => x.data() as YtChannelDoc)))
         .catch(() => setYt([]))
@@ -468,7 +472,7 @@ function App() {
     : socialProblem && !socialView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(socialProblem).title}: {problemCopy(socialProblem).body}</p>
     : !socialView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for YouTube traffic… first load takes 10–30 seconds.'}</p>
     : 'error' in socialView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {socialView.error}</p>
-    : <SocialView s={socialView.s} loading={socialView.stale} />
+    : <SocialView s={socialView.s} loading={socialView.stale} thumbs={route.channel === "all" ? null : thumbs[route.channel] ?? null} />
   const startupPane = route.tab !== 'startup' ? null
     : startupProblem && !startupView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(startupProblem).title}: {problemCopy(startupProblem).body}</p>
     : !startupView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for startup program traffic… first load takes 10–30 seconds.'}</p>
