@@ -286,21 +286,50 @@ export function buildSocial(o: {
   const trackedIds = [...new Set([...scopeVideos.filter(v => v.tagged).map(v => v.id), ...inScope.map(c => `ch:${c.ch.id}`)])]
   const cuts = { device: cutOf('dev', trackedIds), geo: cutOf('geo', trackedIds) }
 
+  // ── Video deep dive: per-video day-by-day series for these dates and the period before (aligned by day index), plus
+  // period totals for both. YouTube metrics are null on days YouTube hasn't delivered yet (after ytCurEnd / ytPrevEnd).
+  type VDay = { d: ISODate; views: number | null; minutes: number | null; subs: number | null; impr: number | null; clk: number | null; visits: number; captures: number; ws: number }
+  const videoDeep: Record<string, { cur: VDay[]; prev: VDay[]; totals: { cur: VTot; prev: VTot } }> = {}
+  type VTot = { views: number | null; minutes: number | null; subs: number | null; impr: number | null; clk: number | null; visits: number; captures: number; newWs: number; activated: number; paid: number }
+  {
+    const nDays = daysBetween(o.cur[0], o.cur[1])
+    for (const c of inScope) for (const v of c.videos) {
+      const dv = c.doc!.videos.find(x => x.id === v.id)
+      const series = (start: ISODate, ytEnd: ISODate): VDay[] => Array.from({ length: nDays }, (_, i) => {
+        const d = addDays(start, i), yt = d <= ytEnd
+        const dr = dv?.daily.find(r => r[0] === d), ir = dv?.impressions?.find(r => r[0] === d)
+        const day = (k: string) => sum(rows.filter(r => r.k === k && r.key === v.id && r.d === d).map(r => r.n))
+        return { d, views: c.analytics && yt ? (dr?.[1] ?? 0) : null, minutes: c.analytics && yt ? (dr?.[2] ?? 0) : null, subs: c.analytics && yt ? (dr?.[4] ?? 0) : null,
+          impr: c.imprState === 'live' && c.imprDays.has(d) && yt ? (ir?.[1] ?? 0) : null, clk: c.imprState === 'live' && c.imprDays.has(d) && yt ? (ir?.[2] ?? 0) : null,
+          visits: day('vday'), captures: 0, ws: day('wsday') }
+      })
+      const tot = (b: 'cur' | 'prev', xs: VDay[]): VTot => {
+        const nn = (k: 'views' | 'minutes' | 'subs' | 'impr' | 'clk') => (xs.some(x => x[k] != null) ? sum(xs.map(x => x[k] ?? 0)) : null)
+        const ws = one('ws', b, v.id)
+        return { views: nn('views'), minutes: nn('minutes'), subs: nn('subs'), impr: nn('impr'), clk: nn('clk'), visits: one('vis', b, v.id).n, captures: one('form', b, v.id).n, newWs: ws.n, activated: ws.a, paid: ws.p }
+      }
+      const cur = series(o.cur[0], ytCurEnd), prev = series(o.prev[0], ytPrevEnd)
+      videoDeep[v.id] = { cur, prev, totals: { cur: tot('cur', cur), prev: tot('prev', prev) } }
+    }
+  }
+
   // ── Videos table: every number for the selected dates, the same window as the tiles and the channel totals ──
   // Views run through the last day YouTube has delivered (ytCurEnd). Each channel's views from videos older than the
   // sync window go in one "older videos" row, so the rows add up to the channel's total.
   type VP = { impressions: number | null; imprClicks: number | null; minutes: number | null; views: number | null; visits: number | null; captures: number | null; newWs: number | null; activated: number | null; paid: number | null; tiersNew: number[] | null; tiersExisting: number[] | null }
   const videoPeriod: Record<string, VP> = {}
-  const olderVideos: { channel: string; views: number | null; visits: number; newWs: number; activated: number; paid: number; tiersNew: number[] }[] = []
+  const olderVideos: { channel: string; impressions: number | null; imprClicks: number | null; views: number | null; visits: number; newWs: number; activated: number; paid: number; tiersNew: number[] }[] = []
   for (const c of inScope) {
     const doc = c.doc!
     const inR = (d: ISODate) => d >= o.cur[0] && d <= ytCurEnd
-    let listed = 0
+    let listed = 0, listedImp = 0, listedClk = 0
     const listedIds = new Set(c.videos.map(v => v.id))
     for (const v of c.videos) {
       const dv = doc.videos.find(x => x.id === v.id)
       const views = c.analytics && dv ? sum(dv.daily.filter(r => inR(r[0])).map(r => r[1])) : null
       listed += views ?? 0
+      const ii = dv?.impressions?.filter(r => inR(r[0])) ?? []
+      listedImp += sum(ii.map(r => r[1])); listedClk += sum(ii.map(r => r[2]))
       const vis = one('vis', 'cur', v.id), ws = one('ws', 'cur', v.id), ex = one('ex', 'cur', v.id), form = one('form', 'cur', v.id)
       const imp = dv?.impressions ? dv.impressions.filter(r => inR(r[0])) : null
       videoPeriod[v.id] = { impressions: imp ? sum(imp.map(r => r[1])) : null, imprClicks: imp ? sum(imp.map(r => r[2])) : null,
@@ -310,7 +339,9 @@ export function buildSocial(o: {
     const chViews = c.analytics ? sum(doc.daily.filter(r => inR(r[0])).map(r => r[1])) : null
     const olderIds = doc.videos.filter(v => !listedIds.has(v.id)).map(v => v.id)
     const ows = olderIds.map(id => one('ws', 'cur', id))
-    const older = { channel: c.ch.label, views: chViews != null ? chViews - listed : null, visits: sum(olderIds.map(id => one('vis', 'cur', id).n)),
+    const chImp = c.imprState === 'live' ? (doc.impressionsDaily ?? []).filter(r => inR(r[0])) : null
+    const older = { channel: c.ch.label, impressions: chImp ? Math.max(0, sum(chImp.map(r => r[1])) - listedImp) : null, imprClicks: chImp ? Math.max(0, sum(chImp.map(r => r[2])) - listedClk) : null,
+      views: chViews != null ? chViews - listed : null, visits: sum(olderIds.map(id => one('vis', 'cur', id).n)),
       newWs: sum(ows.map(x => x.n)), activated: sum(ows.map(x => x.a)), paid: sum(ows.map(x => x.p)), tiersNew: ows.reduce((acc, x) => addT(acc, x.t), zeroT()) }
     if ((older.views ?? 0) > 0 || older.visits || older.newWs) olderVideos.push(older)
   }
@@ -374,7 +405,7 @@ export function buildSocial(o: {
     return {
       id: c.ch.id, label: c.ch.label, connected: true as const, handle: c.doc.handle, analytics: cc.analytics,
       prev: { impressions: tp.impressions, views: tp.views, visits: tp.visits, newWs: tp.newWs },
-      views: t.views, impressions: t.impressions, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
+      views: t.views, impressions: t.impressions, imprClicks: t.imprClicks, visits: t.visits, captures: t.captures, newWs: t.newWs, tiersNew: t.tiersNew,
       existing: t.existing, tiersExisting: t.tiersExisting,
       trackedCount: cc.videos.filter(v => v.tagged).length, videoCount: cc.videos.length,
       trackedShare: cc.videos.length ? cc.videos.filter(v => v.tagged).length / cc.videos.length : null,
@@ -556,7 +587,7 @@ export function buildSocial(o: {
     affiliateVisitors: one('vis', 'cur', 'affiliate').n,
     tiers: { labels: TIER_LABELS, fresh: withUntagged ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
     videos: scopeVideos,
-    persona, signupMonths, backCatalog, cuts, videoPeriod, olderVideos,
+    persona, signupMonths, backCatalog, cuts, videoPeriod, olderVideos, videoDeep,
     trend, range: { cur: o.cur, prev: o.prev },
   }
 }

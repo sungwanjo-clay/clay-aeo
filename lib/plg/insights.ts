@@ -74,7 +74,6 @@ export type Item = { label: string; cur: number; prev: number; tags?: string[] }
  *   Lead:    Views ▲23% · up 1,483 vs the period before
  *   Bullets: "Title" +1,219 views · 82% of the net change · Peter Kang       (same direction only, top 3)
  *            Offsetting: "Title" −147 views · offsets 10%                   (at most one)
- *   Note:    Most of the change comes from one video.                       (when the move is 10%+)
  */
 export function driverPara(metric: string, unit: string, total: { cur: number; prev: number }, items: Item[], o: { minVolume?: number; usd?: boolean; noun?: string; goodUp?: boolean } = {}): Block | null {
   const net = total.cur - total.prev
@@ -92,15 +91,7 @@ export function driverPara(metric: string, unit: string, total: { cur: number; p
   const top = same.slice(0, 3)
   const bullets: Para[] = top.map(i => [code(i.label), ` ${fmt(i.cur - i.prev)} · ${share(i)} of the net change`, ...(i.tags?.length ? [` · ${i.tags.join(' · ')}`] : [])])
   if (opp[0]) bullets.push(['Offsetting: ', code(opp[0].label), ` ${fmt(opp[0].cur - opp[0].prev)} · offsets ${share(opp[0])}`])
-  // How concentrated the change is (when the move is 10%+). Descriptive only.
-  let note: Para | null = null
-  const r = rel(total.cur, total.prev)
-  if (top.length && r != null && Math.abs(r) >= 0.1) {
-    const s1 = Math.abs(top[0].cur - top[0].prev) / Math.abs(net)
-    const s3 = top.reduce((a, i) => a + Math.abs(i.cur - i.prev), 0) / Math.abs(net)
-    const noun = o.noun ?? 'items'
-    note = [s1 >= 0.5 ? `Most of the change comes from one of the ${noun}.` : s3 >= 0.8 ? `The top ${top.length} account for ${Math.round(s3 * 100)}% of the change.` : `The change is spread across many ${noun}.`]
-  }
+  const note: Para | null = null
   return { lead, bullets, note }
 }
 
