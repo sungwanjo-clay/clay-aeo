@@ -126,17 +126,31 @@ async function ensureReachJob() {
  * video_thumbnail_impressions_ctr (clicks = impressions × ctr). Files appear ~48h after the job exists.
  */
 async function reachReports(jobId) {
-  const out = { daily: new Map(), byVideo: new Map(), files: 0 }
+  const out = { daily: new Map(), byVideo: new Map(), files: 0, failed: [] }
+  // Google can issue more than one report for a day (a restated one later): keep only the newest per day, never sum them.
+  const latest = new Map()
   let page = ''
   do {
     const r = await get(`https://youtubereporting.googleapis.com/v1/jobs/${jobId}/reports?pageSize=100${page ? `&pageToken=${page}` : ''}`)
     for (const rep of r.reports ?? []) {
-      const res = await fetch(rep.downloadUrl, { headers: { Authorization: `Bearer ${at}` } })
-      if (!res.ok) continue
+      const day = rep.startTime.slice(0, 10), have = latest.get(day)
+      if (!have || rep.createTime > have.createTime) latest.set(day, rep)
+    }
+    page = r.nextPageToken ?? ''
+  } while (page)
+  for (const [day, rep] of latest) {
+      // Downloads fail now and then; retry, and report the day as failed (the caller keeps the previous numbers for it).
+      let res = null
+      for (let i = 0; i < 4; i++) {
+        res = await fetch(rep.downloadUrl, { headers: { Authorization: `Bearer ${at}` } }).catch(() => null)
+        if (res?.ok) break
+        await new Promise(ok => setTimeout(ok, 1000 * 2 ** i))
+      }
+      if (!res?.ok) { out.failed.push(day); continue }
       const [head, ...lines] = (await res.text()).trim().split('\n')
       const cols = head.split(','); const ix = n => cols.indexOf(n)
       const iD = ix('date'), iV = ix('video_id'), iI = ix('video_thumbnail_impressions'), iC = ix('video_thumbnail_impressions_ctr')
-      if (iD < 0 || iI < 0) continue
+      if (iD < 0 || iI < 0) { out.failed.push(day); continue }
       out.files++
       for (const line of lines) {
         const c = line.split(','); const d = c[iD]; const day = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
@@ -144,10 +158,18 @@ async function reachReports(jobId) {
         const a = out.daily.get(day) ?? [0, 0]; a[0] += imp; a[1] += clk; out.daily.set(day, a)
         if (iV >= 0) { const k = `${c[iV]}|${day}`; const b = out.byVideo.get(k) ?? [0, 0]; b[0] += imp; b[1] += clk; out.byVideo.set(k, b) }
       }
-    }
-    page = r.nextPageToken ?? ''
-  } while (page)
+  }
   return out
+}
+
+/** The document this channel had last run (dist/youtube or YOUTUBE_PREV_DIR), to fill in days whose download failed. */
+function previousDoc(id) {
+  for (const dir of [process.env.YOUTUBE_PREV_DIR, outDir].filter(Boolean)) {
+    const f = resolve(dir, `${id}.json`)
+    if (!existsSync(f)) continue
+    try { const j = JSON.parse(readFileSync(f, 'utf8')); return j && 'data' in j && Object.keys(j).length <= 3 ? j.data : j } catch { /* ignore */ }
+  }
+  return null
 }
 
 for (const ch of CHANNELS) {
@@ -176,6 +198,13 @@ for (const ch of CHANNELS) {
   const daily = (await tryAnalytics(ch.id, { metrics: 'views,estimatedMinutesWatched,subscribersGained,subscribersLost,averageViewPercentage', dimensions: 'day', sort: 'day' }, state)).rows ?? []
   let reachData = null
   if (reach) { try { reachData = await reachReports(reach.id) } catch (e) { console.warn(`${ch.key}: reach reports not read (${e.message})`) } }
+  // Days that failed to download this run: carry the previous run's numbers so a hiccup never punches a hole in the data.
+  const prev = previousDoc(ch.id)
+  const carried = []
+  if (reachData && prev?.impressionsDaily) {
+    for (const [d, imp, clk] of prev.impressionsDaily) if (!reachData.daily.has(d)) { reachData.daily.set(d, [imp, clk]); carried.push(d) }
+    for (const pv of prev.videos ?? []) for (const [d, imp, clk] of pv.impressions ?? []) if (carried.includes(d)) reachData.byVideo.set(`${pv.id}|${d}`, [imp, clk])
+  }
   const videos = []
   for (const v of vids) {
     const published = v.snippet.publishedAt.slice(0, 10)
@@ -191,8 +220,10 @@ for (const ch of CHANNELS) {
       lifetimeViews: Number(v.statistics.viewCount ?? 0), ...parseLinks(v.snippet.description ?? ''),
       // [day, views, minutes, avgViewPct, subsGained]
       daily: rows.filter(r => r[1] > 0 || r[2] > 0).map(r => [r[0], r[1], r[2], r[3], r[4]]),
-      // [day, impressions, thumbnail clicks] from the Reporting API (owner token only; null = not connected)
-      impressions: reachData ? [...reachData.byVideo.entries()].filter(([k]) => k.startsWith(`${v.id}|`)).map(([k, x]) => [k.split('|')[1], Math.round(x[0]), Math.round(x[1])]).sort() : null,
+      // [day, impressions, thumbnail clicks] from the Reporting API (owner token only; null = not connected or outside the window)
+      // Per video only inside the sync window (the 28-day cohort needs it); the back catalog is covered by the channel total.
+      // Keeps big catalogs (Eric: 370+ videos) under the 256 KB document cap.
+      impressions: reachData && inWindow ? [...reachData.byVideo.entries()].filter(([k]) => k.startsWith(`${v.id}|`)).map(([k, x]) => [k.split('|')[1], Math.round(x[0]), Math.round(x[1])]).sort() : null,
       cohort28: coh ? { start: published, end: cohortEnd, days: daysBetween(published, cohortEnd), views: coh[0], minutes: coh[1], avgViewPct: coh[2], subsGained: coh[3] } : null,
     })
   }
@@ -202,13 +233,17 @@ for (const ch of CHANNELS) {
     videoCount: Number(info.statistics.videoCount), since, fetchedAt: new Date().toISOString(),
     analyticsAccess: state.analyticsAccess, tokenSource: own ? 'owner' : 'shared',
     reachJobId: reach?.id ?? null,
+    // Freshness, read by scripts/health-check.mjs: last day each source has delivered, and days whose report failed.
+    analyticsThrough: daily.at(-1)?.[0] ?? null,
+    impressionsThrough: reachData?.daily.size ? [...reachData.daily.keys()].sort().at(-1) : null,
+    reachFailed: reachData ? reachData.failed.filter(d => !carried.includes(d)) : null, reachCarried: carried,
     // Channel daily [day, impressions, thumbnail clicks]; [] = job exists but no files yet; null = no owner token.
     impressionsDaily: reachData ? [...reachData.daily.entries()].map(([d, x]) => [d, Math.round(x[0]), Math.round(x[1])]).sort() : null,
     // [day, views, minutes, subsGained, subsLost, avgViewPct]
     daily: daily.map(r => [r[0], r[1], r[2], r[3], r[4], r[5]]), videos,
   }
   writeFileSync(resolve(outDir, `${ch.id}.json`), JSON.stringify(doc))
-  if (reach) console.log(`${ch.key}: impressions job ${reach.created ? 'created' : 'exists'}; ${reachData?.files ?? 0} report files read${reachData?.files ? '' : ' (first files arrive ~48h after the job is created)'}`)
+  if (reach) console.log(`${ch.key}: impressions job ${reach.created ? 'created' : 'exists'}; ${reachData?.files ?? 0} report files read${reachData?.failed.length ? `, ${reachData.failed.length} failed (${carried.length} kept from the previous run)` : ''}${reachData?.files ? '' : ' (first files arrive ~48h after the job is created)'}`)
   if (!state.analyticsAccess) console.warn(`${ch.key}: no Analytics access (${state.analyticsError}); stored Data API metadata only`)
   console.log(`${ch.key}: ${daily.length} days, ${videos.length} videos → dist/youtube/${ch.id}.json (${(JSON.stringify(doc).length / 1024).toFixed(0)} KB)`)
  } catch (e) {

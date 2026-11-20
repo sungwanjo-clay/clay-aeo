@@ -130,6 +130,8 @@ export function buildSocial(o: {
     const analytics = doc.analyticsAccess !== false
     const tracked = (v: YtVideo) => !!v.campaign || fallbackKeys.has(v.id)
     const sinceDay = (doc as YtChannelDoc & { since?: ISODate }).since ?? '1970-01-01'
+    // Impressions only over days views are in for too, so the view rate never divides mismatched days.
+    const viewsThrough = analytics ? (doc.daily.at(-1)?.[0] ?? null) : null
     const videos = doc.videos.filter(v => v.published >= sinceDay).map(v => {
       const isTracked = tracked(v)
       const coh = v.cohort28
@@ -139,7 +141,7 @@ export function buildSocial(o: {
       const ex = isTracked ? one('ex', 'coh', v.id) : null
       const cohortDay = Math.min(COHORT_DAYS, Math.max(0, daysBetween(v.published, o.dataEnd)))
       const views = analytics ? (coh?.views || null) : null
-      const impr28 = v.impressions?.length ? sum(v.impressions.filter(r => r[0] >= v.published && r[0] <= addDays(v.published, COHORT_DAYS - 1)).map(r => r[1])) : null
+      const impr28 = v.impressions?.length ? sum(v.impressions.filter(r => r[0] >= v.published && r[0] <= addDays(v.published, COHORT_DAYS - 1) && (!viewsThrough || r[0] <= viewsThrough)).map(r => r[1])) : null
       const offerPage = !!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!))
       return {
         id: v.id, title: v.title, published: v.published, channel: ch.label, durationSec: v.durationSec,
@@ -159,19 +161,25 @@ export function buildSocial(o: {
     const imprState: 'live' | 'pending' | 'none' = doc.impressionsDaily == null ? 'none' : doc.impressionsDaily.length ? 'live' : 'pending'
     // Days Google has delivered a reach report for. Impressions are only compared with views over days that are all in.
     const imprDays = new Set((doc.impressionsDaily ?? []).map(r => r[0]))
-    return { ch, doc, analytics, videos, keys, imprState, imprDays }
+    // Last day YouTube has delivered everything this channel reports (views and, once connected, impressions). Days after
+    // it are still in YouTube's 1–3 day lag, so they're left out of coverage instead of being flagged as missing.
+    const lastView = doc.daily.at(-1)?.[0] ?? null, lastImpr = [...imprDays].sort().at(-1) ?? null
+    const through = [lastView, lastImpr].filter((d): d is ISODate => !!d).sort()[0] ?? null
+    return { ch, doc, analytics, videos, keys, imprState, imprDays, through }
   })
   type Ch = Extract<(typeof channels)[number], { videos: unknown }>
   const connected = channels.filter((c): c is Ch => !!c.doc)
 
   // YouTube Analytics lags ~2 days: clip calendar comparisons to reported days.
-  const ytLastDay = connected.filter(c => c.analytics).flatMap(c => c.doc!.daily.map(r => r[0])).sort().at(-1) ?? null
+  // Clipped to the day every connected source has reached, so views, impressions and view rate cover the same days in both periods.
+  const ytLastDay = connected.filter(c => c.analytics).map(c => c.through).filter((d): d is ISODate => !!d).sort()[0] ?? null
   const ytCurEnd = ytLastDay && ytLastDay < o.cur[1] ? ytLastDay : o.cur[1]
   const ytDays = ytCurEnd >= o.cur[0] ? daysBetween(o.cur[0], ytCurEnd) : 0
   const ytPrevEnd = addDays(o.prev[0], Math.max(0, ytDays - 1))
 
   /** Days a..b (inclusive) and how many of them have a delivered reach report. */
   const coverage = (c: Ch, a: ISODate, e: ISODate) => {
+    if (c.through && c.through < e) e = c.through
     let days = 0, have = 0
     for (let d = a; d <= e; d = addDays(d, 1)) { days++; if (c.imprDays.has(d)) have++ }
     return { days, have }
@@ -233,6 +241,11 @@ export function buildSocial(o: {
   })
   const pc = combine(inScope.map(c => totals(c, 'cur')))
   const pp = combine(inScope.map(c => totals(c, 'prev')))
+  // Views tile: sum the channels YouTube Analytics reports for, and name the ones left out (e.g. Payton without a sign-in),
+  // instead of showing "pending" for the whole scope. The funnel keeps nsum: its rates need views for every channel.
+  const withViews = inScope.filter(c => c.analytics)
+  const vc = withViews.length ? combine(withViews.map(c => totals(c, 'cur'))) : null
+  const vp = withViews.length ? combine(withViews.map(c => totals(c, 'prev'))) : null
   const scopeVideos = inScope.flatMap(c => c.videos)
   /** Rows of one kind for the current period: cohort = in-cohort tracked videos; calendar = scope keys (+ untagged on All). */
   const periodKeys = o.mode === 'cohort'
@@ -366,13 +379,14 @@ export function buildSocial(o: {
   return {
     scope: o.scope, mode: o.mode,
     channel: scopeChannel ? { id: scopeChannel.id, label: scopeChannel.label, handle: scopeChannel.handle, fallbackNote: scopeChannel.fallback?.note ?? null } : null,
-    yt: { lastDay: ytLastDay, lagging: !!ytLastDay && ytLastDay < o.cur[1], days: ytDays, viewsKnown,
+    yt: { lastDay: ytLastDay, lagging: !!ytLastDay && ytLastDay < o.cur[1], days: ytDays, periodDays: daysBetween(o.cur[0], o.cur[1]), viewsKnown,
       fetchedAt: inScope.map(c => c.doc!.fetchedAt).sort()[0] ?? null },
     kpis: {
       newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: withUntagged ? untagged.ws.n : null },
       activated: { cur: act, prev: actPrev, delta: pct(act, actPrev), rate: rate(act, allNew) },
       paid: { cur: paid, prev: paidPrev, delta: pct(paid, paidPrev), rate: rate(paid, allNew), churned: churn },
-      views: { cur: pc.views, prev: pp.views, delta: pct(pc.views, pp.views), avgPct: pc.avgPct, subs: pc.subs, minutes: pc.minutes, known: viewsKnown },
+      views: { cur: vc?.views ?? null, prev: vp?.views ?? null, delta: pct(vc?.views ?? null, vp?.views ?? null), avgPct: vc?.avgPct ?? null, subs: vc?.subs ?? 0, minutes: vc?.minutes ?? 0,
+               known: viewsKnown, excluded: inScope.filter(c => !c.analytics).map(c => c.ch.label) },
       lifetimeViews: sum(scopeVideos.map(v => v.lifetimeViews)),
       visits: { cur: pc.visits, prev: pp.visits, delta: pct(pc.visits, pp.visits), untagged: withUntagged ? untagged.visits : null },
       captures: { cur: pc.captures, prev: pp.captures, delta: pct(pc.captures, pp.captures) },

@@ -10,7 +10,7 @@
  * alert rules on each workflow (email on any failed run); this catches what those can't: a run that never
  * happened, a sync that wasn't done, a refresh that "succeeded" without writing, or numbers that collapsed.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const [dir, out, nowArg] = process.argv.slice(2)
@@ -26,6 +26,9 @@ const hours = iso => (now - new Date(iso)) / 36e5
 const days = iso => hours(iso) / 24
 const mondayOf = d => { const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x.toISOString().slice(0, 10) }
 
+// Channels the YouTube sync covers (scripts/sync-youtube.mjs CHANNELS). Other documents in the collection are left alone.
+const CHANNEL_KEYS = new Set(['peter', 'payton', 'eric'])
+
 const checks = []
 const add = (id, level, ok, detail) => checks.push({ id, level, ok, detail })   // level: 'alert' (broken) or 'warn'
 
@@ -37,6 +40,30 @@ for (const name of ['main', 'social', 'startup']) {
   add(`cache_${name}`, 'alert', age <= 30, `Saved ${name} view refreshed ${age.toFixed(0)} h ago (data through ${h.dataEnd})`)
   if (h.dataEnd) add(`cache_${name}_data`, 'warn', days(h.dataEnd + 'T23:59:59Z') <= 3, `Saved ${name} view has data through ${h.dataEnd}`)
 }
+
+// 1b. YouTube documents (Media properties tab), written by the YouTube sync step of the daily refresh. Only channels
+// with an owner sign-in or Viewer access are held to these (Payton's has neither, so it carries no dates).
+const ytDir = join(dir, 'youtube')
+if (existsSync(ytDir)) {
+  for (const f of readdirSync(ytDir).filter(f => f.endsWith('.json'))) {
+    const y = read('youtube', f.replace(/\.json$/, ''))
+    if (!y?.key || !CHANNEL_KEYS.has(y.key)) continue
+    const label = y.title ?? y.key
+    add(`yt_${y.key}_sync`, 'alert', hours(y.fetchedAt) <= 30, `YouTube ${label}: synced ${hours(y.fetchedAt).toFixed(0)} h ago`)
+    const lastViews = y.analyticsThrough ?? y.daily?.at(-1)?.[0]
+    // Analytics normally reports through 2–3 days ago; 5 means YouTube or the sync has stalled.
+    if (y.analyticsAccess && lastViews) add(`yt_${y.key}_views`, 'warn', days(lastViews + 'T23:59:59Z') <= 5, `YouTube ${label}: views through ${lastViews}`)
+    if (Array.isArray(y.impressionsDaily) && y.impressionsDaily.length) {
+      const imp = y.impressionsThrough ?? y.impressionsDaily.map(r => r[0]).sort().at(-1)
+      add(`yt_${y.key}_impr`, 'warn', days(imp + 'T23:59:59Z') <= 4, `YouTube ${label}: impressions through ${imp}`)
+      // Gaps in the last 28 delivered days (a report Google never sent, or one that failed and had nothing to carry over).
+      const have = new Set(y.impressionsDaily.map(r => r[0]))
+      const gaps = []
+      for (let i = 0; i < 28; i++) { const d = new Date(Date.parse(imp + 'T00:00:00Z') - i * 864e5).toISOString().slice(0, 10); if (d >= y.impressionsDaily[0][0] && !have.has(d)) gaps.push(d) }
+      add(`yt_${y.key}_gaps`, 'warn', gaps.length === 0, gaps.length ? `YouTube ${label}: impressions missing for ${gaps.join(', ')}` : `YouTube ${label}: no missing impression days`)
+    }
+  }
+} else add('yt_sync', 'alert', false, 'YouTube documents were not downloaded')
 
 // 2. Portfolio: synced in the last 8 days, latest closed week is this week or last week, every company chunk present.
 const meta = read('portfolio', 'meta')

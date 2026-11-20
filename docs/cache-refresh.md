@@ -12,8 +12,19 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
 
 1. **Code.** In the repository: `git fetch origin claude/affectionate-noether-v0n9id && git checkout FETCH_HEAD`, then
    `[ -d node_modules ] || npm ci`.
-2. **YouTube documents** (the Media properties query needs them): `ArtifactData` `list` of collection `youtube` on the
-   artifact, with `out_dir` = `W/yt`.
+2. **YouTube sync, then the YouTube documents.** The Media properties query and tab need fresh YouTube data, and
+   nothing else refreshes it.
+   - `ArtifactData` `list` of collection `youtube` on the artifact, with `out_dir` = `W/prev` (the current copies, with
+     their `version`s).
+   - If `YOUTUBE_CLIENT_ID` is set in the environment (check with `[ -n "$YOUTUBE_CLIENT_ID" ] && echo yes`, never print
+     it): `YOUTUBE_PREV_DIR=W/prev/youtube node scripts/sync-youtube.mjs`. It writes `dist/youtube/<channelId>.json` and
+     prints one line per channel. A channel that fails keeps its previous file, so write only the files it printed
+     `→ dist/youtube/…` for.
+   - Write those files with one `ArtifactData` `batch`: `set` `youtube/<channelId>` from each file, with `if_version`
+     from `W/prev`. Skip any file over 250 KB and report it.
+   - If the variable isn't set, or the sync fails, report `youtube: not synced (<reason>)` and carry on with the copies
+     in `W/prev`.
+   - Then use `W/yt` = a fresh `list` of collection `youtube` (`out_dir` = `W/yt`) for the steps below.
 3. **Latest complete day.** `node scripts/refresh-cache.mjs latest` prints `{connectionId, sql}`. Call the Clay Sigma
    connector's `begin_session` once, then `query` with `{type: "connection", connectionId, sql}` using that SQL
    exactly. The single row's `max_day` (first 10 characters) is `DATAEND`.
@@ -30,7 +41,8 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    `batch` per NAME: `set` each part `cache/NAME-<i>` from its file, then the header `cache/NAME` last (readers use the
    header to find the parts, so it must go after them). Pass `if_version` for every document that already exists. If a
    part number from an older, longer copy is left over, leave it: the header's `parts` count limits what is read.
-7. **Report** one line per NAME: data through DATAEND, rows, parts, written or skipped (and why).
+7. **Report** one line for the YouTube sync (channels written, views and impressions through which day), then one line per
+   NAME: data through DATAEND, rows, parts, written or skipped (and why).
 
 ## Format
 

@@ -112,7 +112,8 @@ function Kpis({ s }: { s: SV }) {
       <Tile label="Paid" value={fmtInt(k.paid.cur)}>{fmtPct(k.paid.rate, 1)} of new workspaces</Tile>
       <Tile label="Views" value={k.views.cur == null ? 'pending' : fmtK(k.views.cur)} muted={k.views.cur == null}>
         <Delta value={k.views.delta}>{fmtPctSigned(k.views.delta)}</Delta> vs previous · {fmtPct(k.views.avgPct, 0)} avg viewed · {fmtInt(k.views.minutes / 60)} watch hrs
-        {s.mode === 'calendar' && s.yt.lagging && <> · first {s.yt.days} days (YouTube lags)</>}
+        {s.mode === 'calendar' && s.yt.lagging && <> · {s.yt.days} of {s.yt.periodDays} days, through {fmtShort(s.yt.lastDay!)} (YouTube reports 2–3 days late; both periods use the same days)</>}
+        {k.views.excluded.length > 0 && <> · excludes {k.views.excluded.join(', ')} (not connected)</>}
         {s.mode === 'cohort' && <> · {fmtInt(k.cohortVideos)} videos in their first {COHORT_DAYS} days during these dates{k.pendingVideos ? `, ${k.pendingVideos} not reported by YouTube yet` : ''}</>}
       </Tile>
       <Tile label="Tagged site visits" value={fmtInt(k.visits.cur)}>
