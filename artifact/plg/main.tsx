@@ -40,13 +40,16 @@ function guard<T>(name: ContractName, payload: T, keys: string[] = []): T {
   return payload
 }
 import SourcesPanel from '@/components/plg/SourcesPanel'
-import { croSources, portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
+import { creatorsSources, croSources, portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
 import Tier4View from '@/components/plg/slg/Tier4View'
 import { buildTier4, enrichTier4 } from '@/lib/plg/slg/compute'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
 import CroView from '@/components/plg/cro/CroView'
 import { buildCro } from '@/lib/plg/cro/compute'
 import { croSql, croTrendSql } from '@/lib/plg/cro/sql'
+import InsightsView from '@/components/plg/creators/InsightsView'
+import { buildCreators, type CreatorsDoc, type Period } from '@/lib/plg/creators/compute'
+import { creatorsSql } from '@/lib/plg/creators/sql'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Mcp = any
@@ -67,10 +70,12 @@ type Problem = { code: string; message: string } | null
  */
 /** `ranges`: set by the daily job's multi-view copy (lib/plg/offline.ts): the date ranges it computed. Absent = one view. */
 type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate; ranges?: string[] }
-type CacheName = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend'
-const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend']
+type CacheName = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators'
+const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend', 'creators']
 type Saved = Record<CacheName, Cached | null>
-const noSaved = (): Saved => ({ main: null, social: null, startup: null, tier4: null, tier4list: null, cro: null, crotrend: null })
+/** Section queries with their own saved copy (each loads only on its tab). */
+type SecName = 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators'
+const noSaved = (): Saved => ({ main: null, social: null, startup: null, tier4: null, tier4list: null, cro: null, crotrend: null, creators: null })
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
@@ -180,7 +185,7 @@ function App() {
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
     return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' } : h === 'social-eric' ? { tab: 'social', channel: 'eric' }
-      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'tier4' ? { tab: 'workspaces', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'insights' ? { tab: 'insights', channel: 'all' } : h === 'tier4' ? { tab: 'workspaces', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
@@ -189,6 +194,10 @@ function App() {
   // Portfolio tab: synced from the Supabase reporting views into db `portfolio/*` (undefined = loading, null = not synced).
   const [portfolio, setPortfolio] = useState<PortfolioData | null | undefined>(undefined)
   const [downloads, setDownloads] = useState<any>(null)
+  // Content insights: the program's placement list + YouTube metadata (youtube/creators, written by scripts/sync-creators.mjs).
+  const [creatorsDoc, setCreatorsDoc] = useState<CreatorsDoc | null | undefined>(undefined)
+  const [creatorThumbs, setCreatorThumbs] = useState<Record<string, string>>({})
+  const [period, setPeriod] = useState<Period>('all')
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
   const [socialProblem, setSocialProblem] = useState<Problem>(null)
   // Peter defaults to per-video cohorts, All channels to calendar dates; each can switch.
@@ -214,6 +223,13 @@ function App() {
       setDb(d)
       Promise.all(CACHE_NAMES.map(n => readCached(d, n)))
         .then(xs => setSaved(Object.fromEntries(CACHE_NAMES.map((n, i) => [n, xs[i]])) as Saved)).catch(() => setSaved(noSaved()))
+      d.doc('youtube/creators').get().then(async (x: any) => {
+        const doc = x?.exists ? (x.data() as CreatorsDoc) : null
+        setCreatorsDoc(doc)
+        if (!doc?.thumbParts) return
+        const parts = await Promise.all(Array.from({ length: doc.thumbParts }, (_, i) => d.doc(`youtube/creators-thumbs-${i}`).get().then((y: any) => (y?.exists ? y.data()?.thumbs ?? {} : {})).catch(() => ({}))))
+        setCreatorThumbs(Object.assign({}, ...parts))
+      }).catch(() => setCreatorsDoc(null))
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/thumbs-${c.youtubeId}`).get().then((x: any) => [c.id, x?.exists ? x.data()?.thumbs ?? null : null] as const).catch(() => [c.id, null] as const)))
         .then(xs => setThumbs(Object.fromEntries(xs.filter(([, t]) => t)) as Record<string, Record<string, string>>)).catch(() => {})
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
@@ -362,7 +378,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const go = useCallback((tab: DashboardTab, channel: SocialChannel) => {
-    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : tab === 'portfolio' ? '#portfolio' : ''
+    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : tab === 'portfolio' ? '#portfolio' : tab === 'insights' ? '#insights' : ''
     try { history.replaceState(null, '', hash || location.pathname + location.search) } catch { /* sandboxed */ }
     setRoute({ tab, channel })
   }, [])
@@ -434,24 +450,25 @@ function App() {
     [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], dataEnd, route.tab, offline])
   const croTrendText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? croTrendSql(dataEnd) : null), [dataEnd, route.tab, offline])
   const tier4ListText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? tier4ListSql(dataEnd) : null), [dataEnd, route.tab, offline])
-  const [secRes, setSecRes] = useState<Partial<Record<'tier4' | 'tier4list' | 'cro' | 'crotrend', { key: string; payload: unknown }>>>({})
-  const [secProblem, setSecProblem] = useState<Partial<Record<'tier4' | 'tier4list' | 'cro' | 'crotrend', Problem>>>({})
+  const creatorsText = useMemo(() => (dataEnd && route.tab === 'insights' && !offline ? creatorsSql(dataEnd) : null), [dataEnd, route.tab, offline])
+  const [secRes, setSecRes] = useState<Partial<Record<SecName, { key: string; payload: unknown }>>>({})
+  const [secProblem, setSecProblem] = useState<Partial<Record<SecName, Problem>>>({})
   useEffect(() => {
     if (!mcp) return
-    const unsubs = ([['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText], ['crotrend', croTrendText]] as const).filter(([, q]) => q).map(([name, q]) =>
+    const unsubs = ([['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText], ['crotrend', croTrendText], ['creators', creatorsText]] as const).filter(([, q]) => q).map(([name, q]) =>
       mcp.watchTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: q } }, (ev: any) => {
         if (ev.type === 'error') { setSecProblem(x => ({ ...x, [name]: { code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' } })); return }
         setSecProblem(x => ({ ...x, [name]: null }))
         setSecRes(x => ({ ...x, [name]: { key: q!, payload: ev.result?.payload } }))
       }, { cache: CACHE }))
     return () => unsubs.forEach(u => u())
-  }, [mcp, tier4Text, tier4ListText, croText, croTrendText])
+  }, [mcp, tier4Text, tier4ListText, croText, croTrendText, creatorsText])
   /** Section data: live, or the saved copy when it covers these dates (a single-view copy only covers the default view). */
-  const pick = (name: 'tier4' | 'tier4list' | 'cro' | 'crotrend', text: string | null): { payload: unknown; stale: boolean } | { uncovered: true } | null => {
+  const pick = (name: SecName, text: string | null): { payload: unknown; stale: boolean } | { uncovered: true } | null => {
     if (offline) {
       const c = saved?.[name]
       if (!c) return null
-      const ok = name === 'tier4list' || name === 'crotrend' || (c.ranges ? !!secRanges && covers(c.ranges, { cur: secRanges[0], prev: secRanges[1] }) : offlineQs === '')
+      const ok = name === 'tier4list' || name === 'crotrend' || name === 'creators' || (c.ranges ? !!secRanges && covers(c.ranges, { cur: secRanges[0], prev: secRanges[1] }) : offlineQs === '')
       return ok ? { payload: c.payload, stale: false } : { uncovered: true }
     }
     const r = secRes[name]
@@ -480,6 +497,15 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secRes.tier4, secRes.tier4list, saved?.tier4, saved?.tier4list, offline, tier4Text, tier4ListText, portfolio, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
 
+  const creatorsView = useMemo(() => {
+    const r = pick('creators', creatorsText)
+    if (!r || !creatorsDoc || !effEnd) return null
+    if ('uncovered' in r) return { error: UNCOVERED }
+    const end = offline && saved?.creators ? saved.creators.dataEnd : effEnd
+    try { return { v: buildCreators(creatorsDoc, guard('creators', r.payload), end, period), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secRes.creators, saved?.creators, offline, creatorsText, creatorsDoc, effEnd, period])
+
   // Saved copies of the Media properties and Startup default views: written when this viewer loads them live in the
   // default range, and warmed in the background (at most every 12 h) once this viewer has shown it can write the copy.
   const isDefault = !offline && !!sql && sql === defaultSql
@@ -488,7 +514,7 @@ function App() {
     if (!db || saved === undefined || !dataEnd || !isDefault) return
     const live: [CacheName, { key: string; payload: unknown } | null | undefined, string | null][] = [
       ['social', socialResult, socialSqlText], ['startup', startupResult, startupSqlText],
-      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText]]
+      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText], ['creators', secRes.creators, creatorsText]]
     for (const [name, r, text] of live) {
       if (!r || r.key !== text) continue
       if (keepSaved(name)) continue
@@ -499,7 +525,7 @@ function App() {
       const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
       writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? noSaved()), [name]: c })) } })
     }
-  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, secRes, tier4Text, tier4ListText, croText, croTrendText, saved])
+  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, secRes, tier4Text, tier4ListText, croText, croTrendText, creatorsText, saved])
   useEffect(() => {
     if (!db || !mcp || !dataEnd || !isDefault || !socialRanges || yt == null || saved === undefined) return
     let live = true
@@ -518,6 +544,7 @@ function App() {
       if (due(saved.tier4list ?? null) && route.tab !== 'workspaces' && !keepSaved('tier4list')) jobs.push(['tier4list', tier4ListSql(dataEnd)])
       if (due(saved.cro ?? null) && route.tab !== 'workspaces' && !keepSaved('cro')) jobs.push(['cro', croSql(sr, dataEnd)])
       if (due(saved.crotrend ?? null) && route.tab !== 'workspaces' && !keepSaved('crotrend')) jobs.push(['crotrend', croTrendSql(dataEnd)])
+      if (due(saved.creators ?? null) && route.tab !== 'insights' && !keepSaved('creators')) jobs.push(['creators', creatorsSql(dataEnd)])
       for (const [name, text] of jobs) {
         try {
           const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
@@ -533,6 +560,7 @@ function App() {
   // "Sources and SQL": the exact SQL for the current filters, built the same way whether or not this viewer has Sigma.
   const sourcesFor = useMemo(() => {
     if (route.tab === 'portfolio') return portfolioSources()
+    if (route.tab === 'insights') return creatorsSources(effEnd ? creatorsSql(effEnd) : null)
     const sr = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
     if (route.tab === 'social') return socialSources(sr && effEnd && yt ? socialSql({ ...sr, tagged: taggedVideos(yt, effEnd), fallbacks: channelFallbacks(yt, effEnd) }) : null)
     if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
@@ -592,8 +620,15 @@ function App() {
     : 'error' in tier4View ? <p className="text-[15px]" style={{ color: T.neg }}>{tier4View.error}</p>
     : <Tier4View v={tier4View.v!} loading={tier4View.stale}
         onExport={downloads ? async (filename, csv) => { await downloads.save({ filename, data: new Blob([csv], { type: 'text/csv' }) }) } : undefined} />
+  const insightsPane = route.tab !== 'insights' ? null
+    : creatorsDoc === null ? <p className="text-[15px]" style={{ color: T.neg }}>The creator program list isn’t synced yet. Run scripts/creators-from-sheet.py and scripts/sync-creators.mjs and store the output in this page’s youtube collection.</p>
+    : secProblem.creators && !creatorsView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(secProblem.creators).title}: {problemCopy(secProblem.creators).body}</p>
+    : !creatorsView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline && !saved?.creators ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for creator links… first load takes 10–30 seconds.'}</p>
+    : 'error' in creatorsView ? <p className="text-[15px]" style={{ color: T.neg }}>{creatorsView.error}</p>
+    : <InsightsView d={creatorsView.v!} period={period} onPeriod={setPeriod} thumbs={creatorThumbs} loading={creatorsView.stale} />
   return (
     <DashboardView
+      insights={insightsPane}
       sources={<SourcesPanel key={route.tab} src={sourcesFor} />}
       tier4={tier4Pane}
       cro={croPane}

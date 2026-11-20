@@ -17,11 +17,12 @@ import StickyFilters from './StickyFilters'
 import Boundary from './Boundary'
 import { useRef } from 'react'
 
-export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio'
+export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio' | 'insights'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'social', label: 'Media properties' },
   { id: 'startup', label: 'Startup program' },
+  { id: 'insights', label: 'Content insights' },
 ] as const
 /** Workspaces tab sections, for the sticky bar's jump links. */
 const WS_SECTIONS = [
@@ -32,6 +33,7 @@ const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces</>, sub: 'By channel and tier, with conversion and Tier 4 hand-raisers' },
   social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Media properties</>, sub: '' },
   startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup Offer Program</>, sub: 'clay.com/clay-for-startups · no offer sent yet' },
+  insights: { eyebrow: 'PLG weekly metrics · Content insights · YouTube creators', title: <>Content insights</>, sub: 'Which creator videos drive workspaces, what they share, and what to make next' },
   portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>VC and Partners</>, sub: 'Portfolio companies with a workspace, paying and redeemed' },
 } as const
 
@@ -112,7 +114,7 @@ function HealthBanner({ h }: { h: Health | null | undefined }) {
   )
 }
 
-export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, tier4, cro }: {
+export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, insights, tier4, cro }: {
   /** Collapsed "Sources and SQL" panel for the active tab, shown at the bottom. */
   sources?: React.ReactNode
   /** Daily health check verdict; undefined while loading. */
@@ -137,6 +139,8 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   startup?: React.ReactNode
   /** Rendered when tab === 'portfolio'. */
   portfolio?: React.ReactNode
+  /** Rendered when tab === 'insights' (Content insights: creator program). */
+  insights?: React.ReactNode
   /** Workspaces tab section: Tier 4 SLG hand-raisers. */
   tier4?: React.ReactNode
   /** Workspaces tab: CRO section (landing pages, homepage launch). */
@@ -150,6 +154,8 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   const filterRef = useRef<HTMLDivElement>(null)
   const fstate: FilterState = { preset: v.params.preset, start: v.range.start, end: v.range.end, compare: v.params.compare, grain: v.params.grain }
   const program = active === 'startup' || active === 'portfolio'
+  // Portfolio and Content insights have their own period controls, not the dashboard's date range.
+  const ownDates = active === 'portfolio' || active === 'insights'
 
   return (
     <div className="px-4 py-6 sm:px-10 sm:py-8 xl:px-16 flex flex-col gap-6 sm:gap-8" style={{ background: T.page, minHeight: '100%' }}>
@@ -164,9 +170,9 @@ export default function DashboardView({ sources, health, v, loading, error, noti
           {v.source === 'fixture'
             ? <Pill tone="amber" title="Local fixture file (PLG_FIXTURE_PATH), not live data">Fixture data</Pill>
             : <Pill tone="neutral" title={sourceNote ?? (v.range.settled ? 'Settled' : 'Settling (±5% expected)')}>{freshness(v, refreshedAt)}</Pill>}
-          <span className="rounded-full px-5 py-2.5 text-[16px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
+          {!ownDates && <span className="rounded-full px-5 py-2.5 text-[16px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
             {presetLabel}
-          </span>
+          </span>}
         </div>
       </header>
 
@@ -179,19 +185,19 @@ export default function DashboardView({ sources, health, v, loading, error, noti
 
       {program && onTab && <ProgramToggle value={active === 'portfolio' ? 'portfolio' : 'startup'} onChange={t => onTab(t)} />}
 
-      {active !== 'portfolio' && <StickyFilters anchor={filterRef} state={fstate} label={v.range.label} prevLabel={v.range.prevLabel} onChange={update}
+      {!ownDates && <StickyFilters anchor={filterRef} state={fstate} label={v.range.label} prevLabel={v.range.prevLabel} onChange={update}
         sections={active === 'workspaces' ? WS_SECTIONS.filter(x => (x.id !== 'ws-cro' || cro) && (x.id !== 'ws-tier4' || tier4)) : undefined} />}
 
-      {active !== 'portfolio' && <div ref={filterRef}><FilterCard
+      {!ownDates && <div ref={filterRef}><FilterCard
         state={fstate}
         prevStart={v.range.prevStart} prevEnd={v.range.prevEnd}
         dataStart={v.range.dataStart} dataEnd={v.range.dataEnd}
         onChange={update}
       /></div>}
       <HealthBanner h={health} />
-      {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
+      {notice && !ownDates && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
-      {active === 'social' ? <Boundary name="Media properties" resetKey={v}>{social}</Boundary> : active === 'startup' ? <Boundary name="Startup Offer Program" resetKey={v}>{startup}</Boundary> : active === 'portfolio' ? <Boundary name="VC and Partners">{portfolio}</Boundary> : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? <Boundary name="Media properties" resetKey={v}>{social}</Boundary> : active === 'startup' ? <Boundary name="Startup Offer Program" resetKey={v}>{startup}</Boundary> : active === 'portfolio' ? <Boundary name="VC and Partners">{portfolio}</Boundary> : active === 'insights' ? <Boundary name="Content insights">{insights}</Boundary> : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <div id="ws-overview" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
           <Boundary name="Headline tiles" resetKey={v}><KpiTiles v={v} /></Boundary>

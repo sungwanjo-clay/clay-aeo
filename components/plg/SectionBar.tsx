@@ -32,7 +32,7 @@ export function MultiSelect({ label, options, value, onChange }: { label: string
       <summary className="list-none cursor-pointer rounded-full px-3 py-1.5 text-[13px] select-none" style={chipStyle(value.length > 0)}>
         {label}{value.length ? ` · ${value.length}` : ''} ▾
       </summary>
-      <div className="absolute z-40 mt-2 w-[280px] max-h-[360px] overflow-auto rounded-xl p-2 shadow-lg" style={{ background: '#fff', border: `1px solid ${T.border}` }}>
+      <div className="absolute z-40 mt-2 w-[280px] max-w-[calc(100vw-2rem)] max-h-[360px] overflow-auto rounded-xl p-2 shadow-lg" style={{ background: '#fff', border: `1px solid ${T.border}` }}>
         {value.length > 0 && <button type="button" className="w-full text-left px-2 py-1.5 text-[13px] underline" style={{ color: T.muted }} onClick={() => onChange([])}>Clear</button>}
         {options.map(o => {
           const on = value.includes(o.id)

@@ -37,6 +37,7 @@ const TABS = {
   social: { hash: '#social', must: ['What moved'] },
   startup: { hash: '#startup', must: ['What moved', 'Funnel'] },
   portfolio: { hash: '#portfolio', must: [] },
+  insights: { hash: '#insights', must: ['What moved', 'YouTube creator funnel', 'Videos that drive workspaces', 'What the winners share'] },
 }
 const PRESETS = quick ? ['last7', 'last28'] : ['last7', 'last28', 'last90', 'qtd', 'ytd']
 const COMPARES = quick ? ['previous_period'] : ['previous_period', 'previous_year']
@@ -71,8 +72,10 @@ console.log(`db: ${Object.keys(docs).length} documents`)
 
 // 1. Every tab × preset × comparison.
 for (const [tab, t] of Object.entries(TABS)) {
-  for (const preset of tab === 'portfolio' ? ['last7'] : PRESETS) {
-    for (const compare of tab === 'portfolio' ? ['previous_period'] : COMPARES) {
+  // Portfolio and Content insights ignore the dashboard's dates: one load each.
+  const ownDates = tab === 'portfolio' || tab === 'insights'
+  for (const preset of ownDates ? ['last7'] : PRESETS) {
+    for (const compare of ownDates ? ['previous_period'] : COMPARES) {
       const qs = new URLSearchParams({ preset, ...(compare !== 'previous_period' ? { compare } : {}) }).toString()
       const where = `${tab} · ${preset} · ${compare}`
       const r = await visit(docs, t.hash, qs); runs++
@@ -96,9 +99,15 @@ const scenarios = [
     if (h) { const p = JSON.parse(Array.from({ length: h.parts }, (_, i) => d[`cache/cro-${i}`].s).join('')); p.rows = p.rows.filter(r => r[0] !== 'all'); d['cache/cro-0'] = { s: JSON.stringify(p) }; d['cache/cro'] = { ...h, parts: 1 } }
     return d
   })(), /Data check failed/],
+  ['creators breaks its contract', (() => {
+    const d = clone(); const h = d['cache/creators']
+    if (h) { const p = JSON.parse(Array.from({ length: h.parts }, (_, i) => d[`cache/creators-${i}`].s).join('')); p.rows = p.rows.filter(r => r[0] !== 'w'); d['cache/creators-0'] = { s: JSON.stringify(p) }; d['cache/creators'] = { ...h, parts: 1 } }
+    return d
+  })(), /Data check failed/, '#insights'],
+  ['creator list not synced', (() => { const d = clone(); delete d['youtube/creators']; return d })(), /creator program list isn’t synced/, '#insights'],
 ]
-for (const [name, d, expect] of scenarios) {
-  const r = await visit(d, '', '', 4000); runs++
+for (const [name, d, expect, hash = ''] of scenarios) {
+  const r = await visit(d, hash, '', 4000); runs++
   for (const e of r.errors) fail(`scenario ${name}`, e)
   if (!expect.test(r.text)) fail(`scenario ${name}`, `page didn’t say what’s wrong (expected ${expect})`)
 }

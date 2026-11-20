@@ -141,3 +141,20 @@ export function portfolioSources(): TabSources {
     notes: ['Definitions of every view are in supabase/migrations (latest: 009_sales_tier.sql) in the clay-aeo repository.'],
   }
 }
+
+export function creatorsSources(sql: string | null): TabSources {
+  return {
+    sources: [
+      { name: 'Placement list (video ↔ link token)', where: 'Affiliate team’s Influencer Master sheet → db youtube/creators', what: 'scripts/creators-from-sheet.py, then scripts/sync-creators.mjs. Creator, video, token, placement type, fit tier, the program’s Excluded / Measurable / Shared-token flags, Rewardful clicks and signups' },
+      { name: 'Video and channel metadata', where: 'YouTube Data API (public)', what: 'Views, length, chapters, where the Clay link sits in the description; channel median = recent long-form uploads, newest 5 excluded' },
+      { name: 'Visitors per token', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'Distinct cookies with AFFILIATE_ID = token; likely bots excluded (MARKETING_IP_CRAWLER_CLASSIFICATION)' },
+      { name: 'Workspaces per token', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION × MARKETING_WEBSITE_SESSIONS', what: '90-day first touch; the first-touch session URL carries ?via=<token>. Tier 1–3: lib/plg/tier.ts. Activated within 7 days of matured workspaces. Paid: BINARY_CONVERTED_CUSTOMER' },
+    ],
+    queries: sql ? [{ label: 'Creator links by week', sql, note: SIGMA_NOTE }] : [],
+    notes: [
+      'Weeks start on Sunday (the warehouse’s DATE_TRUNC week). The first week starts Apr 6.',
+      'A link shared by several videos is reported once at the creator level; per-view rates only use videos with a link of their own.',
+      'Fees, payments and contacts in the program sheet are not loaded here.',
+    ],
+  }
+}

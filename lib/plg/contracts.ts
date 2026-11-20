@@ -7,7 +7,7 @@
  * invariants that can only fail when something upstream broke (conversions > visitors, negative counts, a day with no
  * visitors at all). Ranges are labels "<start>~<end>" (lib/plg/offline.ts).
  */
-export type Name = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend'
+export type Name = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators'
 export type Verdict = { ok: boolean; problems: string[]; rows: number }
 
 type Tbl = { columns: unknown[]; rows: unknown[][] }
@@ -96,6 +96,18 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       const empty = [...days].filter(d => !(hp.get(d)! > 0))
       if (empty.length > 2) problems.push(`days with no new homepage visitors: ${empty.slice(0, 5).join(', ')}`)
       if (rows.some(r => num(r, 'p') > num(r, 'a') || num(r, 'x') > num(r, 'a'))) problems.push('a day with conversions or clickers above new visitors')
+      break
+    }
+    case 'creators': {
+      if (!need(['k', 'tok', 'wk', 'n1', 'n2', 'n3', 'n4', 'n5'])) break
+      nonNum(['n1', 'n2', 'n3', 'n4', 'n5']); negative(['n1', 'n2', 'n3', 'n4', 'n5'])
+      if (!rows.some(r => str(r, 'k') === 'v')) problems.push('no affiliate visitor rows')
+      if (!rows.some(r => str(r, 'k') === 'w')) problems.push('no affiliate workspace rows')
+      const ws = rows.filter(r => str(r, 'k') === 'w')
+      if (ws.some(r => num(r, 'n2') > num(r, 'n1') || num(r, 'n5') > num(r, 'n1') || num(r, 'n4') > num(r, 'n1') || num(r, 'n3') > num(r, 'n4')))
+        problems.push('a token-week with Tier 1–3, matured, activated or paid above its workspaces')
+      const weeks = new Set(rows.map(r => str(r, 'wk').slice(0, 10)))
+      if (weeks.size < 8) problems.push(`only ${weeks.size} weeks of affiliate data`)
       break
     }
     case 'cro': {

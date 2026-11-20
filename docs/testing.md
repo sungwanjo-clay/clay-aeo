@@ -16,3 +16,14 @@ copies that are stale, partial, cover only one view, or fail their checks.
 
 Known gaps: the queries themselves only run in Sigma (the Clay Sigma connector), so CI can't execute them; the daily
 refresh is their end-to-end run, and `pack` refuses any result that fails its contract.
+
+## Content insights (creator program)
+
+The tab joins two sources:
+
+- `youtube/creators` (+ `youtube/creators-thumbs-<i>`): the affiliate team's placement list, exported with
+  `python3 -I scripts/creators-from-sheet.py <Influencer_Master.xlsx> <export.json>` and enriched with
+  `NODE_USE_ENV_PROXY=1 node scripts/sync-creators.mjs <export.json> [preview.json]` (public YouTube metadata). Output
+  goes to `dist/creators/`, which is git-ignored; store each file in the page's `youtube` collection under its file name.
+  The sheet carries fees and contacts: the export script reads only the Placements and Ingest - Youtube sheets.
+- the `creators` saved copy (lib/plg/creators/sql.ts), refreshed daily with the other saved views.

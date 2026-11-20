@@ -15,6 +15,7 @@ import { socialSql } from '@/lib/plg/social/sql'
 import { startupSql } from '@/lib/plg/startup/sql'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
 import { croSql, croTrendSql } from '@/lib/plg/cro/sql'
+import { creatorsSql } from '@/lib/plg/creators/sql'
 import { OFFLINE_COMBOS, comboQs, rangeLabel, savedRanges } from '@/lib/plg/offline'
 
 export { validate } from '@/lib/plg/contracts'
@@ -55,5 +56,7 @@ export function defaults(dataEnd: string, ytDir: string) {
     cro: croSql(ranges, dataEnd),
     // Not range-dependent: the last 26 weeks to dataEnd.
     crotrend: croTrendSql(dataEnd),
+    // Not range-dependent: creator program links per week, Apr 6 (at most 39 weeks back) to dataEnd.
+    creators: creatorsSql(dataEnd),
   }
 }

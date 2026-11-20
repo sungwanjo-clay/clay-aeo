@@ -105,7 +105,7 @@ export function Pill({ children, tone = 'neutral', title }: { children: ReactNod
     on_track: { background: '#E6EEFF', color: '#1E3A8A' },
   }
   return (
-    <span title={title} className="inline-flex items-center whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] uppercase"
+    <span title={title} className="inline-flex items-center whitespace-normal sm:whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] uppercase"
       style={{ letterSpacing: '0.1em', fontFamily: T.mono, ...styles[tone] }}>
       {children}
     </span>
@@ -121,7 +121,7 @@ export function InfoTip({ children, label = 'Definition' }: { children: ReactNod
         style={{ border: `1px solid ${T.faint}`, color: T.muted, fontFamily: T.mono, background: 'transparent' }}>i</button>
       {/* pt-2 bridges the gap so the pointer can move into the tip (links stay clickable). */}
       <span role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-50 w-[280px] -translate-x-1/2 pt-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        className="absolute left-1/2 top-full z-50 hidden w-[280px] max-w-[calc(100vw-2rem)] -translate-x-1/2 pt-2 group-hover:block group-focus-within:block">
         <span className="block rounded-xl px-3.5 py-3 text-left text-[13px] font-normal normal-case leading-snug shadow-lg"
           style={{ background: T.ink, color: '#fff', letterSpacing: 'normal', fontFamily: 'inherit' }}>
           {children}

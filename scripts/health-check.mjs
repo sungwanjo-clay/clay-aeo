@@ -36,7 +36,7 @@ const add = (id, level, ok, detail) => checks.push({ id, level, ok, detail })   
 // the last 30 hours, data no older than 3 days), cover every preset × comparison (a multi-range copy, not a single view a
 // page wrote), and pass its data contract (lib/plg/contracts.ts): the right shape, a row for every range, no impossible
 // counts. Anything less is what viewers without Sigma would see.
-const CACHES = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend']
+const CACHES = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend', 'creators']
 const RANGED = new Set(['main', 'social', 'startup', 'tier4', 'cro'])
 let contracts = null
 try {
@@ -89,6 +89,16 @@ if (existsSync(ytDir)) {
     }
   }
 } else add('yt_sync', 'alert', false, 'YouTube documents were not downloaded')
+
+// 1c. Content insights: the creator program list (youtube/creators, scripts/sync-creators.mjs). The sheet half is a manual
+// export for now, so this only warns: a week without a re-sync means new videos and links are missing from the tab.
+const cr = existsSync(ytDir) ? read('youtube', 'creators') : null
+if (!cr) add('creators_sync', 'warn', false, 'Content insights: the creator program list has never been synced')
+else {
+  add('creators_sync', 'warn', hours(cr.fetchedAt) <= 8 * 24, `Content insights: creator list synced ${(hours(cr.fetchedAt) / 24).toFixed(0)} days ago`)
+  const missing = Array.from({ length: cr.thumbParts ?? 0 }, (_, i) => read('youtube', `creators-thumbs-${i}`)).filter(x => !x).length
+  if (missing) add('creators_thumbs', 'warn', false, `Content insights: ${missing} of ${cr.thumbParts} thumbnail parts missing`)
+}
 
 // 2. Portfolio: synced in the last 8 days, latest closed week is this week or last week, every company chunk present.
 const meta = read('portfolio', 'meta')
