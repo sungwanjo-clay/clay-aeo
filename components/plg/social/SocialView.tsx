@@ -293,7 +293,27 @@ function VideoTable({ s }: { s: SV }) {
             <th className={`${th} text-right`}>Activated</th><th className={`${th} text-right`}>Paid</th>
             <th className={`${th} text-right`}>New T1·T2·T3·T4</th><th className={`${th} text-right`}>Existing T1·T2·T3·T4</th>
           </tr></thead>
-          <tbody>{rows.map(v => (
+          <tbody>
+            {s.channelLevel && (() => { const c = s.channelLevel; return (
+              <tr style={{ borderBottom: `1px solid ${T.border}`, background: '#F6F5F2' }}>
+                <td className="px-3 py-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-[12px] pt-1 w-10 shrink-0 text-right" style={{ color: T.faint, ...mono }}>—</span>
+                    <span><span className="font-semibold">Whole channel · {s.channel?.label}</span>
+                      <span className="block text-[13px]" style={{ color: T.muted }}>Every video links the same affiliate code, so visits and workspaces are counted for the channel, not per video. Calendar dates; views are the channel’s daily views.</span></span>
+                  </div>
+                </td>
+                <td className={num} style={mono}>{c.views != null ? fmtInt(c.views) : '–'}</td>
+                <td className={num} style={mono}>{fmtPct(c.views ? c.visits / c.views : null, 1)}</td>
+                {showCapture && <td className={num} style={{ color: T.faint }}>–</td>}
+                <td className={num} style={mono}>{fmtPct(c.visits ? c.newWs / c.visits : null, 1)}</td>
+                <td className={num} style={mono}>{fmtInt(c.newWs)}</td>
+                <td className={num} style={mono}>{fmtInt(c.activated)}</td>
+                <td className={num} style={mono}>{fmtInt(c.paid)}</td>
+                <td className={num}><Tiers t={c.tiersNew.slice(0, 4)} /></td>
+                <td className={num} style={{ color: T.muted }}><Tiers t={c.tiersExisting.slice(0, 4)} /></td>
+              </tr>) })()}
+            {rows.map(v => (
             <tr key={v.id} style={{ borderBottom: `1px solid ${T.border}`, background: sel === v.id ? '#E8F6F8' : undefined }}>
               <td className="px-3 py-3 min-w-[300px]">
                 <div className="flex items-start gap-3">
@@ -310,7 +330,11 @@ function VideoTable({ s }: { s: SV }) {
               <td className={num} style={mono}>{!v.analytics
                 ? <span title={`${fmtInt(v.lifetimeViews)} lifetime public views (Data API)`}><NC why={`${NO_ANALYTICS} ${fmtInt(v.lifetimeViews)} lifetime public views.`} /></span>
                 : v.views ? fmtInt(v.views) : <span style={{ color: T.faint }}>pending</span>}</td>
-              <td className={num} style={mono}>{!v.analytics && v.tagged ? <NC why={NO_ANALYTICS} /> : rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
+              <td className={num} style={mono}>{!v.tagged
+                ? <span className="text-[12px] whitespace-nowrap" style={{ color: T.faint, fontFamily: 'inherit' }}
+                    title={s.channelLevel ? 'This channel’s links all use one code, so its traffic is in the Whole channel row.' : 'The description has no clay.com link with a campaign that maps to this video, so its traffic can’t be told apart.'}>
+                    {s.channelLevel ? 'in channel row' : 'no tracked link'}</span>
+                : !v.analytics ? <NC why={NO_ANALYTICS} /> : rateCell(v.visitRate, STEP_GOALS.viewToVisit)}</td>
               {showCapture && <td className={num} style={mono}>{v.offerPage ? rateCell(v.captureRate, STEP_GOALS.capture) : '–'}</td>}
               <td className={num} style={mono}>{rateCell(v.wsRate, v.offerPage ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace)}</td>
               <td className={num} style={mono}>{v.newWs != null ? fmtInt(v.newWs) : '–'}</td>

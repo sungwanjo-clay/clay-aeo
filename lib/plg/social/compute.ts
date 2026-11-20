@@ -375,6 +375,12 @@ export function buildSocial(o: {
   const paid = pc.paid + (withUntagged ? untagged.ws.p : 0); const paidPrev = pp.paid + (withUntagged ? untagged.prevWs.p : 0)
   const exp = pc.expanded + (withUntagged ? untagged.ws.x : 0); const churn = pc.churned + (withUntagged ? untagged.ws.c : 0)
   const scopeChannel = o.scope === 'all' ? null : CHANNELS.find(c => c.id === o.scope)!
+  // Channels matched as a whole (one affiliate code or link for every video, e.g. Eric's ?via=bb305b): visits and workspaces
+  // exist only for the channel, so the Videos table gets one channel row instead of a column of dashes per video.
+  const channelLevel = scopeChannel?.fallback && !scopeVideos.some(v => v.tagged) ? (() => {
+    const k = `ch:${scopeChannel.id}`, vis = one('vis', 'cur', k), ws = one('ws', 'cur', k), ex = one('ex', 'cur', k)
+    return { visits: vis.n, newWs: ws.n, activated: ws.a, paid: ws.p, tiersNew: ws.t, existing: ex.n, tiersExisting: ex.t, views: (() => { const d = o.yt.find(x => x.channelId === scopeChannel.youtubeId); return d && d.analyticsAccess !== false ? sum(d.daily.filter(r => r[0] >= o.cur[0] && r[0] <= ytCurEnd).map(r => r[1])) : null })() }
+  })() : null
 
   return {
     scope: o.scope, mode: o.mode,
@@ -398,7 +404,7 @@ export function buildSocial(o: {
       n: allNew, free: allNew - paid, paidOnly: Math.max(0, paid - exp - churn), expanded: exp, churned: churn,
       plans: withUntagged ? plansOf([...rows.filter(r => r.k === 'plan' && r.b === 'cur' && (scopeKeys.has(r.key) || r.key === 'untagged'))]) : pc.plans,
     },
-    channelRows, untagged, unmapped,
+    channelRows, untagged, unmapped, channelLevel,
     affiliateVisitors: one('vis', 'cur', 'affiliate').n,
     tiers: { labels: TIER_LABELS, fresh: withUntagged ? addT(pc.tiersNew, untagged.ws.t) : pc.tiersNew, existing: pc.tiersExisting },
     videos: scopeVideos,
