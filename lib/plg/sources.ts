@@ -18,6 +18,8 @@ export const TABLES: Record<string, string> = {
   '794d9f65-d34c-4173-94d1-1b0709c1b040': 'SEGMENT.VERCEL.FORM_SUBMITTED',
   '990653ed-fe9f-4d3c-a674-f4278de7049f': 'DBT.PROD.CREDIT_PACK_INVOICES',
   'a7defd23-614d-4c68-ad31-b807b7a164b0': 'FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES',
+  '4d8a7488-9cde-4f4f-b451-a712f4e83183': 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL',
+  '9a9c17db-c29f-4516-888d-02b939ae202c': 'DBT.PROD.INT_OPPORTUNITY_SOURCE_TOUCHPOINT_MAP',
 }
 
 /** Sigma connection SQL → Snowflake SQL: warehouse table paths, and Snowflake's DATEADD for Sigma's DATE_ADD. */
@@ -38,7 +40,9 @@ export type TabSources = { sources: Source[]; queries: SourceQuery[]; notes?: st
 
 const SIGMA_NOTE = 'Runs through the Clay Sigma connector (Snowflake connection 2d269863…). The Snowflake version swaps Sigma’s table ids for warehouse paths.'
 
-export function workspacesSources(sql: string | null, latest: string): TabSources {
+const SLG_NOTE = 'S1, S2 and pipeline use the SLG Team Pulse definitions on the same dbt model (Sales KPI Dashboard → Marketing → Sales Funnel): S1 dated by LEAST(S1, S2) for S2 opps, S2 by the S2 enter date, pipeline = current amount; touchpoints since 2025-01-01; team = every channel except Partner Referral and Sales Outbound.'
+
+export function workspacesSources(sql: string | null, latest: string, slg: string | null = null): TabSources {
   return {
     sources: [
       { name: 'New workspaces, channel, quality, activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: '90-day window, first-touch attribution; one row per workspace' },
@@ -46,9 +50,11 @@ export function workspacesSources(sql: string | null, latest: string): TabSource
       { name: 'Workspace domain and first invoice', where: 'DBT.PROD.CUSTOMERS', what: 'Domain → Salesforce tier; FIRST_INVOICE_UTC for new paid (FIRST_GTM_MOTION = PLG)' },
       { name: 'Sales tier', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'SALES_TIER_C by DOMAIN_C, live accounts, best tier per domain' },
       { name: 'Visitors', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'Distinct ANONYMOUS_ID on marketing_website + signup, excluding UTC and Asia/* time zones' },
+      { name: 'PLG-sourced S1, S2, pipeline', where: 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL', what: 'SLG Team Pulse base; sourcing touchpoint is a GTM Play HRE on a PLG play campaign (lib/plg/slg/sql.ts PLG_PLAYS)' },
     ],
     queries: [
       ...(sql ? [{ label: 'Dashboard query (current filters)', sql, note: SIGMA_NOTE }] : []),
+      ...(slg ? [{ label: 'PLG-sourced pipeline (current filters)', sql: slg, note: SLG_NOTE }] : []),
       { label: 'Latest complete day', sql: latest },
     ],
   }
@@ -82,6 +88,22 @@ export function startupSources(sql: string | null): TabSources {
       { name: 'Activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'First table within 7 days' },
     ],
     queries: sql ? [{ label: 'Startup program query (current filters)', sql, note: SIGMA_NOTE }] : [],
+  }
+}
+
+export function tier4Sources(agg: string | null, list: string | null): TabSources {
+  return {
+    sources: [
+      { name: 'Tier 4 hand-raisers', where: 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL', what: 'SLG touchpoints where ACCOUNT_SALES_TIER (point-in-time) = Tier 4; aggregator accounts excluded' },
+      { name: 'Re-tiered', where: 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL', what: 'ACCOUNT_SALES_TIER_CURRENT is Tier 1–3 today' },
+      { name: 'Workspace, activation, paying, ARR, usage', where: 'DBT.PROD.CUSTOMERS', what: 'Work-domain workspaces (segment other) on the account domain; Clay’s own domains excluded' },
+      { name: 'Reached S2', where: 'DBT.PROD.INT_OPPORTUNITY_SOURCE_TOUCHPOINT_MAP', what: 'Any new-business opp on the account that entered S2 after the first Tier 4 touchpoint' },
+    ],
+    queries: [
+      ...(agg ? [{ label: 'Movement, touchpoint types, monthly cohorts (current filters)', sql: agg, note: SIGMA_NOTE }] : []),
+      ...(list ? [{ label: 'Accounts to nurture (last 180 days)', sql: list, note: 'Company-level fields only; no contacts.' }] : []),
+    ],
+    notes: ['Point-in-time tiers come from Salesforce account snapshots that start around February 2026, so monthly cohorts start in April 2026.'],
   }
 }
 

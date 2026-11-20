@@ -32,7 +32,12 @@ import { assembleDashboard, planDashboard } from '@/lib/plg/plan'
 import { SIGMA, dashboardSql, latestDaySql, parseDashboardRows } from '@/lib/plg/sigma'
 import { covers, relabel } from '@/lib/plg/offline'
 import SourcesPanel from '@/components/plg/SourcesPanel'
-import { portfolioSources, socialSources, startupSources, workspacesSources } from '@/lib/plg/sources'
+import { portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
+import PlgPipelineCard from '@/components/plg/slg/PlgPipelineCard'
+import Tier4View from '@/components/plg/slg/Tier4View'
+import { buildSlg, buildTier4, slgDrivers } from '@/lib/plg/slg/compute'
+import { slgSql } from '@/lib/plg/slg/sql'
+import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Mcp = any
@@ -52,6 +57,10 @@ type Problem = { code: string; message: string } | null
  */
 /** `ranges`: set by the daily job's multi-view copy (lib/plg/offline.ts): the date ranges it computed. Absent = one view. */
 type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate; ranges?: string[] }
+type CacheName = 'main' | 'social' | 'startup' | 'slg' | 'tier4' | 'tier4list'
+const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'slg', 'tier4', 'tier4list']
+type Saved = Record<CacheName, Cached | null>
+const noSaved = (): Saved => ({ main: null, social: null, startup: null, slg: null, tier4: null, tier4list: null })
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
@@ -154,14 +163,14 @@ function App() {
   const [restatements, setRestatements] = useState<Meta['restatements']>([])
   const [attempt, setAttempt] = useState(0)
   // Saved default view (undefined = not read yet, null = none).
-  const [saved, setSaved] = useState<Record<'main' | 'social' | 'startup', Cached | null> | undefined>(undefined)
+  const [saved, setSaved] = useState<Saved | undefined>(undefined)
   const [notice, setNotice] = useState<string | null>(null)
   const [health, setHealth] = useState<Health | null | undefined>(undefined)
   // Social tab: routed on the hash (#social, #social-peter) so links can point at it.
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
     return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' } : h === 'social-eric' ? { tab: 'social', channel: 'eric' }
-      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'tier4' ? { tab: 'tier4', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
@@ -181,7 +190,7 @@ function App() {
     window.claude.use('mcp').then(m => setMcp(m ?? null)).catch(() => setMcp(null))
     window.claude.use('downloads').then(x => setDownloads(x ?? null)).catch(() => setDownloads(null))
     window.claude.use('db').then(async d => {
-      if (!d) { setPortfolio(null); setSaved({ main: null, social: null, startup: null }); return }
+      if (!d) { setPortfolio(null); setSaved(noSaved()); return }
       d.doc('portfolio/meta').get().then(async (snap: any) => {
         if (!snap?.exists) { setPortfolio(null); return }
         const raw = snap.data() as PortfolioMeta
@@ -193,8 +202,8 @@ function App() {
         setPortfolio({ meta, companies: parts.flat() })
       }).catch(() => setPortfolio(null))
       setDb(d)
-      Promise.all((['main', 'social', 'startup'] as const).map(n => readCached(d, n)))
-        .then(([main, social, startup]) => setSaved({ main, social, startup })).catch(() => setSaved({ main: null, social: null, startup: null }))
+      Promise.all(CACHE_NAMES.map(n => readCached(d, n)))
+        .then(xs => setSaved(Object.fromEntries(CACHE_NAMES.map((n, i) => [n, xs[i]])) as Saved)).catch(() => setSaved(noSaved()))
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/thumbs-${c.youtubeId}`).get().then((x: any) => [c.id, x?.exists ? x.data()?.thumbs ?? null : null] as const).catch(() => [c.id, null] as const)))
         .then(xs => setThumbs(Object.fromEntries(xs.filter(([, t]) => t)) as Record<string, Record<string, string>>)).catch(() => {})
       Promise.all(CHANNELS.filter(c => c.youtubeId).map(c => d.doc(`youtube/${c.youtubeId}`).get().catch(() => null)))
@@ -276,7 +285,7 @@ function App() {
 
   // Parse once per result; assemble separately so restatement updates don't re-parse.
   /** The daily job's multi-view copy is never replaced by a single view the page loaded (it would lose the presets). */
-  const keepSaved = (name: 'main' | 'social' | 'startup') => !!saved?.[name]?.ranges && !!dataEnd && saved![name]!.dataEnd >= dataEnd
+  const keepSaved = (name: CacheName) => !!saved?.[name]?.ranges && !!dataEnd && saved![name]!.dataEnd >= dataEnd
   const offlineMain = useMemo(() => (offline && plan ? (saved!.main!.ranges ? relabel(saved!.main!.payload, plan.summaries) : saved!.main!.payload) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [offline, plan, saved?.main])
@@ -301,7 +310,7 @@ function App() {
     const at = result.storedAt ?? Date.now()
     if (saved?.main && saved.main.storedAt >= at) return
     const c: Cached = { key: result.key, payload: result.payload, storedAt: at, dataEnd }
-    writeCached(db, 'main', c).then(ok => { if (ok) setSaved(s => ({ ...(s ?? { social: null, startup: null }), main: c })) })
+    writeCached(db, 'main', c).then(ok => { if (ok) setSaved(s => ({ ...(s ?? noSaved()), main: c })) })
   }, [db, result, dataEnd, defaultSql, offline, saved?.main])
 
   // Restatement log (only when fresh data for the current state arrives).
@@ -338,7 +347,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const go = useCallback((tab: DashboardTab, channel: SocialChannel) => {
-    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : tab === 'portfolio' ? '#portfolio' : ''
+    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : tab === 'portfolio' ? '#portfolio' : tab === 'tier4' ? '#tier4' : ''
     try { history.replaceState(null, '', hash || location.pathname + location.search) } catch { /* sandboxed */ }
     setRoute({ tab, channel })
   }, [])
@@ -399,23 +408,66 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startupShown?.payload, startupSqlText, effEnd, offline])
 
+  // ── SLG: PLG-sourced pipeline (Workspaces tab) and the Tier 4 tab ─────────────────────
+  // One query per piece; rows are labelled by range, so live and saved results go through the same relabel.
+  const slgRanges = socialRanges ? [socialRanges.cur, socialRanges.prev] : null
+  const slgText = useMemo(() => (slgRanges && route.tab === 'workspaces' && !offline ? slgSql(slgRanges) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, offline])
+  const tier4Text = useMemo(() => (slgRanges && route.tab === 'tier4' && !offline ? tier4Sql(slgRanges) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], route.tab, offline])
+  const tier4ListText = useMemo(() => (dataEnd && route.tab === 'tier4' && !offline ? tier4ListSql(dataEnd) : null), [dataEnd, route.tab, offline])
+  const [slgRes, setSlgRes] = useState<Partial<Record<'slg' | 'tier4' | 'tier4list', { key: string; payload: unknown }>>>({})
+  const [slgProblem, setSlgProblem] = useState<Partial<Record<'slg' | 'tier4' | 'tier4list', Problem>>>({})
+  useEffect(() => {
+    if (!mcp) return
+    const unsubs = ([['slg', slgText], ['tier4', tier4Text], ['tier4list', tier4ListText]] as const).filter(([, q]) => q).map(([name, q]) =>
+      mcp.watchTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: q } }, (ev: any) => {
+        if (ev.type === 'error') { setSlgProblem(x => ({ ...x, [name]: { code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' } })); return }
+        setSlgProblem(x => ({ ...x, [name]: null }))
+        setSlgRes(x => ({ ...x, [name]: { key: q!, payload: ev.result?.payload } }))
+      }, { cache: CACHE }))
+    return () => unsubs.forEach(u => u())
+  }, [mcp, slgText, tier4Text, tier4ListText])
+  const pick = (name: 'slg' | 'tier4' | 'tier4list', text: string | null) => {
+    if (offline) { const c = saved?.[name]; return c ? { payload: c.payload, stale: false } : null }
+    const r = slgRes[name]
+    return r ? { payload: r.payload, stale: r.key !== text } : null
+  }
+  const slgView = useMemo(() => {
+    const r = pick('slg', slgText)
+    if (!r || !socialRanges) return null
+    try { return { s: buildSlg(relabel(r.payload, socialRanges)), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slgRes.slg, saved?.slg, offline, slgText, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
+  const tier4View = useMemo(() => {
+    const r = pick('tier4', tier4Text), l = pick('tier4list', tier4ListText)
+    if (!r || !socialRanges) return null
+    try { return { v: buildTier4(relabel(r.payload, socialRanges), l?.payload ?? null), stale: r.stale } } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slgRes.tier4, slgRes.tier4list, saved?.tier4, saved?.tier4list, offline, tier4Text, tier4ListText, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
+
   // Saved copies of the Media properties and Startup default views: written when this viewer loads them live in the
   // default range, and warmed in the background (at most every 12 h) once this viewer has shown it can write the copy.
   const isDefault = !offline && !!sql && sql === defaultSql
   const [canWrite, setCanWrite] = useState(false)
   useEffect(() => {
     if (!db || !dataEnd || !isDefault) return
-    for (const [name, r] of [['social', socialResult], ['startup', startupResult]] as const) {
-      if (!r || (name === 'social' ? r.key !== socialSqlText : r.key !== startupSqlText)) continue
+    const live: [CacheName, { key: string; payload: unknown } | null | undefined, string | null][] = [
+      ['social', socialResult, socialSqlText], ['startup', startupResult, startupSqlText],
+      ['slg', slgRes.slg, slgText], ['tier4', slgRes.tier4, tier4Text], ['tier4list', slgRes.tier4list, tier4ListText]]
+    for (const [name, r, text] of live) {
+      if (!r || r.key !== text) continue
       if (keepSaved(name)) continue
       const prev = saved?.[name]
       // Same query and saved in the last 6 hours: keep it. Otherwise replace it with this live result (this also corrects a
       // copy the daily job wrote, the next time someone with Sigma opens the tab).
       if (prev && prev.key === r.key && Date.now() - prev.storedAt < 6 * 3600_000) continue
       const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
-      writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? { main: null, social: null, startup: null }), [name]: c })) } })
+      writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? noSaved()), [name]: c })) } })
     }
-  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, saved])
+  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, slgRes, slgText, tier4Text, tier4ListText, saved])
   useEffect(() => {
     if (!db || !mcp || !dataEnd || !isDefault || !socialRanges || yt == null || saved === undefined) return
     let live = true
@@ -425,15 +477,19 @@ function App() {
       if (!ok || !live) return
       setCanWrite(true)
       const due = (c: Cached | null) => !c || c.dataEnd !== dataEnd || Date.now() - c.storedAt > 12 * 3600_000
-      const jobs: ['social' | 'startup', string][] = []
+      const jobs: [CacheName, string][] = []
       if (due(saved.social ?? null) && route.tab !== 'social' && !keepSaved('social'))
         jobs.push(['social', socialSql({ cur: socialRanges.cur, prev: socialRanges.prev, tagged: taggedVideos(yt, dataEnd), fallbacks: channelFallbacks(yt, dataEnd) })])
       if (due(saved.startup ?? null) && route.tab !== 'startup' && !keepSaved('startup')) jobs.push(['startup', startupSql(socialRanges)])
+      const sr = [socialRanges.cur, socialRanges.prev] as [ISODate, ISODate][]
+      if (due(saved.slg ?? null) && route.tab !== 'workspaces' && !keepSaved('slg')) jobs.push(['slg', slgSql(sr)])
+      if (due(saved.tier4 ?? null) && route.tab !== 'tier4' && !keepSaved('tier4')) jobs.push(['tier4', tier4Sql(sr)])
+      if (due(saved.tier4list ?? null) && route.tab !== 'tier4' && !keepSaved('tier4list')) jobs.push(['tier4list', tier4ListSql(dataEnd)])
       for (const [name, text] of jobs) {
         try {
           const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
           const c: Cached = { key: text, payload: res?.payload, storedAt: Date.now(), dataEnd }
-          if (live && await writeCached(db, name, c)) setSaved(s => ({ ...(s ?? { main: null, social: null, startup: null }), [name]: c }))
+          if (live && await writeCached(db, name, c)) setSaved(s => ({ ...(s ?? noSaved()), [name]: c }))
         } catch { /* warming is best effort */ }
       }
     })()
@@ -447,7 +503,8 @@ function App() {
     const sr = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
     if (route.tab === 'social') return socialSources(sr && effEnd && yt ? socialSql({ ...sr, tagged: taggedVideos(yt, effEnd), fallbacks: channelFallbacks(yt, effEnd) }) : null)
     if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
-    return workspacesSources(sql, latestDaySql(todayUTC()))
+    if (route.tab === 'tier4') return tier4Sources(sr ? tier4Sql([sr.cur, sr.prev]) : null, effEnd ? tier4ListSql(effEnd) : null)
+    return workspacesSources(sql, latestDaySql(todayUTC()), sr ? slgSql([sr.cur, sr.prev]) : null)
   }, [route.tab, plan, effEnd, yt, sql])
 
   const v = view && 'v' in view ? view.v : null
@@ -489,9 +546,21 @@ function App() {
     : !startupView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for startup program traffic… first load takes 10–30 seconds.'}</p>
     : 'error' in startupView ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {startupView.error}</p>
     : <StartupView s={startupView.s} loading={startupView.stale} />
+  const slgErr = slgProblem.slg ? problemCopy(slgProblem.slg).title : slgView && 'error' in slgView ? `Unexpected data from Sigma: ${slgView.error}` : null
+  const slgCard = <PlgPipelineCard s={slgView && 's' in slgView ? slgView.s ?? null : null} loading={!!(slgView && 's' in slgView && slgView.stale)}
+    error={slgErr ?? (offline && !saved?.slg ? 'No saved copy yet. It needs a Clay Sigma connection.' : null)} />
+  const tier4Pane = route.tab !== 'tier4' ? null
+    : slgProblem.tier4 && !tier4View ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(slgProblem.tier4).title}: {problemCopy(slgProblem.tier4).body}</p>
+    : !tier4View ? <p className="text-[15px]" style={{ color: T.muted }}>{offline ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for Tier 4 hand-raisers… first load takes 10–30 seconds.'}</p>
+    : 'error' in tier4View ? <p className="text-[15px]" style={{ color: T.neg }}>Unexpected data from Sigma: {tier4View.error}</p>
+    : <Tier4View v={tier4View.v!} loading={tier4View.stale}
+        onExport={downloads ? async (filename, csv) => { await downloads.save({ filename, data: new Blob([csv], { type: 'text/csv' }) }) } : undefined} />
   return (
     <DashboardView
       sources={<SourcesPanel key={route.tab} src={sourcesFor} />}
+      slg={slgCard}
+      slgDrivers={slgView && 's' in slgView && slgView.s ? slgDrivers(slgView.s) : undefined}
+      tier4={tier4Pane}
       health={health}
       tab={route.tab}
       startup={startupPane}

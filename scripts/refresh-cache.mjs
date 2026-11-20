@@ -2,7 +2,7 @@
  * Daily refresh of the dashboard's saved default view (for viewers without Clay Sigma).
  *
  *   node scripts/refresh-cache.mjs latest                     → {connectionId, sql} for the latest complete day
- *   node scripts/refresh-cache.mjs sql <dataEnd> <youtubeDir>  → {connectionId, ranges, main, social, startup}: one query per
+ *   node scripts/refresh-cache.mjs sql <dataEnd> <youtubeDir>  → {connectionId, ranges, main, social, startup, slg, tier4, tier4list}: one query per
  *        tab covering every preset × comparison (lib/plg/offline.ts)
  *   node scripts/refresh-cache.mjs pack <name> <dataEnd> <resultFile> <sql-json> <outDir>
  *        → db documents for collection `cache`: <outDir>/<name>-<i>.json parts and <outDir>/<name>.json header

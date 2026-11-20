@@ -12,20 +12,23 @@ import { DomainQuality, McpByPlatform } from './McpAndQuality'
 import { DataQualityStrip, RestatementBanner } from './Narrative'
 import WhatMoved from './WhatMoved'
 import { workspacesInsight } from '@/lib/plg/workspacesInsight'
+import type { Block } from '@/lib/plg/insights'
 import { Eyebrow, Pill, Segmented, T } from './ui'
 
-export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio'
+export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio' | 'tier4'
 const TABS = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'social', label: 'Media properties' },
   { id: 'startup', label: 'Startup program' },
   { id: 'portfolio', label: 'Portfolio' },
+  { id: 'tier4', label: 'Tier 4 SLG' },
 ] as const
 const HEAD = {
   workspaces: { eyebrow: 'PLG weekly metrics · Workspaces', title: <>New workspaces &amp; pacing</>, sub: 'Blended attribution, cut by channel and tier' },
   social: { eyebrow: 'PLG weekly metrics · Media properties · YouTube', title: <>Video → offer → workspace</>, sub: '' },
   startup: { eyebrow: 'PLG weekly metrics · Startup program · Owner Jenny', title: <>Startup offer: visit → workspace → paid</>, sub: 'Offer page www.clay.com/clay-for-startups · no offer sent yet' },
   portfolio: { eyebrow: 'PLG weekly metrics · Portfolio · VC and accelerator partners', title: <>Portfolio penetration and redemption</>, sub: 'Verified portfolio companies → with a workspace → paying · eligible → redeemed' },
+  tier4: { eyebrow: 'PLG weekly metrics · Tier 4 SLG hand-raisers', title: <>Tier 4 hand-raisers → product → pipeline</>, sub: 'Tier 4 accounts never qualify for an SDR demo. This follows them into the product and back into sales.' },
 } as const
 
 /** Next query params after a filter change (shared by the Next page and the artifact). */
@@ -72,7 +75,7 @@ function HealthBanner({ h }: { h: Health | null | undefined }) {
   )
 }
 
-export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio }: {
+export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, tier4, slg, slgDrivers }: {
   /** Collapsed "Sources and SQL" panel for the active tab, shown at the bottom. */
   sources?: React.ReactNode
   /** Daily health check verdict; undefined while loading. */
@@ -97,6 +100,11 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   startup?: React.ReactNode
   /** Rendered when tab === 'portfolio'. */
   portfolio?: React.ReactNode
+  /** Rendered when tab === 'tier4'. */
+  tier4?: React.ReactNode
+  /** Workspaces tab: PLG-sourced SLG pipeline card, and its What moved drivers. */
+  slg?: React.ReactNode
+  slgDrivers?: Block[]
 }) {
   const update = onChange
   const presetLabel = v.params.preset ? PRESETS.find(p => p.id === v.params.preset)?.label : 'Custom dates'
@@ -139,7 +147,7 @@ export default function DashboardView({ sources, health, v, loading, error, noti
       <HealthBanner h={health} />
       {notice && active !== 'portfolio' && <div className="rounded-2xl px-5 py-3 text-[14px]" style={{ background: T.tile, color: T.ink }}>{notice}</div>}
 
-      {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
+      {active === 'social' ? social : active === 'startup' ? startup : active === 'portfolio' ? portfolio : active === 'tier4' ? tier4 : <div className="flex flex-col gap-6 sm:gap-8 transition-opacity" style={{ opacity: loading ? 0.55 : 1 }} aria-busy={loading}>
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <KpiTiles v={v} />
 
@@ -148,7 +156,9 @@ export default function DashboardView({ sources, health, v, loading, error, noti
           <TierPacing v={v} />
         </div>
 
-        <WhatMoved insight={workspacesInsight(v)} />
+        {slg}
+
+        <WhatMoved insight={workspacesInsight(v, slgDrivers)} />
 
         <ChannelTable v={v} />
 

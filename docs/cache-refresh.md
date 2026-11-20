@@ -1,6 +1,6 @@
 # Daily refresh of the dashboard's saved default view
 
-Viewers without a Clay Sigma connection see the PLG dashboard (Workspaces, Media properties, Startup program) from a
+Viewers without a Clay Sigma connection see the PLG dashboard (Workspaces, Media properties, Startup program, Tier 4 SLG) from a
 saved copy in the artifact's database, collection `cache`. This job writes it every morning. Each tab's copy covers
 **every preset × comparison** (Last 7 / 28 / 90 days, quarter to date, year to date; previous period or same period last
 year) and the page applies the grain, so only custom dates need Sigma. One query per tab computes all of them: it joins a
@@ -34,7 +34,7 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    connector's `begin_session` once, then `query` with `{type: "connection", connectionId, sql}` using that SQL
    exactly. The single row's `max_day` (first 10 characters) is `DATAEND`.
 4. **Default-view SQL.** `node scripts/refresh-cache.mjs sql DATAEND W/yt/youtube > W/sql.json`.
-5. **Run the three queries,** one at a time, for NAME in `main`, `startup`, `social`:
+5. **Run the six queries,** one at a time, for NAME in `main`, `startup`, `social`, `slg`, `tier4`, `tier4list`:
    - Print the SQL: `node -e "process.stdout.write(require('W/sql.json').NAME)"` (use the real path).
    - Call Sigma `query` with that SQL **character for character** (connection type, same connectionId).
    - Large results are saved to a file and the tool returns its path: use that path. If the result comes back inline
