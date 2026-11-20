@@ -131,7 +131,7 @@ function Strip({ c, p, eligibilityConnected, arrConnected, churnConnected, selec
 /* ───────────────────────── Firms ───────────────────────── */
 const FIRM_COLS: Col[] = [
   { h: 'Firm', sort: 'name' }, { h: 'Type', sort: 'type' },
-  { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve. Proven = the firm is on the sheet’s Proven tab; it’s shown as a tag and doesn’t make a firm partnered.' },
+  { h: 'Partner', sort: 'cut', tip: 'Partnered = the Partner box is checked in the Venture Partner Program sheet and the firm isn’t on To Approve. Pending = on To Approve.' },
   { h: 'Paying ARR', num: true, sort: 'paying_arr_usd', tip: 'Current paying ARR (Snowflake CUSTOMERS.ARR for workspaces paying now) across the firm’s portfolio companies. Ranks which funds’ portfolios bring the most revenue. A company backed by two firms counts in both rows.' },
   { h: 'Churned ARR', num: true, sort: 'churned_arr_usd', tip: 'ARR lost from portfolio companies that paid before and pay nothing now: each one’s last invoice, annualized. Sort by it to find the portfolios to re-engage. A company backed by two firms counts in both rows.' },
   { h: 'Portfolio', num: true, sort: 'portfolio', tip: 'Verified portfolio companies in the latest week: the denominator.' },
@@ -150,7 +150,7 @@ const COMPANY_COLS: Col[] = [
   { h: 'Company', sort: 'name', tip: 'Name and current domain.' },
   { h: 'Firm(s)', sort: 'firms', tip: 'Firms in the list that back it. Sorting puts companies with the most backers first.' },
   { h: 'Type', sort: 'type', tip: 'Type of the backing firm(s): VC fund or accelerator.' },
-  { h: 'Partner', sort: 'cut', tip: 'The closest partnership among its backing firms: Partnered, then Pending, then Not partnered. Proven when any backer is on the Proven tab.' },
+  { h: 'Partner', sort: 'cut', tip: 'The closest partnership among its backing firms: Partnered, then Pending, then Not partnered.' },
   { h: 'Paying ARR', sort: 'arr', num: true, tip: 'Current paying ARR across the company’s Clay workspaces.' },
   { h: 'Churned ARR', sort: 'churn', num: true, tip: 'For a company that paid before and pays nothing now: its last invoice, annualized. Hover for the churn date. Sort by it for the re-engagement list.' },
   { h: 'Total funding', sort: 'funding', num: true, tip: 'Total funding raised, from the company’s Salesforce account. Blank when it has no Salesforce record or Salesforce has no amount. Sort with “Not on Clay” to find well-funded companies that aren’t paying. It’s Salesforce’s figure as recorded, so a few records are clearly wrong (billions for a seed company); check the outliers before acting on them.' },
@@ -268,7 +268,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
   const coCut = (r: CompanyRow) => {
     const fs = r.firms.map(f => firmsById.get(f)).filter(Boolean)
     const best = fs.map(f => f!.partnership_cut).sort((a, b) => CUT_RANK[a] - CUT_RANK[b])[0]
-    return { rank: best ? CUT_RANK[best] : 9, label: best ? CUT_LABEL[best] : '–', proven: fs.some(f => f!.on_proven_tab) }
+    return { rank: best ? CUT_RANK[best] : 9, label: best ? CUT_LABEL[best] : '–' }
   }
 
   const firmRows = useMemo(() => (meta && latest
@@ -280,7 +280,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
       switch (firmSort.key) {
         case 'name': return firmName(r.firm_id)
         case 'type': return f?.firm_type ?? null
-        case 'cut': return CUT_LABEL[r.partnership_cut] + (f?.on_proven_tab ? ' ·' : '')
+        case 'cut': return CUT_LABEL[r.partnership_cut]
         case 'penetration': return rate(r.with_workspace, r.portfolio)
         case 'refreshed': return f?.roster_refreshed_at ?? null
         default: return (r as unknown as Record<string, number | undefined>)[firmSort.key] ?? null
@@ -385,6 +385,15 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
     ]
   }, [data, meta, latest, cut, firmId, firmName])
 
+  const stickyBar = (children: React.ReactNode) => (
+    <div className="sticky top-0 z-20 -mx-5 sm:-mx-8 px-5 sm:px-8 py-3 flex flex-wrap items-center gap-3"
+      style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>{children}</div>
+  )
+  const cutSwitch = (
+    <Segmented ariaLabel="Which firms" value={cut} onChange={v => setCutAndReset(v)}
+      options={(['all', 'partnered', 'not_partnered', 'pending'] as CutFilter[]).map(id => ({ id, label: CUT_LABEL[id] }))} />
+  )
+
   const setCutAndReset = (v: CutFilter) => { setCut(v); setFirmId(null); setShown(PAGE) }
   const pickStep = (s: StepId | null) => { setStep(s); setStatus(s ? STEP_FILTER[s] : 'All'); setShown(PAGE) }
   const pickFirm = (id: string | null) => { setFirmId(id); setShown(PAGE) }
@@ -441,6 +450,12 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
 
         <Card className="p-5 sm:p-8 flex flex-col gap-4">
           <H2>Firms</H2>
+          {stickyBar(<>
+            {cutSwitch}
+            <span className="text-[13px]" style={{ ...mono, color: T.muted }}>{fmtInt(sortedFirmRows.length)} {sortedFirmRows.length === 1 ? 'firm' : 'firms'}</span>
+            {firmId && <button type="button" onClick={() => pickFirm(null)} className="rounded-full px-3 py-1.5 text-[13px]"
+              style={{ background: '#E8F6F8', color: T.ink, border: `1px solid ${T.pos}` }}>{firmName(firmId)} ✕</button>}
+          </>)}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[15px]" style={{ color: T.muted }}>Click a firm to filter the numbers and companies to it. A company backed by two firms counts in both rows, once in the totals.</p>
           </div>
@@ -455,7 +470,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                     style={{ borderBottom: `1px solid ${T.border}`, background: on ? '#E8F6F8' : undefined }}>
                     <td className="px-3 py-3 font-semibold whitespace-nowrap">{firmName(r.firm_id)}</td>
                     <td className="px-3 py-3 whitespace-nowrap">{f?.firm_type === 'accelerator' ? 'Accelerator' : 'VC fund'}</td>
-                    <td className="px-3 py-3 whitespace-nowrap">{CUT_LABEL[r.partnership_cut]}{f?.on_proven_tab ? <span className="ml-2 text-[12px] rounded-full px-2 py-0.5" style={{ background: '#EFEEEA' }}>Proven</span> : null}</td>
+                    <td className="px-3 py-3 whitespace-nowrap">{CUT_LABEL[r.partnership_cut]}</td>
                     <td className={`${num} font-semibold`} style={mono}>{meta.arrConnected ? fmtUsd(r.paying_arr_usd) : <NC why="Current paying ARR arrives with the next Clay status refresh" />}</td>
                     <td className={num} style={mono}>{meta.churnConnected ? (r.churned_arr_usd ? fmtUsd(r.churned_arr_usd) : <span style={{ color: T.faint }}>$0</span>) : <NC why="Churned ARR arrives with the next Clay status refresh" />}</td>
                     <td className={num} style={mono}>{fmtInt(r.portfolio)}</td>
@@ -513,7 +528,8 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
               className="rounded-full px-4 py-2 text-[14px] font-medium disabled:cursor-not-allowed"
               style={{ background: onExport && list.length ? T.ink : '#EFEEEA', color: onExport && list.length ? '#fff' : T.faint }}>Export CSV</button>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          {stickyBar(<>
+            {cutSwitch}
             <select value={firmId ?? ''} onChange={e => pickFirm(e.target.value || null)} aria-label="Filter companies by firm"
               className="rounded-full px-3 py-2 text-[14px]" style={{ background: '#fff', border: `1px solid ${firmId ? T.ink : T.border}`, color: T.ink }}>
               <option value="">{cut === 'all' ? 'Every firm' : `Every ${CUT_LABEL[cut].toLowerCase()} firm`}</option>
@@ -528,7 +544,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                   style={{ background: status === f ? T.ink : '#fff', color: status === f ? '#fff' : T.ink, border: `1px solid ${status === f ? T.ink : T.border}` }}>{f}</button>
               ))}
             </div>
-          </div>
+          </>)}
           <p className="text-[14px]" style={{ color: T.muted, ...mono }}>
             {fmtInt(list.length)} {list.length === 1 ? 'company' : 'companies'}
             {meta.arrConnected && listArr.n > 0 && <> · {fmtInt(listArr.paying)} paying · <b style={{ color: T.ink }}>{fmtUsd(listArr.arr)}</b> paying ARR</>}
@@ -543,7 +559,7 @@ export default function PortfolioView({ data, onExport }: { data: PortfolioData 
                   <td className="px-3 py-3"><p className="font-semibold">{r.name}</p><p className="text-[13px]" style={{ ...mono, color: T.muted }}>{r.domain ?? 'stealth · no domain'}</p></td>
                   <td className="px-3 py-3 text-[14px]">{r.firms.map(firmName).join(', ')}</td>
                   <td className="px-3 py-3 text-[14px] whitespace-nowrap">{coType(r) ?? <span style={{ color: T.faint }}>–</span>}</td>
-                  <td className="px-3 py-3 text-[14px] whitespace-nowrap">{coCut(r).label}{coCut(r).proven ? <span className="ml-2 text-[12px] rounded-full px-2 py-0.5" style={{ background: '#EFEEEA' }}>Proven</span> : null}</td>
+                  <td className="px-3 py-3 text-[14px] whitespace-nowrap">{coCut(r).label}</td>
                   <td className={`${num} font-semibold`} style={mono}>{!meta.arrConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : r.payingArr ? fmtUsd(r.payingArr) : <span style={{ color: T.faint }}>$0</span>}</td>
                   <td className={num} style={mono} title={coChurn(r) ? `Churned${r.churnedAt ? ' ' + fmtDate(r.churnedAt) : ''}: last invoice, annualized` : undefined}>
                     {!meta.churnConnected || !r.inDenominator ? <span style={{ color: T.faint }}>–</span> : coChurn(r) ? fmtUsd(coChurn(r)) : <span style={{ color: T.faint }}>$0</span>}</td>
