@@ -67,7 +67,7 @@ export const STEPS: FunnelStep[] = [
   { k: null, rl: 'Email click-through rate', name: 'Email clicks', lever: 'Lifecycle (Inflection) · clicks in offer emails', nc: NO_LIFECYCLE },
   { h: 'Outcome' },
   { k: null, rl: 'Redemption rate', key: true, name: 'Offer redeemed', lever: 'Stripe discount applied', nc: 'No offer sent yet' },
-  { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated workspaces', lever: 'Snowflake · first table run within 7 days' },
+  { k: 'activated', p: 'newWs', rl: 'Activation rate', key: true, name: 'Activated workspaces', lever: 'Snowflake · golden table (1 basic + 2 advanced enrichments in one table) within 7 days' },
   { k: 'paid', p: 'newWs', rl: 'Paid rate', name: 'Paying workspaces', lever: 'Snowflake · CUSTOMERS first invoice (the discounted price once the offer launches)' },
 ]
 
@@ -145,7 +145,7 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
   const headline = [
     headlineLine('Visits', T.visits, P.visits),
     headlineLine('New workspaces', T.newWs, P.newWs),
-    headlineLine('MQALs (Tier 1–3 domains)', T.mqal, P.mqal),
+    headlineLine('Tier 1–3 signup domains', T.mqal, P.mqal),
     headlineLine('Visit → workspace', r(T.newWs, T.visits), r(P.newWs, P.visits), { kind: 'rate' }),
     headlineLine('Activation rate', r(T.activated, T.newWs), r(P.activated, P.newWs), { kind: 'rate' }),
     headlineLine('Paid rate', r(T.paid, T.newWs), r(P.paid, P.newWs), { kind: 'rate' }),
@@ -168,7 +168,7 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
   const drivers = [
     driverPara('Visits', 'visits', { cur: T.visits, prev: P.visits }, byCampaign(x => x.visits, { cur: T.visits, prev: P.visits }, 'Unpaid traffic (organic, direct, referral)'), { minVolume: 3, noun: 'traffic sources' }),
     driverPara('New workspaces', 'workspaces', { cur: T.newWs, prev: P.newWs }, whoItems, { noun: 'visitor types' }),
-    T.mqal || P.mqal ? driverPara('MQALs', 'MQALs', { cur: T.mqal, prev: P.mqal }, mqalItems, { noun: 'tiers' }) : null,
+    T.mqal || P.mqal ? driverPara('Tier 1–3 signup domains', 'domains', { cur: T.mqal, prev: P.mqal }, mqalItems, { noun: 'tiers' }) : null,
     ratePara('Visit → workspace', { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }, { cur: T.visits, prev: P.visits, noun: 'visits' }),
     ratePara('Activation rate', { cur: T.activated, prev: P.activated, noun: 'activated workspaces' }, { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }),
     T.paid || P.paid ? ratePara('Paid rate', { cur: T.paid, prev: P.paid, noun: 'paying workspaces' }, { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }) : null,
@@ -178,7 +178,7 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
   for (const x of T.campaigns) {
     const before = P.campaigns.find(y => camp(y) === camp(x))?.visits ?? 0
     if (x.visits >= 20 && (before === 0 || x.visits >= before * 5) && emerging.length < 2)
-      emerging.push([code(camp(x)), `: ${x.visits.toLocaleString('en-US')} visits this period${before ? ` (vs ${before.toLocaleString('en-US')})` : ' (new)'}; ${x.newWs} new workspaces, ${x.mqal} MQALs.`])
+      emerging.push([code(camp(x)), `: ${x.visits.toLocaleString('en-US')} visits this period${before ? ` (vs ${before.toLocaleString('en-US')})` : ' (new)'}; ${x.newWs} new workspaces, ${x.mqal} Tier 1–3 domains.`])
     if (before === 0 && T.visits >= 50 && x.visits >= T.visits * 0.8)
       anomalies.push([code(camp(x)), ` brought ${Math.round(x.visits / T.visits * 100)}% of this period’s visits (${x.visits.toLocaleString('en-US')}) and had none the period before, with ${x.newWs} new workspaces. Traffic this concentrated from one new source is often bot or misfiring ad traffic.`])
   }

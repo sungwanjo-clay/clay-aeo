@@ -35,7 +35,8 @@ export const SIGMA = {
  *   High quality trial users = new workspaces with CUSTOMER_DOMAIN_QUALITY_SEGMENT 'non-personal: high quality'
  *   All new paid workspaces = CUSTOMERS.FIRST_INVOICE_UTC in the period, FIRST_GTM_MOTION = 'PLG'
  *   Visitor → HQ trial = HQ trial users ÷ visitors; Trial → paid = new paid ÷ HQ trial users (same period)
- *   Activation (not in the MBR) = new workspaces with a first table run within 7 days ÷ new workspaces
+ *   Activation (not in the MBR) = workspaces created 7+ days before the data end that built a golden table (1 basic +
+ *     2 advanced successful enrichments in one table) within 7 days ÷ those workspaces (the governed matured rate)
  */
 const MBR_SITES = `'marketing_website', 'signup'`
 
@@ -71,6 +72,8 @@ export function dashboardSql(plan: DashboardPlan, saved?: DashboardPlan[]): stri
   const lo = ranges.map(r => r[0]).sort()[0]
   const hi = ranges.map(r => r[1]).sort().at(-1)!
   const between = (r: [ISODate, ISODate]) => `"day" BETWEEN ${d(r[0])} AND ${d(r[1])}`
+  // Activation counts only workspaces old enough to have had their full window (the governed "matured" rate).
+  const matured = maturedSql(plan.dataEnd)
   if (saved?.length) return savedDashboardSql(plan, plans, lo, hi)
 
   const summaryParts = SUMMARY_KEYS.map(k => `
@@ -84,8 +87,12 @@ FROM base WHERE ${between(plan.summaries[k])}
 GROUP BY "dseg"`)
 
   const extraParts = (['cur', 'prev'] as const).flatMap(k => [`
-SELECT 'x:${k}:activated' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS "tier", '' AS "q", SUM("act") AS "n"
+SELECT 'x:${k}:activated' AS "b", '' AS "d", '' AS "cat", '' AS "ch", '' AS "sub", '' AS "tier", '' AS "q", SUM(CASE WHEN ${matured} THEN "act" ELSE 0 END) AS "n"
 FROM base WHERE ${between(plan.summaries[k])}`, `
+SELECT 'x:${k}:matured', '', '', '', '', '', '', SUM(CASE WHEN ${matured} THEN 1 ELSE 0 END)
+FROM base WHERE ${between(plan.summaries[k])}`, `
+SELECT 'm:${k}', "msrc", '', '', '', '', '', COUNT(*)
+FROM base WHERE ${between(plan.summaries[k])} AND "mcp" = 1 GROUP BY "msrc"`, `
 SELECT 'x:${k}:visitors', '', '', '', '', '', '', COUNT(DISTINCT "ANONYMOUS_ID")
 FROM ${t(SIGMA.pageviews)}
 WHERE "SITE" IN (${MBR_SITES}) AND CAST("TIMESTAMP_UTC" AS date) BETWEEN ${d(plan.summaries[k][0])} AND ${d(plan.summaries[k][1])}
@@ -128,7 +135,8 @@ function dashboardCtes(lo: ISODate, hi: ISODate, extra = ''): string {
     AND CAST("WORKSPACE_CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
 ), c AS (
   SELECT "WORKSPACE_ID" AS "wid", MIN(LOWER("DOMAIN")) AS "dom", MIN("CUSTOMER_DOMAIN_SEGMENT") AS "seg",
-         CAST(MIN("CREATED_AT_UTC") AS date) AS "created"
+         CAST(MIN("CREATED_AT_UTC") AS date) AS "created",
+         MAX(COALESCE("BINARY_SOURCED_BY_MCP", 0)) AS "mcp", COALESCE(MIN(NULLIF("MCP_SOURCE", '')), 'unknown') AS "msrc"
   FROM ${t(SIGMA.customers)}
   GROUP BY "WORKSPACE_ID"
 ), a AS (
@@ -137,7 +145,7 @@ function dashboardCtes(lo: ISODate, hi: ISODate, extra = ''): string {
   WHERE "IS_DELETED" = false AND "DOMAIN_C" IS NOT NULL AND "SALES_TIER_C" IS NOT NULL
   GROUP BY LOWER("DOMAIN_C")
 ), base AS (
-  SELECT ws."day", ws."cat", ws."ch", ws."sub", ws."q", ws."act",
+  SELECT ws."day", ws."cat", ws."ch", ws."sub", ws."q", ws."act", COALESCE(c."mcp", 0) AS "mcp", c."msrc",
          CASE WHEN ${tierEligible('c."seg"')} THEN COALESCE(a."tier", 'Unassigned') ELSE 'Unassigned' END AS "tier",
          CASE WHEN c."seg" IN ('personal', 'academic') THEN c."seg"
               WHEN c."seg" IS NULL THEN 'unknown' ELSE 'non_personal' END AS "dseg"
@@ -163,6 +171,10 @@ GROUP BY c."created"`)
 
 }
 
+/** A workspace has had its full activation window when it was created at least that many days before the data end. */
+const maturedSql = (dataEnd: ISODate) => `"day" <= DATE_ADD('day', -${ACTIVATION_WINDOW_DAYS}, ${d(dataEnd)})`
+export const ACTIVATION_WINDOW_DAYS = 7
+
 /** Saved-copy variant of dashboardSql (see its `saved` parameter). */
 function savedDashboardSql(plan: DashboardPlan, plans: DashboardPlan[], lo: ISODate, hi: ISODate): string {
   const sum = plans.flatMap(pl => SUMMARY_KEYS.map(k => pl.summaries[k]))
@@ -181,7 +193,9 @@ pdw AS (
   const parts = [`
 SELECT "lbl" AS "b", '' AS "d", "cat", "ch", "sub", "tier", "q", COUNT(*) AS "n" FROM br GROUP BY "lbl", "cat", "ch", "sub", "tier", "q"`, `
 SELECT 'dom:' || "lbl", '', '', '', '', '', "dseg", COUNT(*) FROM br GROUP BY "lbl", "dseg"`, `
-SELECT 'x:' || "lbl" || ':activated', '', '', '', '', '', '', SUM("act") FROM br GROUP BY "lbl"`, `
+SELECT 'x:' || "lbl" || ':activated', '', '', '', '', '', '', SUM(CASE WHEN ${maturedSql(plan.dataEnd)} THEN "act" ELSE 0 END) FROM br GROUP BY "lbl"`, `
+SELECT 'x:' || "lbl" || ':matured', '', '', '', '', '', '', SUM(CASE WHEN ${maturedSql(plan.dataEnd)} THEN 1 ELSE 0 END) FROM br GROUP BY "lbl"`, `
+SELECT 'm:' || "lbl", "msrc", '', '', '', '', '', COUNT(*) FROM br WHERE "mcp" = 1 GROUP BY "lbl", "msrc"`, `
 SELECT 'x:' || rng."lbl" || ':visitors', '', '', '', '', '', '', COUNT(DISTINCT pvd."aid") FROM pvd JOIN rng ON pvd."day" BETWEEN rng."rs" AND rng."re" GROUP BY rng."lbl"`, `
 SELECT 'x:' || rng."lbl" || ':paid', '', '', '', '', '', '', COUNT(DISTINCT pdw."wid") FROM pdw JOIN rng ON pdw."day" BETWEEN rng."rs" AND rng."re" GROUP BY rng."lbl"`,
     ...sotPartsFor(plan), `
@@ -210,6 +224,7 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
     else { const x = mk(); x.n = n; arr.push(x) }
   }
   const byDay = new Map<ISODate, DailyPoint>()
+  const mcpFlag = new Set<RangeSummary>(), subMcp = new Map<RangeSummary, RangeSummary['mcp']>()
 
   for (const r of tbl.rows) {
     const b = col(r, 'b'); const n = Number(r[ix.n] ?? 0)
@@ -231,7 +246,11 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
     } else if (b.startsWith('x:')) {
       const [, key, metric] = b.split(':')
       const s = summaries[key as SummaryKey]
-      if (s) { s.extras ??= { visitors: 0, paid: 0, activated: 0 }; s.extras[metric as 'visitors' | 'paid' | 'activated'] = n }
+      if (s) { s.extras ??= { visitors: 0, paid: 0, activated: 0 }; s.extras[metric as 'visitors' | 'paid' | 'activated' | 'matured'] = n }
+    } else if (b.startsWith('m:')) {
+      // MCP-sourced workspaces (CUSTOMERS.BINARY_SOURCED_BY_MCP) by MCP_SOURCE: the governed MCP metric.
+      const s = summaries[b.slice(2) as SummaryKey]
+      if (s) { mcpFlag.add(s); add(s.mcp, x => x.s === col(r, 'd'), () => ({ s: col(r, 'd'), n: 0 }), n) }
     } else if (b.startsWith('dom:')) {
       const s = summaries[b.slice(4) as SummaryKey]
       if (s) s.domain.push({ s: col(r, 'q'), n })
@@ -242,9 +261,11 @@ export function parseDashboardRows(payload: unknown, plan: DashboardPlan) {
       add(s.channels, x => x.c === c && x.ch === ch && x.t === tier, () => ({ c, ch, t: tier, n: 0 }), n)
       add(s.quality, x => x.q === q, () => ({ q, n: 0 }), n)
       if (q === GOAL_SEGMENT) add(s.hqTiers, x => x.t === tier, () => ({ t: tier, n: 0 }), n)
-      if (ch === 'OAuth: MCP') add(s.mcp, x => x.s === (sub || 'OAuth: MCP: undefined'), () => ({ s: sub || 'OAuth: MCP: undefined', n: 0 }), n)
+      // Older saved copies have no MCP flag rows: fall back to the OAuth: MCP sub-channels.
+      if (ch === 'OAuth: MCP') add(subMcp.get(s) ?? (subMcp.set(s, []), subMcp.get(s)!), x => x.s === (sub || 'OAuth: MCP: undefined'), () => ({ s: sub || 'OAuth: MCP: undefined', n: 0 }), n)
     }
   }
+  for (const [s, rows] of subMcp) if (!mcpFlag.has(s)) s.mcp = rows
   const days = [...byDay.values()].sort((a, b) => a.d.localeCompare(b.d))
   const dailies = Object.fromEntries(DAILY_KEYS.map(k => {
     const [s, e] = plan.dailies[k]

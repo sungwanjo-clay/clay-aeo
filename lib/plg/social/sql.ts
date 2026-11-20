@@ -18,13 +18,19 @@
  *   tagged     utm_campaign maps to a video (lookup built from descriptions), plus the channel's
  *              requireSource if set; else the channel's fallback rule (see config.ts)
  *   unmapped   utm_campaign ILIKE '<prefix>%' but in no current description: flagged, never assigned to a video
- *   untagged   YouTube referrer or utm_source, no utm_campaign, not an affiliate (Rewardful ?via=) referral
+ *   untagged   YouTube referrer or utm_source, no utm_campaign, not an affiliate (Rewardful ?via=) referral; for new
+ *              workspaces also governed blended YouTube attribution with a session but no video
+ *   survey     new workspaces the governed blended attribution gives to YouTube from the "how did you hear about us"
+ *              answer only: YouTube worked, but no creator or video can be named
+ *   bots       referral visits exclude likely bots (MARKETING_IP_CRAWLER_CLASSIFICATION, no Clay user id) and other sites
+ *   existing   users identified by the pageview's user id or COOKIE_TO_USER_RELATIONSHIP, roles from USER_WORKSPACE_ROLES
  *   tier       the Marketing Q4 Tier 1–3 tile's rule (lib/plg/tier.ts): CUSTOMERS.DOMAIN → live Salesforce account,
  *              best tier per domain, personal emails excluded; no Salesforce account → Untiered
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS, CHANNELS } from './config'
 import { TIER_ACCOUNTS, tierEligible } from '../tier'
+import { bot } from '../cro/sql'
 import { rangeTable } from '../offline'
 
 const T = {
@@ -33,11 +39,14 @@ const T = {
   blended: 'b9625c73-5094-4b94-9c0f-034c5efccbd4',   // DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION (activation, paid)
   customers: '7821001c-903e-47e1-9f1d-a03f2a5ca9ae', // DBT.PROD.CUSTOMERS
   accounts: TIER_ACCOUNTS,                          // FIVETRAN.SALESFORCE.ACCOUNT (lib/plg/tier.ts, the Marketing tile's rule)
-  roles: 'a7defd23-614d-4c68-ad31-b807b7a164b0',     // FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES
   credits: '990653ed-fe9f-4d3c-a674-f4278de7049f',   // DBT.PROD.CREDIT_PACK_INVOICES
   forms: '794d9f65-d34c-4173-94d1-1b0709c1b040',     // SEGMENT.VERCEL.FORM_SUBMITTED (offer page captures)
   survey: '49872add-0b3c-4321-8746-f67ec6cf5510',    // DBT.PROD.ONBOARDING_SURVEY (persona = TEAMS)
   cookies: '22e14a56-e32f-4d31-aff8-b6bc3b23190b',   // DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP
+  crawler: '08b06a57-54a4-42dc-aa3c-d6222a15b09a',   // DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION (bot rule)
+  sessions: 'cf3c596b-2dde-415a-b248-efda79af9fa3',  // DBT.PROD.MARKETING_WEBSITE_SESSIONS (campaign of a blended YouTube session)
+  cookieUsers: '62d723b6-0db1-4a76-903b-1c91792245fc', // DBT.PROD.COOKIE_TO_USER_RELATIONSHIP
+  workspaceRoles: '0738c7c9-b1f4-4198-ba15-0cbec48fb14f', // DBT.PROD.USER_WORKSPACE_ROLES
 }
 
 /** Device from the pageview's OS. iOS is not reported by this source, so it lands in Unknown. */
@@ -105,13 +114,15 @@ ${['pv', 'fs2', 'fx', 'exx', 'pw', 'cutv'].map(x => `${x}_r AS (SELECT ${x}.*, r
 pv AS (
   SELECT p."ANONYMOUS_ID" AS "aid", p."USER_ID" AS "uid", p."TIMESTAMP_UTC" AS "ts", CAST(p."TIMESTAMP_UTC" AS date) AS "day",
          ${DEVICE_SQL('p."PLATFORM"')} AS "dev", ${REGION_SQL('p."TIMEZONE"')} AS "geo",
-         CASE ${q.fallbacks.length ? fb('p').map(f => `WHEN ${f.pred} THEN ${lit(f.key)}`).join(' ') : ''} WHEN p."REFERRER" = 'affiliate' AND COALESCE(p."UTM_CAMPAIGN", '') = '' THEN 'affiliate'
-              ELSE ${keyExpr(`LOWER(COALESCE(p."UTM_CAMPAIGN", ''))`, 'p')} END AS "key",
+         CASE ${q.fallbacks.length ? fb('p').map(f => `WHEN ${f.pred} THEN ${lit(f.key)}`).join(' ') : ''} WHEN p."REFERRER" = 'affiliate' AND TRIM(COALESCE(p."UTM_CAMPAIGN", '')) = '' THEN 'affiliate'
+              ELSE ${keyExpr(`LOWER(TRIM(COALESCE(p."UTM_CAMPAIGN", '')))`, 'p')} END AS "key",
          COALESCE(vm."cs", CASE ${fbWin('p', 'cohortStart') || 'WHEN FALSE THEN NULL'} END) AS "cs",
          COALESCE(vm."ce", CASE ${fbWin('p', 'cohortEnd') || 'WHEN FALSE THEN NULL'} END) AS "ce"
   FROM ${t(T.pageviews)} p
-  LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(p."UTM_CAMPAIGN", '')) AND (vm."src" = '' OR p."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
+  LEFT JOIN vmap vm ON vm."camp" = LOWER(TRIM(COALESCE(p."UTM_CAMPAIGN", ''))) AND (vm."src" = '' OR p."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
+  LEFT JOIN ${t(T.crawler)} bc ON bc."IP_ADDRESS" = p."IP_ADDRESS"
   WHERE CAST(p."TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
+    AND p."SITE" = 'marketing_website' AND NOT ${bot('bc."BINARY_BOT_EXCLUSION"', 'p."USER_ID"')}
     AND (p."REFERRER_RAW" ILIKE '%youtu%' OR p."UTM_SOURCE" ILIKE '%youtu%' OR vm."vid" IS NOT NULL OR ${fbAny('p')})
 ),
 cu AS (
@@ -131,16 +142,36 @@ wtier AS (
   SELECT cu."wid", CASE WHEN ${tierEligible('cu."seg"')} AND acct."tier" IS NOT NULL THEN acct."tier" ELSE 'Untiered' END AS "tier"
   FROM cu LEFT JOIN acct ON acct."dom" = cu."dom"
 ),
-ft AS (
+ft0 AS (
   SELECT f."WORKSPACE_ID" AS "wid", CAST(f."CREATED_AT_UTC" AS date) AS "day",
-         ${keyExpr(`LOWER(COALESCE(f."UTM_CAMPAIGN", ''))`, 'f')} AS "key",
+         ${keyExpr(`LOWER(TRIM(COALESCE(f."UTM_CAMPAIGN", '')))`, 'f')} AS "key",
          COALESCE(vm."cs", CASE ${fbWin('f', 'cohortStart') || 'WHEN FALSE THEN NULL'} END) AS "cs",
          COALESCE(vm."ce", CASE ${fbWin('f', 'cohortEnd') || 'WHEN FALSE THEN NULL'} END) AS "ce"
   FROM ${t(T.firstTouch)} f
-  LEFT JOIN vmap vm ON vm."camp" = LOWER(COALESCE(f."UTM_CAMPAIGN", '')) AND (vm."src" = '' OR f."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
+  LEFT JOIN vmap vm ON vm."camp" = LOWER(TRIM(COALESCE(f."UTM_CAMPAIGN", ''))) AND (vm."src" = '' OR f."UTM_SOURCE" ILIKE '%' || vm."src" || '%')
   WHERE CAST(f."CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
     AND (f."UTM_SOURCE" ILIKE '%youtu%' OR f."RAW_REFERRER" ILIKE '%youtu%' OR f."REFERRER" ILIKE '%youtu%' OR vm."vid" IS NOT NULL OR ${fbAny('f')})
     AND (COALESCE(f."CHANNEL", '') <> 'Affiliate' OR ${fbAny('f')})
+),
+yb AS (
+  SELECT b."WORKSPACE_ID" AS "wid", CAST(b."WORKSPACE_CREATED_AT_UTC" AS date) AS "day", b."BLENDED_ATTRIBUTION_MECHANISM" AS "mech",
+         LOWER(TRIM(COALESCE(s."UTM_CAMPAIGN", ''))) AS "camp", s."UTM_SOURCE" AS "src"
+  FROM ${t(T.blended)} b LEFT JOIN ${t(T.sessions)} s ON s."SESSION_ID" = b."SESSION_ID"
+  WHERE b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch' AND LOWER(b."BLENDED_ATTRIBUTION_PLATFORM") = 'youtube'
+    AND CAST(b."WORKSPACE_CREATED_AT_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
+),
+yk AS (
+  SELECT yb."wid", yb."day",
+         CASE WHEN vm."vid" IS NOT NULL THEN vm."vid"
+              WHEN yb."camp" <> '' AND ${prefixMatch('yb."camp"')} THEN 'unmapped:' || yb."camp"
+              WHEN yb."mech" = 'session' THEN 'untagged' ELSE 'survey' END AS "key",
+         vm."cs", vm."ce"
+  FROM yb LEFT JOIN vmap vm ON vm."camp" = yb."camp" AND (vm."src" = '' OR yb."src" ILIKE '%' || vm."src" || '%')
+),
+ft AS (
+  SELECT * FROM ft0
+  UNION ALL
+  SELECT yk.* FROM yk LEFT JOIN ft0 ON ft0."wid" = yk."wid" WHERE ft0."wid" IS NULL
 ),
 fx AS (
   SELECT ft.*, COALESCE(wt."tier", 'Untiered') AS "tier",
@@ -165,12 +196,14 @@ fsub AS (
 ),
 fs2 AS (SELECT * FROM fsub WHERE "key" IS NOT NULL),
 tv AS (
-  SELECT "uid", "key", "cs", "ce", "day", "ts" FROM pv WHERE "uid" IS NOT NULL AND "cs" IS NOT NULL
+  SELECT COALESCE(NULLIF(pv."uid", ''), cu2."USER_ID") AS "uid", pv."key", pv."cs", pv."ce", pv."day", pv."ts"
+  FROM pv LEFT JOIN ${t(T.cookieUsers)} cu2 ON cu2."ANONYMOUS_ID" = pv."aid" AND NULLIF(pv."uid", '') IS NULL
+  WHERE pv."cs" IS NOT NULL AND COALESCE(NULLIF(pv."uid", ''), cu2."USER_ID") IS NOT NULL
 ),
 exw AS (
-  SELECT DISTINCT tv."key", tv."day", tv."cs", tv."ce", CAST(r."RESOURCEID" AS integer) AS "wid"
-  FROM tv JOIN ${t(T.roles)} r
-    ON CAST(r."USERID" AS string) = tv."uid" AND r."RESOURCETYPE" = 'workspace' AND r."DELETEDAT" IS NULL AND r."CREATEDAT" < tv."ts"
+  SELECT DISTINCT tv."key", tv."day", tv."cs", tv."ce", CAST(r."WORKSPACE_ID" AS integer) AS "wid"
+  FROM tv JOIN ${t(T.workspaceRoles)} r
+    ON CAST(r."USER_ID" AS string) = tv."uid" AND r."DELETED_AT_UTC" IS NULL AND r."CREATED_AT_UTC" < tv."ts"
 ),
 exx AS (SELECT exw.*, COALESCE(wt."tier", 'Untiered') AS "tier" FROM exw LEFT JOIN wtier wt ON wt."wid" = exw."wid"),
 sv AS (SELECT "WORKSPACE_ID" AS "wid", MIN("TEAMS") AS "team" FROM ${t(T.survey)} WHERE "TEAMS" IS NOT NULL AND "TEAMS" <> '' GROUP BY "WORKSPACE_ID"),

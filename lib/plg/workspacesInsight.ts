@@ -51,7 +51,7 @@ export function workspacesInsight(v: DashboardPayload): Insight {
   if (rc && rp) {
     drivers.push(...[
       ratePara('Visit → HQ trial', { cur: k.hqTotal, prev: k.hqPrevTotal, noun: 'high-quality trials' }, { cur: rc.visitors, prev: rp.visitors, noun: 'visitors' }, 200),
-      ratePara('Activation rate', { cur: rc.activated, prev: rp.activated, noun: 'activated workspaces' }, { cur: k.total, prev: k.prevTotal, noun: 'new workspaces' }, 50),
+      ratePara('Activation rate', { cur: rc.activated, prev: rp.activated, noun: 'activated workspaces' }, { cur: rc.matured, prev: rp.matured, noun: 'workspaces with a full week' }, 50),
       ratePara('Trial → paid', { cur: rc.paid, prev: rp.paid, noun: 'paying workspaces' }, { cur: k.hqTotal, prev: k.hqPrevTotal, noun: 'high-quality trials' }, 50),
     ].filter((p): p is Para => !!p))
   }

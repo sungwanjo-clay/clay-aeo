@@ -41,7 +41,7 @@ export function rangeTable(ranges: readonly (readonly [ISODate, ISODate])[]): st
  * A saved multi-range result → the rows of one view, shaped exactly like a live result for `keys`
  * (e.g. {cur: [s, e], prev: [s, e]}). In the bucket column `col`:
  *   "<label>"       → each key whose range has that label (a row can serve several keys)
- *   "dom:<label>"   → "dom:<key>",  "x:<label>:<m>" → "x:<key>:<m>"
+ *   "dom:<label>"   → "dom:<key>",  "m:<label>" → "m:<key>",  "x:<label>:<m>" → "x:<key>:<m>"
  *   "bc@<label>"    → "bc" when it's the label of `cur`
  *   any other value holding "~" is another view's row and is dropped; everything else passes through.
  * Check coverage first with covers() (the saved copy's header lists its ranges): a range with no activity has no rows.
@@ -60,6 +60,7 @@ export function relabel(payload: unknown, keys: Record<string, readonly [ISODate
     let m: RegExpMatchArray | null
     if ((m = v.match(/^bc@(.+)$/))) { if (byLabel.get(m[1])?.includes('cur')) emit(row, 'bc'); continue }
     if ((m = v.match(/^dom:(.+)$/))) { for (const k of byLabel.get(m[1]) ?? []) emit(row, `dom:${k}`); continue }
+    if ((m = v.match(/^m:(.+)$/))) { for (const k of byLabel.get(m[1]) ?? []) emit(row, `m:${k}`); continue }
     if ((m = v.match(/^x:(.+):([a-z]+)$/))) { for (const k of byLabel.get(m[1]) ?? []) emit(row, `x:${k}:${m[2]}`); continue }
     const ks = byLabel.get(v)
     if (ks) for (const k of ks) emit(row, k)

@@ -2,7 +2,8 @@
  * Startup program tab: one Sigma (Snowflake, read-only) query per date range.
  * Returns labelled aggregate rows; never per-person data.
  *
- * Offer page: www.clay.com/clay-for-startups (MARKETING_PAGEVIEWS, site = marketing_website).
+ * Offer page: www.clay.com/clay-for-startups (MARKETING_PAGEVIEWS, site = marketing_website), likely bots excluded
+ * (MARKETING_IP_CRAWLER_CLASSIFICATION flag and no Clay user id, the same rule as the CRO section).
  * Its "Apply" CTA is a Typeform whose responses are not in Snowflake, so email captures are not
  * connected. People are identified instead when a visitor's cookie later shows up signed in to a
  * Clay workspace (COOKIE_TO_WORKSPACE_RELATIONSHIP).
@@ -24,6 +25,7 @@
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS } from '../social/config'
 import { TIER_ACCOUNTS, tierEligible } from '../tier'
+import { bot } from '../cro/sql'
 import { rangeTable } from '../offline'
 
 const T = {
@@ -32,6 +34,7 @@ const T = {
   customers: '7821001c-903e-47e1-9f1d-a03f2a5ca9ae', // DBT.PROD.CUSTOMERS
   accounts: TIER_ACCOUNTS,                          // FIVETRAN.SALESFORCE.ACCOUNT (lib/plg/tier.ts, the Marketing tile's rule)
   blended: 'b9625c73-5094-4b94-9c0f-034c5efccbd4',   // DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION (activation)
+  crawler: '08b06a57-54a4-42dc-aa3c-d6222a15b09a',   // DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION (bot rule)
 }
 const t = (id: string) => `"connection"."${id}"`
 const d = (x: ISODate) => {
@@ -71,7 +74,8 @@ export function startupSql(q: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate
                           ELSE COALESCE(NULLIF(LOWER(p."UTM_SOURCE"), ''), 'other paid') END END AS "platform",
          COALESCE(NULLIF(LOWER(p."UTM_CAMPAIGN"), ''), '(no campaign)') AS "camp"
   FROM ${t(T.pageviews)} p
-  WHERE p."SITE" = 'marketing_website' AND p."PATH" IN (${paths})
+  LEFT JOIN ${t(T.crawler)} bc ON bc."IP_ADDRESS" = p."IP_ADDRESS"
+  WHERE p."SITE" = 'marketing_website' AND p."PATH" IN (${paths}) AND NOT ${bot('bc."BINARY_BOT_EXCLUSION"', 'p."USER_ID"')}
     AND CAST(p."TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
 ),
 ${multi ? `rng AS (${rangeTable(multi)}),

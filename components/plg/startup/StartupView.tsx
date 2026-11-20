@@ -45,7 +45,7 @@ function Kpis({ s }: { s: SV }) {
   }
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-      <Tile label="MQALs · Tier 1–3 domains" value={fmtInt(c.mqal)}
+      <Tile label="Tier 1–3 signup domains" value={fmtInt(c.mqal)}
         tip={<Def d="Distinct Tier 1–3 company domains among new workspaces from startup-page visitors. Two workspaces from one company count once." src="CUSTOMERS domain → Salesforce tier" />}>
         {dl(c.mqal, p.mqal)}
       </Tile>
@@ -156,11 +156,11 @@ function TiersAndReasons({ s }: { s: SV }) {
   return (
     <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <Card className="p-5 sm:p-8 flex flex-col gap-4">
-        <H2>MQALs and new workspaces by tier</H2>
-        <p className="text-[15px]" style={{ color: T.muted }}>MQALs = Tier 1–3 company domains with a new workspace. Share = the tier’s new workspaces ÷ all new workspaces.</p>
+        <H2>Tier 1–3 signup domains and new workspaces by tier</H2>
+        <p className="text-[15px]" style={{ color: T.muted }}>Tier 1–3 signup domains = Tier 1–3 company domains with a new workspace (not an SLG MQAL). Share = the tier’s new workspaces ÷ all new workspaces.</p>
         <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-[15px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left`}>Tier</th><th className={`${th} text-right`}>MQALs</th><th className={`${th} text-right`}>New WS</th>
+            <th className={`${th} text-left`}>Tier</th><th className={`${th} text-right`}>T1–3 domains</th><th className={`${th} text-right`}>New WS</th>
             <th className={`${th} text-right`}>Redeemed</th><th className={`${th} text-right`}>Share of new WS</th><th className={`${th} text-right`}>Δ share</th>
           </tr></thead>
           <tbody>{rows.map(r => (
@@ -222,7 +222,7 @@ const campName = (c: Camp) => (c.campaign && c.campaign !== '(no campaign)' ? c.
 type CampFilter = 'all' | 'Google' | 'Meta' | 'LinkedIn' | 'other' | 'ws' | 'mqal'
 const CAMP_FILTERS: { id: CampFilter; label: string }[] = [
   { id: 'all', label: 'All campaigns' }, { id: 'Google', label: 'Google' }, { id: 'Meta', label: 'Meta' }, { id: 'LinkedIn', label: 'LinkedIn' },
-  { id: 'other', label: 'Other paid' }, { id: 'ws', label: 'Drove workspaces' }, { id: 'mqal', label: 'Drove MQALs' },
+  { id: 'other', label: 'Other paid' }, { id: 'ws', label: 'Drove workspaces' }, { id: 'mqal', label: 'Drove Tier 1–3 domains' },
 ]
 const campMatch = (f: CampFilter, c: Camp) => f === 'all' ? true : f === 'ws' ? c.newWs > 0 : f === 'mqal' ? c.mqal > 0 : f === 'other' ? !['Google', 'Meta', 'LinkedIn'].includes(c.platform) : c.platform === f
 
@@ -239,7 +239,7 @@ function Campaigns({ s }: { s: SV }) {
   return (
     <Card className="p-5 sm:p-8 flex flex-col gap-4">
       <H2>Paid campaigns</H2>
-      <p className="text-[15px]" style={{ color: T.muted }}>The tiles’ metrics for each paid campaign. Judge campaigns on MQALs and new workspaces, not visits alone; spend and cost columns need ad spend in Snowflake. Select a campaign for its numbers vs the period before.</p>
+      <p className="text-[15px]" style={{ color: T.muted }}>The tiles’ metrics for each paid campaign. Judge campaigns on Tier 1–3 signup domains and new workspaces, not visits alone; spend and cost columns need ad spend in Snowflake. Select a campaign for its numbers vs the period before.</p>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter campaigns">
         {CAMP_FILTERS.map(f => {
           const n = s.T.campaigns.filter(c => campMatch(f.id, c)).length
@@ -251,8 +251,8 @@ function Campaigns({ s }: { s: SV }) {
         <thead><tr style={head}>
           <SortTh label="Campaign" k="campaign" sort={sort} set={setSort} right={false} /><SortTh label="Platform" k="platform" sort={sort} set={setSort} right={false} />
           <SortTh label="Visits" k="visits" sort={sort} set={setSort} /><SortTh label="Visit → workspace" k="rate" sort={sort} set={setSort} />
-          <SortTh label="New workspaces" k="newWs" sort={sort} set={setSort} /><SortTh label="MQALs" k="mqal" sort={sort} set={setSort} />
-          <th className={`${th} text-right`}>Spend</th><th className={`${th} text-right`}>Cost / MQAL</th>
+          <SortTh label="New workspaces" k="newWs" sort={sort} set={setSort} /><SortTh label="T1–3 domains" k="mqal" sort={sort} set={setSort} />
+          <th className={`${th} text-right`}>Spend</th><th className={`${th} text-right`}>Cost / T1–3 domain</th>
         </tr></thead>
         <tbody>{rows.length ? rows.flatMap(c => {
           const k = campKey(c), p = prevOf(c)
@@ -269,7 +269,7 @@ function Campaigns({ s }: { s: SV }) {
           if (open === k) out.push(<tr key={`${k}-open`} style={{ borderBottom: `1px solid ${T.border}`, background: '#E8F6F8' }}>
             <td colSpan={8} className="px-3 pb-4">
               <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
-                {([['Visits', fmtInt(c.visits), delta(c.visits, p?.visits)], ['New workspaces', fmtInt(c.newWs), delta(c.newWs, p?.newWs)], ['MQALs', fmtInt(c.mqal), delta(c.mqal, p?.mqal)],
+                {([['Visits', fmtInt(c.visits), delta(c.visits, p?.visits)], ['New workspaces', fmtInt(c.newWs), delta(c.newWs, p?.newWs)], ['Tier 1–3 domains', fmtInt(c.mqal), delta(c.mqal, p?.mqal)],
                   ['Visit → workspace', fmtPct(c.visits ? c.newWs / c.visits : null, 1), null]] as [string, string, React.ReactNode][]).map(([l, v, d]) => (
                   <div key={l} className="flex flex-col gap-0.5 min-w-[110px]"><span className="text-[12px] uppercase" style={{ color: T.muted, letterSpacing: '0.1em', ...mono }}>{l}</span>
                     <span className="text-[20px]" style={mono}>{v}</span>{d && <span className="text-[12px]" style={{ color: T.muted }}>{d} vs before</span>}</div>))}
@@ -299,8 +299,8 @@ function Progress({ s }: { s: SV }) {
   const metrics = [
     m('visits', 'Visits', s.T.visits, s.P.visits, 'Unique visitors to the startup page each day.'),
     m('newWs', 'New workspaces', s.T.newWs, s.P.newWs, `By the visitor’s first visit day; a workspace counts if created within ${STARTUP.newWindowDays} days of it.`),
-    m('mqal', 'MQALs (Tier 1–3 domains)', s.T.mqal, s.P.mqal, 'Tier 1–3 company domains with a new workspace, by first visit day.'),
-    m('activated', 'Activated workspaces', s.T.activated, s.P.activated, 'New workspaces that ran a first table within 7 days, by first visit day.'),
+    m('mqal', 'Tier 1–3 signup domains', s.T.mqal, s.P.mqal, 'Tier 1–3 company domains with a new workspace, by first visit day.'),
+    m('activated', 'Activated workspaces', s.T.activated, s.P.activated, 'New workspaces that built a golden table within 7 days, by first visit day.'),
     { id: 'redemptions', label: 'Redemptions', fmt: fmtInt, points: [], summary: <span style={{ color: T.faint, fontStyle: 'italic' }}>Not connected</span>,
       empty: 'Redemptions: Not connected. They appear here once the startup discount launches and promo-code redemptions are in Snowflake.' },
   ]

@@ -93,8 +93,8 @@ export default function KpiTiles({ v }: { v: DashboardPayload }) {
             d={<>New paid PLG workspaces ({fmtInt(r.paid)}, first invoice in the period) ÷ new HQ workspaces in the same period.</>}
             note="MBR definition. Not a cohort: some payers signed up earlier." />)}
           {rateRow('Activation', r.activation, rp?.activation ?? null, <Def
-            d={<>New workspaces that ran a first table within 7 days ({fmtInt(r.activated)}) ÷ new workspaces.</>}
-            note="The latest week is still filling in." />)}
+            d={<>Workspaces that built a golden table (1 basic + 2 advanced enrichments in one table) within 7 days ({fmtInt(r.activated)}) ÷ workspaces old enough to have had 7 days ({fmtInt(r.matured)}).</>}
+            note="Workspaces from the last 7 days are left out until they’ve had their full week." />)}
         </> : <p style={{ color: T.muted }}>Available on the live (Sigma) dashboard.</p>}
       </Tile>
     </div>

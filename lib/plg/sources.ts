@@ -21,6 +21,8 @@ export const TABLES: Record<string, string> = {
   '4d8a7488-9cde-4f4f-b451-a712f4e83183': 'DBT.PROD.INT_SLG_TOUCHPOINT_FUNNEL_DETAIL',
   '9a9c17db-c29f-4516-888d-02b939ae202c': 'DBT.PROD.INT_OPPORTUNITY_SOURCE_TOUCHPOINT_MAP',
   '08b06a57-54a4-42dc-aa3c-d6222a15b09a': 'DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION',
+  '62d723b6-0db1-4a76-903b-1c91792245fc': 'DBT.PROD.COOKIE_TO_USER_RELATIONSHIP',
+  '0738c7c9-b1f4-4198-ba15-0cbec48fb14f': 'DBT.PROD.USER_WORKSPACE_ROLES',
   '97cf52d9-8523-4af4-a02e-b8e8d8019b28': 'SEGMENT.MARKETING_WEBSITE.CONVERSION_BUTTON_CLICKED',
   'cf3c596b-2dde-415a-b248-efda79af9fa3': 'DBT.PROD.MARKETING_WEBSITE_SESSIONS',
 }
@@ -46,7 +48,8 @@ const SIGMA_NOTE = 'Runs through the Clay Sigma connector (Snowflake connection 
 export function workspacesSources(sql: string | null, latest: string): TabSources {
   return {
     sources: [
-      { name: 'New workspaces, channel, quality, activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: '90-day window, first-touch attribution; one row per workspace' },
+      { name: 'New workspaces, channel, quality, activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: '90-day window, first-touch attribution; one row per workspace. Activation = golden table within 7 days, among workspaces 7+ days old' },
+      { name: 'MCP-sourced signups', where: 'DBT.PROD.CUSTOMERS', what: 'BINARY_SOURCED_BY_MCP and MCP_SOURCE (the governed MCP flag), among new PLG workspaces' },
       { name: 'Latest complete day', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION_METRICS', what: 'Day rows with CURRENT_TIME_PERIOD_FLAG = 0' },
       { name: 'Workspace domain and first invoice', where: 'DBT.PROD.CUSTOMERS', what: 'Domain → Salesforce tier; FIRST_INVOICE_UTC for new paid (FIRST_GTM_MOTION = PLG)' },
       { name: 'Sales tier', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'Marketing Q4 Tier 1–3 tile rule: SALES_TIER_C by DOMAIN_C, live accounts, best tier per domain, personal emails excluded (lib/plg/tier.ts)' },
@@ -65,12 +68,12 @@ export function socialSources(sql: string | null): TabSources {
       { name: 'Views, watch time', where: 'YouTube Analytics API v2 (reports, per channel and per video)', what: 'Daily; needs the channel owner’s sign-in or Viewer access' },
       { name: 'Impressions, thumbnail clicks', where: 'YouTube Reporting API, channel_reach_basic_a1', what: 'Daily files about 1–2 days late; thumbnail clicks = impressions × video_thumbnail_impressions_ctr' },
       { name: 'Videos, links, thumbnails', where: 'YouTube Data API v3 (channels, playlistItems, videos)', what: 'Descriptions are parsed for clay.com links; utm_campaign maps a visit to a video' },
-      { name: 'Referral visits', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'YouTube referrer or utm_source; campaign → video; creator fallbacks in lib/plg/social/config.ts' },
-      { name: 'New workspaces', where: 'DBT.PROD.FIRST_TOUCH_ATTRIBUTION', what: 'First-touch campaign → video' },
+      { name: 'Referral visits', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'marketing_website, likely bots excluded; YouTube referrer or utm_source; campaign → video; creator fallbacks in lib/plg/social/config.ts' },
+      { name: 'New workspaces', where: 'DBT.PROD.FIRST_TOUCH_ATTRIBUTION, DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'First-touch campaign → video; plus blended attribution platform youtube (session → untagged, survey answer only → survey)' },
       { name: 'Activated, paid, expanded, churned', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION, DBT.PROD.CUSTOMERS, DBT.PROD.CREDIT_PACK_INVOICES', what: 'Activated = first table within 7 days' },
       { name: 'Tier', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'Marketing Q4 tile rule: live account on the email domain, best tier, personal emails excluded' },
       { name: 'Email captures', where: 'SEGMENT.VERCEL.FORM_SUBMITTED', what: 'Offer-page (/wedge) form submits' },
-      { name: 'Existing workspaces, persona, device', where: 'FIVETRAN.AURORA_POSTGRES_CLAY_ADMIN.USER_ROLES, DBT.PROD.ONBOARDING_SURVEY, DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP', what: '' },
+      { name: 'Existing workspaces, persona, device', where: 'DBT.PROD.COOKIE_TO_USER_RELATIONSHIP, DBT.PROD.USER_WORKSPACE_ROLES, DBT.PROD.ONBOARDING_SURVEY, DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP', what: 'A visitor already had a workspace role before the visit' },
     ],
     queries: sql ? [{ label: 'Media properties query (current filters)', sql, note: `${SIGMA_NOTE} The video → campaign lookup (vmap) is built from the YouTube sync, so it changes when descriptions change.` }] : [],
     notes: ['YouTube numbers come from scripts/sync-youtube.mjs (daily), stored in this dashboard’s database (collection youtube).'],
@@ -80,11 +83,11 @@ export function socialSources(sql: string | null): TabSources {
 export function startupSources(sql: string | null): TabSources {
   return {
     sources: [
-      { name: 'Startup page visits', where: 'DBT.PROD.MARKETING_PAGEVIEWS', what: 'marketing_website, /clay-for-startups (and /fr/); paid platform from click ids and utm_medium' },
+      { name: 'Startup page visits', where: 'DBT.PROD.MARKETING_PAGEVIEWS, DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION', what: 'marketing_website, /clay-for-startups (and /fr/), likely bots excluded; paid platform from click ids and utm_medium' },
       { name: 'Visitor → workspace', where: 'DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP', what: 'Visitors with at most 3 workspaces; created within 30 days of the first visit' },
       { name: 'Domain, first invoice, current customer', where: 'DBT.PROD.CUSTOMERS', what: 'Clay’s own domains excluded' },
-      { name: 'Tier (MQALs)', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'Tier 1–3 company domains among new workspaces (Marketing Q4 tile rule)' },
-      { name: 'Activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'First table within 7 days' },
+      { name: 'Tier (Tier 1–3 signup domains)', where: 'FIVETRAN.SALESFORCE.ACCOUNT', what: 'Tier 1–3 company domains among new workspaces (Marketing Q4 tile rule)' },
+      { name: 'Activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'Golden table (1 basic + 2 advanced enrichments in one table) within 7 days' },
     ],
     queries: sql ? [{ label: 'Startup program query (current filters)', sql, note: SIGMA_NOTE }] : [],
   }

@@ -22,7 +22,8 @@ export interface RangeSummary {
   quality: { q: string; n: number }[]
   domain: { s: string; n: number }[]
   /** MBR funnel inputs (Sigma source only): unique visitors, new PLG paid workspaces, activated ≤7d. */
-  extras?: { visitors: number; paid: number; activated: number }
+  /** activated = within 7 days among matured workspaces (created 7+ days before the data end); matured = their count. */
+  extras?: { visitors: number; paid: number; activated: number; matured?: number }
   /** Source-of-truth Tier 1–3 counts [T1, T2, T3] (qtd summary only): through dataEnd and through dataEnd − 7. */
   sot?: { now: number[]; weekAgo: number[]; daily: { d: ISODate; n: number }[] }
 }
@@ -252,8 +253,8 @@ export function buildDashboard(i: DashboardInputs) {
 
   // ── KPI: MBR conversion rates (same definitions as the PLG headline metrics) ─
   const rates = (s: RangeSummary, tot: number, hq: number) => s.extras ? {
-    visitToHq: safeDiv(hq, s.extras.visitors), trialToPaid: safeDiv(s.extras.paid, hq), activation: safeDiv(s.extras.activated, tot),
-    visitors: s.extras.visitors, paid: s.extras.paid, activated: s.extras.activated,
+    visitToHq: safeDiv(hq, s.extras.visitors), trialToPaid: safeDiv(s.extras.paid, hq), activation: safeDiv(s.extras.activated, s.extras.matured ?? tot),
+    visitors: s.extras.visitors, paid: s.extras.paid, activated: s.extras.activated, matured: s.extras.matured ?? tot,
   } : null
   const ratesCur = rates(i.cur, total, hqTotal); const ratesPrev = rates(i.prev, prevTotal, hqPrevTotal)
 

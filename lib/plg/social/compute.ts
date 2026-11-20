@@ -374,7 +374,7 @@ export function buildSocial(o: {
     rt('cta_ctr', 'Click', 'CTA CTR', 'Referral visits ÷ views', rate(vc?.visits ?? null, vc?.views ?? null), rate(vp?.visits ?? null, vp?.views ?? null), STEP_GOALS.viewToVisit, noViews),
     cnt('captures', 'Capture', 'Email captures', 'Offer-page form submits', pc.captures, pp.captures, showEmailSteps ? null : NO_CAPTURE),
     rt('capture_rate', 'Capture', 'Email capture rate', 'Email captures ÷ referral visits', rate(pc.captures, pc.visits), rate(pp.captures, pp.visits), STEP_GOALS.capture, showEmailSteps ? null : NO_CAPTURE),
-    cnt('mqal', 'Capture', 'MQALs (Tier 1–3 domains)', 'Captured emails at Tier 1–3 companies', null, null, 'Captured emails aren’t stored in Snowflake, so their domains can’t be tiered yet'),
+    cnt('mqal', 'Capture', 'Tier 1–3 signup domains', 'Captured emails at Tier 1–3 companies', null, null, 'Captured emails aren’t stored in Snowflake, so their domains can’t be tiered yet'),
     cnt('sends', 'Nurture', 'Email sends', 'Follow-up emails sent', null, null, LIFECYCLE),
     cnt('opens', 'Nurture', 'Email opens', 'Follow-up emails opened', null, null, LIFECYCLE),
     rt('open_rate', 'Nurture', 'Email open rate', 'Email opens ÷ email sends', null, null, STEP_GOALS.open, LIFECYCLE),
@@ -384,7 +384,7 @@ export function buildSocial(o: {
     rt('ws_rate', 'Workspaces', 'Visit → workspace', wsRateDef, rate(pc.newWs, showEmailSteps ? pc.captures : pc.visits), rate(pp.newWs, showEmailSteps ? pp.captures : pp.visits),
       showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace),
     cnt('t13', 'Workspaces', 'Tier 1–3 workspaces', 'New workspaces at Salesforce Tier 1–3 companies', t13(pc.tiersNew), t13(pp.tiersNew)),
-    cnt('activated', 'Workspaces', 'Activated workspaces', 'Ran a first table within 7 days', pc.activated, pp.activated),
+    cnt('activated', 'Workspaces', 'Activated workspaces', 'Built a golden table (1 basic + 2 advanced enrichments in one table) within 7 days', pc.activated, pp.activated),
     rt('activation_rate', 'Workspaces', 'Activation rate', 'Activated ÷ new workspaces', rate(pc.activated, pc.newWs), rate(pp.activated, pp.newWs), null),
     cnt('paid', 'Workspaces', 'Paying workspaces', 'New workspaces with a paid invoice', pc.paid, pp.paid),
     rt('paid_rate', 'Workspaces', 'Paid rate', 'Paying ÷ new workspaces', rate(pc.paid, pc.newWs), rate(pp.paid, pp.newWs), null),
@@ -395,6 +395,8 @@ export function buildSocial(o: {
 
   // ── All channels rows ──────────────────────────────────────────────────────
   const untagged = { visits: one('vis', 'cur', 'untagged').n, prevVisits: one('vis', 'prev', 'untagged').n, ws: one('ws', 'cur', 'untagged'), prevWs: one('ws', 'prev', 'untagged') }
+  // Signups the governed attribution gives to YouTube from the "how did you hear about us" answer only: no creator or video.
+  const survey = { ws: one('ws', 'cur', 'survey'), prevWs: one('ws', 'prev', 'survey') }
   const unmapped = [...new Set(rows.filter(r => r.key.startsWith('unmapped:')).map(r => r.key))].map(key => ({
     campaign: key.slice('unmapped:'.length), visits: one('vis', 'cur', key).n, prevVisits: one('vis', 'prev', key).n, ws: one('ws', 'cur', key).n,
   })).sort((a, b) => b.visits - a.visits)
@@ -447,7 +449,7 @@ export function buildSocial(o: {
     { metric: 'cta_ctr', label: 'CTA CTR', kind: 'rate', num: x => (x.views == null ? null : x.viewVisits), den: x => x.views, note: 'Referral visits ÷ views, channels with views only' },
     { metric: 't13', label: 'Tier 1–3 workspaces', kind: 'count', num: x => x.t13 },
     { metric: 'ws', label: 'New workspaces', kind: 'count', num: x => x.ws },
-    { metric: 'activated', label: 'Activated workspaces', kind: 'count', num: x => x.act, note: 'Ran a first table within 7 days; the last 7 days are still filling in' },
+    { metric: 'activated', label: 'Activated workspaces', kind: 'count', num: x => x.act, note: 'Built a golden table within 7 days; the last 7 days are still filling in' },
     { metric: 'paid', label: 'Paying workspaces', kind: 'count', num: x => x.paid },
   ]
   // Totals over the days both periods have (so a lagging YouTube day never counts against one side only).
@@ -620,7 +622,8 @@ export function buildSocial(o: {
     yt: { lastDay: ytLastDay, lagging: !!ytLastDay && ytLastDay < o.cur[1], days: ytDays, periodDays: daysBetween(o.cur[0], o.cur[1]), viewsKnown,
       fetchedAt: inScope.map(c => c.doc!.fetchedAt).sort()[0] ?? null },
     kpis: {
-      newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: withUntagged ? untagged.ws.n : null },
+      newWs: { cur: allNew, prev: allNewPrev, delta: pct(allNew, allNewPrev), tagged: pc.newWs, untagged: withUntagged ? untagged.ws.n : null,
+        survey: withUntagged ? { cur: survey.ws.n, prev: survey.prevWs.n } : null },
       activated: { cur: act, prev: actPrev, delta: pct(act, actPrev), rate: rate(act, allNew) },
       paid: { cur: paid, prev: paidPrev, delta: pct(paid, paidPrev), rate: rate(paid, allNew), churned: churn },
       impressions: { cur: ic?.impressions ?? null, prev: prevImprOk ? ip!.impressions : null, delta: prevImprOk ? pct(ic?.impressions ?? null, ip!.impressions) : null,

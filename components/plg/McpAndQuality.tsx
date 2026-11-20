@@ -9,7 +9,7 @@ export function McpByPlatform({ v }: { v: DashboardPayload }) {
   return (
     <Card className="p-5 sm:p-10 flex flex-col gap-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <H2>OAuth: MCP by platform</H2>
+        <H2>MCP-sourced signups by platform</H2>
         <p className="text-[15px]" style={{ color: T.muted }}>
           <span style={{ fontFamily: T.mono }}>{fmtPct(m.share)}</span> of all workspaces
           {dir && <>, {dir} from <span style={{ fontFamily: T.mono }}>{fmtPct(m.prevShare)}</span></>}

@@ -60,7 +60,7 @@ const zoneCase = (col: string) => `CASE WHEN NULLIF(TRIM(${col}), '') IS NULL TH
  * Likely bot: crawler-flagged IP and no numeric user id (monty's rule). Sigma has no TRANSLATE / regex, so "not numeric"
  * is: missing, or contains a letter (LOWER differs from UPPER). Clay user ids are numeric.
  */
-const bot = (flag: string, uid: string) => `(COALESCE(${flag}, 0) = 1 AND (NULLIF(TRIM(${uid}), '') IS NULL OR LOWER(${uid}) <> UPPER(${uid})))`
+export const bot = (flag: string, uid: string) => `(COALESCE(${flag}, 0) = 1 AND (NULLIF(TRIM(${uid}), '') IS NULL OR LOWER(${uid}) <> UPPER(${uid})))`
 
 export function croSql(ranges: readonly (readonly [ISODate, ISODate])[], dataEnd: ISODate): string {
   const lo = CRO.seriesStart

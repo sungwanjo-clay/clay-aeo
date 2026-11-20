@@ -104,7 +104,8 @@ function Kpis({ s }: { s: SV }) {
         foot={<>Visitors from the creators’ clay.com links.{k.visits.untagged != null && <> Plus {fmtInt(k.visits.untagged)} from untagged YouTube links.</>}</>} />
       <KpiTile label="Tier 1–3 workspaces" value={fmtInt(k.tier13.cur)} delta={k.tier13.delta}
         tip={<Def d="New workspaces whose first touch was a creator’s link, at Tier 1–3 Salesforce accounts (personal emails excluded, same rule as Marketing’s Q4 tile)." src="FIRST_TOUCH_ATTRIBUTION → CUSTOMERS domain → Salesforce tier" />}
-        foot={<>Of {fmtInt(k.newWs.cur)} new workspaces · {fmtInt(k.activated.cur)} activated · {fmtInt(k.paid.cur)} paying{k.tier13.untagged != null && <> · incl. untagged YouTube</>}</>} />
+        foot={<>Of {fmtInt(k.newWs.cur)} new workspaces · {fmtInt(k.activated.cur)} activated · {fmtInt(k.paid.cur)} paying{k.tier13.untagged != null && <> · incl. untagged YouTube</>}
+          {k.newWs.survey && k.newWs.survey.cur > 0 && <><br />All YouTube signups: <span style={{ fontFamily: T.mono }}>{fmtInt(k.newWs.cur + k.newWs.survey.cur)}</span>, incl. {fmtInt(k.newWs.survey.cur)} who named YouTube in the signup survey (no creator or video)</>}</>} />
     </div>
   )
 }
@@ -718,7 +719,7 @@ function Cuts({ s, sel, onClear, title }: { s: SV; sel: string | null; onClear: 
         <Card className="p-5 sm:p-6 flex flex-col gap-3 overflow-x-auto">
           <Eyebrow>Geo</Eyebrow>
           <table className="w-full min-w-[440px] text-[15px]" style={{ color: T.ink }}>
-            <thead><tr style={head}><th className={`${th} text-left`}>Region</th><th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>Email capture rate</th><th className={`${th} text-right`}>MQAL rate</th><th className={`${th} text-right`}>New workspaces</th></tr></thead>
+            <thead><tr style={head}><th className={`${th} text-left`}>Region</th><th className={`${th} text-right`}>Referral visits</th><th className={`${th} text-right`}>Email capture rate</th><th className={`${th} text-right`}>T1–3 domain rate</th><th className={`${th} text-right`}>New workspaces</th></tr></thead>
             <tbody>{geo.length ? geo.map(r => (
               <tr key={r.name} style={{ borderBottom: `1px solid ${T.border}` }}>
                 <td className="px-3 py-3">{r.name}</td><td className={num} style={mono}>{fmtInt(r.visits)}</td>
