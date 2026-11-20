@@ -1,5 +1,5 @@
 /** What moved on the Workspaces tab (lib/plg/insights.ts rules), for the selected range vs the comparison range. */
-import { b, chg, driverPara, headlineLine, type GoalLine, type Insight, type Item, type Para } from './insights'
+import { chg, driverPara, headlineLine, type Insight, type Item, type Para } from './insights'
 import type { DashboardPayload } from './plan'
 
 const int = (n: number) => Math.round(n).toLocaleString('en-US')
@@ -27,17 +27,6 @@ export function workspacesInsight(v: DashboardPayload): Insight {
   const anomalies: Para[] = []
   if (v.quality.shift.fired) anomalies.push([`High-quality share of non-personal workspaces moved `, chg(v.quality.shift.shiftPp, 'pp'),
     ` while non-personal volume held roughly flat: about ${int(v.quality.shift.reclassified)} workspaces look reclassified from high to low quality, so the HQ figures reflect a scoring change more than a change in signups.`])
-  const goals: GoalLine[] = []
-  if (k.tier13.goal) {
-    const ratio = k.tier13.cur / k.tier13.goal
-    goals.push({ tone: ratio >= 1 ? 'good' : k.tier13.prev != null && k.tier13.cur > k.tier13.prev ? 'good' : 'bad',
-      para: [b('Tier 1–3 workspaces'), `: ${int(k.tier13.cur)} vs a ${int(k.tier13.goal)} goal for these dates (${Math.round(ratio * 100)}%).`] })
-  }
-  if (k.goal) {
-    const ratio = k.hqTotal / k.goal
-    goals.push({ tone: ratio >= 1 ? 'good' : k.hqTotal > k.hqPrevTotal ? 'good' : 'bad',
-      para: [b('High-quality trial users'), `: ${int(k.hqTotal)} vs a ${int(k.goal)} goal for these dates (${Math.round(ratio * 100)}%).`] })
-  }
   const note = v.range.settled ? null : 'The latest days are still settling; counts can move about 5% as attribution completes.'
-  return { note, headline, drivers, emerging: [], anomalies, goals }
+  return { note, headline, drivers, emerging: [], anomalies, goals: [] }
 }

@@ -19,7 +19,7 @@ function RunView({ r }: { r: Run }) {
 }
 const P = ({ p }: { p: Para }) => <>{p.map((r, i) => <RunView key={i} r={r} />)}</>
 
-/** "What moved": headline, prose drivers, then emerging signals, anomalies and goals when there are any. */
+/** "What moved": prose drivers, emerging signals and anomalies when there are any, and the full metric list collapsed. */
 export default function WhatMoved({ insight: x }: { insight: Insight | null }) {
   if (!x) return null
   return (
@@ -30,11 +30,7 @@ export default function WhatMoved({ insight: x }: { insight: Insight | null }) {
         {x.note && <p className="text-[14px]" style={{ color: T.muted }}>Note: {x.note}</p>}
       </div>
       {x.empty ? <p className="text-[15px]" style={{ color: T.muted }}>{x.empty}</p> : <>
-        <ul className="flex flex-col gap-1.5 text-[15px]" style={{ color: T.ink }}>
-          {x.headline.map((p, i) => <li key={i} className="flex gap-2"><span style={{ color: T.faint }}>•</span><span><P p={p} /></span></li>)}
-        </ul>
-        {x.drivers.length > 0 && <section className="flex flex-col gap-3 pt-1" style={{ borderTop: `1px solid ${T.border}` }}>
-          <Eyebrow>What’s driving it</Eyebrow>
+        {x.drivers.length > 0 && <section className="flex flex-col gap-3">
           {x.drivers.map((p, i) => <p key={i} className="text-[15px] leading-relaxed" style={{ color: T.ink, maxWidth: '80ch' }}><P p={p} /></p>)}
         </section>}
         {x.emerging.length > 0 && <section className="flex flex-col gap-2 pt-1" style={{ borderTop: `1px solid ${T.border}` }}>
@@ -45,11 +41,13 @@ export default function WhatMoved({ insight: x }: { insight: Insight | null }) {
           <Eyebrow>Anomalies</Eyebrow>
           <ul className="flex flex-col gap-1.5 text-[15px]">{x.anomalies.map((p, i) => <li key={i}><P p={p} /></li>)}</ul>
         </section>}
-        {x.goals.length > 0 && <section className="flex flex-col gap-2 pt-1" style={{ borderTop: `1px solid ${T.border}` }}>
-          <Eyebrow>Goals this period</Eyebrow>
-          <ul className="flex flex-col gap-1.5 text-[15px]">{x.goals.map((g, i) => (
-            <li key={i} className="flex gap-2"><span aria-label={g.tone} style={{ color: g.tone === 'good' ? POS : g.tone === 'bad' ? NEG : T.faint }}>●</span><span><P p={g.para} /></span></li>))}</ul>
-        </section>}
+        {/* The tiles above already show the headline numbers; the full list stays one click away. */}
+        {x.headline.length > 0 && <details className="text-[14px]" style={{ color: T.muted }}>
+          <summary className="cursor-pointer select-none">All metrics vs the period before</summary>
+          <ul className="flex flex-col gap-1.5 text-[15px] pt-3" style={{ color: T.ink }}>
+            {x.headline.map((p, i) => <li key={i} className="flex gap-2"><span style={{ color: T.faint }}>•</span><span><P p={p} /></span></li>)}
+          </ul>
+        </details>}
       </>}
     </Card>
   )

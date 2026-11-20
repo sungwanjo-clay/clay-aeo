@@ -7,7 +7,7 @@
  * Analytics access. Nothing downstream substitutes a value.
  */
 import { addDays, daysBetween, minDate, type ISODate } from '../dates'
-import { code, driverPara, goalLine, headlineLine, pct as pctTxt, type GoalLine, type Insight, type Item, type Para } from '../insights'
+import { code, driverPara, headlineLine, pct as pctTxt, type Insight, type Item, type Para } from '../insights'
 import { CHANNELS, COHORT_DAYS, NO_ANALYTICS, OFFER_PAGE_PATTERNS, STEP_GOALS, TIER_LABELS, type CreatorChannel } from './config'
 import type { ChannelFallback, TaggedVideo } from './sql'
 
@@ -411,7 +411,6 @@ export function buildSocial(o: {
   const scopeChannel = o.scope === 'all' ? null : CHANNELS.find(c => c.id === o.scope)!
 
   // ── What moved (lib/plg/insights.ts rules) ─────────────────────────────────
-  const liveRows = channelRows.filter((r): r is Extract<(typeof channelRows)[number], { connected: true }> => r.connected)
   const insight: Insight = (() => {
     const title = (id: string) => scopeVideos.find(v => v.id === id)?.title ?? null
     const chOf = (id: string) => scopeVideos.find(v => v.id === id)?.channel ?? null
@@ -470,28 +469,16 @@ export function buildSocial(o: {
           ...(ctr != null ? [` at ${pctTxt(ctr)} thumbnail CTR (channel ${pctTxt(chCtr)})`] : []), ...(watch != null ? [`, ${(watch * 60).toFixed(0)} s watched per view (channel ${((chWatch ?? 0) * 60).toFixed(0)} s)`] : []), '. This pattern usually means embedded autoplay or bot views.'])
       }
     }
-    // Goals, naming the channel furthest below each one (All channels).
-    const gapFor = (f: (r: (typeof liveRows)[number]) => number | null) => {
-      if (o.scope !== 'all') return null
-      const xs = liveRows.map(r => ({ l: r.label, v: f(r) })).filter((x): x is { l: string; v: number } => x.v != null).sort((a, c) => a.v - c.v)
-      return xs.length > 1 ? `${xs[0].l} at ${pctTxt(xs[0].v)}` : null
+    const hl = (id: string, kind: 'count' | 'rate' = 'count') => {
+      const f = byId(id); return f.nc ? null : headlineLine(f.label, f.cur, f.prev, { kind })
     }
-    const goals = [
-      goalLine('CTA CTR', byId('cta_ctr').cur, byId('cta_ctr').prev, STEP_GOALS.viewToVisit, gapFor(r => (r.analytics && r.views ? r.visits / r.views : null))),
-      showEmailSteps ? goalLine('Email capture rate', byId('capture_rate').cur, byId('capture_rate').prev, STEP_GOALS.capture) : null,
-      goalLine('Visit → workspace', byId('ws_rate').cur, byId('ws_rate').prev, showEmailSteps ? STEP_GOALS.newWorkspaceOfCaptures : STEP_GOALS.newWorkspace, null,
-        { n: showEmailSteps ? pc.captures : pc.visits, min: 20, what: showEmailSteps ? 'email captures' : 'referral visits' }),
-    ].filter((g): g is GoalLine => !!g)
-    const hl = (id: string, kind: 'count' | 'rate' = 'count', goal?: number | null, floor?: { n: number; min: number; what: string }) => {
-      const f = byId(id); return f.nc ? null : headlineLine(f.label, f.cur, f.prev, { kind, goal, floor })
-    }
-    const headline = [hl('impressions'), hl('views'), hl('thumb_ctr', 'rate'), hl('visits'), hl('cta_ctr', 'rate', STEP_GOALS.viewToVisit),
-      showEmailSteps ? hl('capture_rate', 'rate', STEP_GOALS.capture) : null,
+    const headline = [hl('impressions'), hl('views'), hl('thumb_ctr', 'rate'), hl('visits'), hl('cta_ctr', 'rate'),
+      showEmailSteps ? hl('capture_rate', 'rate') : null,
       hl('ws'), hl('t13')].filter((x): x is Para => !!x)
     const syncAge = inScope.length ? (Date.now() - Math.min(...inScope.map(c => Date.parse(c.doc!.fetchedAt)))) / 36e5 : null
     const notes = [ytLastDay && ytLastDay < o.cur[1] ? `YouTube numbers run through ${ytLastDay}; one or more channels report 2–3 days late, so both periods use the same ${ytDays} days.` : null,
       syncAge != null && syncAge > 48 ? `YouTube data was last synced ${Math.round(syncAge / 24)} days ago.` : null].filter(Boolean)
-    return { note: notes.join(' ') || null, headline, drivers, emerging, anomalies, goals }
+    return { note: notes.join(' ') || null, headline, drivers, emerging, anomalies, goals: [] }
   })()
 
   // Channels matched as a whole (one affiliate code or link for every video, e.g. Eric's ?via=bb305b): visits and workspaces
