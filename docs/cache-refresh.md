@@ -32,7 +32,11 @@ Work in a scratch folder `W` (e.g. `$TMPDIR/cache-refresh`). Never print or past
    - Then use `W/yt` = a fresh `list` of collection `youtube` (`out_dir` = `W/yt`) for the steps below.
 3. **Latest complete day.** `node scripts/refresh-cache.mjs latest` prints `{connectionId, sql}`. Call the Clay Sigma
    connector's `begin_session` once, then `query` with `{type: "connection", connectionId, sql}` using that SQL
-   exactly. The single row's `max_day` (first 10 characters) is `DATAEND`.
+   exactly, and have the result saved to `W/fresh.json`. `node scripts/refresh-cache.mjs dataend W/fresh.json` prints
+   `DATAEND`: the last day that blended attribution, CUSTOMERS, sessions, pageviews and CTA clicks have all fully loaded
+   (per source the day before its newest day, checked against the same weekday's typical volume; the earliest across
+   sources). Every query below uses this one date, so no section runs a day ahead of another. If it exits 3, a source
+   has no whole day: stop and report which.
 4. **Default-view SQL.** `node scripts/refresh-cache.mjs sql DATAEND W/yt/youtube > W/sql.json`.
 5. **Run the nine queries,** one at a time, for NAME in `main`, `startup`, `social`, `tier4`, `tier4list`, `cro`, `crotrend`, `creators`, `daily`:
    - Print the SQL: `node -e "process.stdout.write(require('W/sql.json').NAME)"` (use the real path).

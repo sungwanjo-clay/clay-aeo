@@ -56,7 +56,7 @@ The one official goal is **new workspaces from Tier 1–3 accounts**, all qualit
 No Vercel, Supabase or Snowflake credentials needed. The page queries Snowflake through **each viewer's own Clay Sigma connector** (read-only `query` tool), so viewers need Sigma connected in claude.ai and Sigma access to the three source tables.
 
 - Build: `node scripts/build-plg-artifact.mjs` → `dist/plg-artifact.html` (entry `artifact/plg/main.tsx`, SQL `lib/plg/sigma.ts`). Republish that file to the same artifact URL after code changes.
-- Latest complete day comes from the metrics table's `CURRENT_TIME_PERIOD_FLAG` (the raw table can hold a partial day).
+- Data end (lib/plg/freshness.ts): the last day every source the page reads has fully loaded: blended attribution, CUSTOMERS, sessions, pageviews and CTA clicks. Per source it's the day before the newest day present (that one is still loading), kept only if its volume is at least 25% of the same weekday's median over the prior four weeks (otherwise step back a day); the data end is the earliest across sources and never later than yesterday (UTC). The page and the daily refresh use the same rule, so every tile, chart and saved copy ends on the same day. (It used to read the metrics table's `CURRENT_TIME_PERIOD_FLAG`, but that table is rebuilt less often and ran a day behind.)
 - Results are cached by claude.ai for up to 6 h; reopening is instant, then refreshes.
 - Artifact store: `weeks/<monday>` = restatement log (written when a closed week moves >3%); `config/goals` = `{ rows: GoalRow[] }` goal overrides (editors only), same shape as `plg_goals` rows.
 - Not in the artifact: the daily reconciliation against the metrics table (ETL-only).

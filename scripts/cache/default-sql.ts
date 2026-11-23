@@ -9,7 +9,8 @@ import { resolveQuarters } from '@/lib/plg/compute'
 import { DEFAULT_QUARTERS } from '@/lib/plg/config'
 import { todayUTC } from '@/lib/plg/dates'
 import { planDashboard } from '@/lib/plg/plan'
-import { SIGMA, dashboardSql, latestDaySql } from '@/lib/plg/sigma'
+import { SIGMA, dashboardSql } from '@/lib/plg/sigma'
+import { freshnessSql, pickDataEnd } from '@/lib/plg/freshness'
 import { channelFallbacks, taggedVideos, type YtChannelDoc } from '@/lib/plg/social/compute'
 import { socialSql } from '@/lib/plg/social/sql'
 import { startupSql } from '@/lib/plg/startup/sql'
@@ -21,7 +22,9 @@ import { OFFLINE_COMBOS, comboQs, rangeLabel, savedRanges } from '@/lib/plg/offl
 
 export { validate } from '@/lib/plg/contracts'
 
-export function latest() { return { connectionId: SIGMA.connectionId, sql: latestDaySql(todayUTC()) } }
+export function latest() { return { connectionId: SIGMA.connectionId, sql: freshnessSql(todayUTC()) } }
+/** The data end from the freshness result (lib/plg/freshness.ts): the last day every source has fully loaded. */
+export function dataEnd(payload: unknown) { return pickDataEnd(payload, todayUTC()) }
 
 /**
  * Every preset × comparison for each tab, one labelled query per tab (lib/plg/offline.ts). The page uses the same

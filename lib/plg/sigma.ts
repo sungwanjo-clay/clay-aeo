@@ -48,20 +48,6 @@ const d = (x: ISODate) => {
 const WS_FILTER = `"ATTRIBUTION_WINDOW" = '90_days' AND "ATTRIBUTION_TYPE" = 'first_touch'`
 
 /**
- * Latest COMPLETE day, from the canonical metrics table: dbt flags the day in
- * progress at build time with CURRENT_TIME_PERIOD_FLAG = 1. (The raw max date
- * can be a partial day when the warehouse loads mid-day.)
- */
-export function latestDaySql(todayUtc: ISODate): string {
-  return `SELECT CAST(MAX(CAST("TIME_PERIOD_START" AS date)) AS string) AS "max_day"
-FROM ${t(SIGMA.metrics)}
-WHERE "TIME_PERIOD_TYPE" = 'day' AND "CHANNEL_HIERARCHY_LEVEL" = 'aggregate' AND "DIMENSION_TYPE" = 'aggregate'
-  AND "ATTRIBUTION_TYPE" = 'blended' AND "ATTRIBUTION_WINDOW" = '90_days' AND "FUNNEL_GTM_SEGMENT" = 'PLG'
-  AND "DATE_COHORT_ANCHOR" = 'workspace_created_date' AND "CURRENT_TIME_PERIOD_FLAG" = 0
-  AND CAST("TIME_PERIOD_START" AS date) >= ${d(todayUtc)} - INTERVAL '14 day'`
-}
-
-/**
  * `saved`: saved-copy mode (lib/plg/offline.ts). The plans of every preset × comparison; summary rows are computed
  * once per distinct range (bucket "<start>~<end>", "dom:<label>", "x:<label>:<metric>") through a joined range table,
  * and the daily series covers every plan's days. The QTD tier rows (sot) don't depend on the preset.

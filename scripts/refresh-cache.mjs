@@ -1,7 +1,9 @@
 /**
  * Daily refresh of the dashboard's saved default view (for viewers without Clay Sigma).
  *
- *   node scripts/refresh-cache.mjs latest                     → {connectionId, sql} for the latest complete day
+ *   node scripts/refresh-cache.mjs latest                     → {connectionId, sql}: per-source daily row counts (lib/plg/freshness.ts)
+ *   node scripts/refresh-cache.mjs dataend <resultFile>       → the last day every source has fully loaded (DATAEND), with
+ *        each source's verdict on stderr. Exits 3 when a source has no whole day (don't refresh).
  *   node scripts/refresh-cache.mjs sql <dataEnd> <youtubeDir>  → {connectionId, ranges, main, social, startup, slg, tier4, tier4list}: one query per
  *        tab covering every preset × comparison (lib/plg/offline.ts)
  *   node scripts/refresh-cache.mjs pack <name> <dataEnd> <resultFile> <sql-json> <outDir>
@@ -40,6 +42,13 @@ function payloadOf(text) {
 }
 
 if (cmd === 'latest') console.log(JSON.stringify((await lib()).latest()))
+else if (cmd === 'dataend') {
+  const f = (await lib()).dataEnd(payloadOf(readFileSync(args[0], 'utf8')))
+  for (const s of f.sources) console.error(`${s.src.padEnd(10)} newest ${s.newest ?? '—'}  last full ${s.lastFull ?? '—'}  (${s.n} rows, typical ${s.typical == null ? '—' : Math.round(s.typical)}) ${s.note}`)
+  if (!f.dataEnd) { console.error(`no complete day: ${f.limitedBy.join(', ')}`); process.exit(3) }
+  console.error(`data end ${f.dataEnd} (limited by ${f.limitedBy.join(', ')})`)
+  console.log(f.dataEnd)
+}
 else if (cmd === 'sql') console.log(JSON.stringify((await lib()).defaults(args[0], args[1])))
 else if (cmd === 'pack') {
   const [name, dataEnd, resultFile, sqlJson, outDir] = args
@@ -62,4 +71,4 @@ else if (cmd === 'pack') {
   // ranges: the date ranges this copy covers (lib/plg/offline.ts); the page offers every preset × comparison in it.
   writeFileSync(resolve(outDir, `${name}.json`), JSON.stringify({ parts: n, key: `saved:${name}`, storedAt: Date.now(), dataEnd, ...(ranges ? { ranges } : {}) }))
   console.log(JSON.stringify({ name, parts: n, rows: payload.rows.length, bytes: json.length, ranges: ranges?.length ?? 0 }))
-} else { console.error('usage: latest | sql <dataEnd> <youtubeDir> | pack <name> <dataEnd> <resultFile> <sql-json> <outDir>'); process.exit(1) }
+} else { console.error('usage: latest | dataend <resultFile> | sql <dataEnd> <youtubeDir> | pack <name> <dataEnd> <resultFile> <sql-json> <outDir>'); process.exit(1) }

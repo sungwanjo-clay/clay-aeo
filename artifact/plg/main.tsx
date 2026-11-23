@@ -29,7 +29,8 @@ import { resolveQuarters, type GoalRow, type Meta } from '@/lib/plg/compute'
 import { DEFAULT_QUARTERS, GUARDRAILS } from '@/lib/plg/config'
 import { addDays, mondayOf, todayUTC, type ISODate } from '@/lib/plg/dates'
 import { assembleDashboard, planDashboard } from '@/lib/plg/plan'
-import { SIGMA, dashboardSql, latestDaySql, parseDashboardRows } from '@/lib/plg/sigma'
+import { SIGMA, dashboardSql, parseDashboardRows } from '@/lib/plg/sigma'
+import { freshnessSql, pickDataEnd } from '@/lib/plg/freshness'
 import { OFFLINE_COMBOS, comboQs, covers, relabel } from '@/lib/plg/offline'
 import { dailySql, parseDaily, savedDailyRange } from '@/lib/plg/daily'
 import { validate, type Name as ContractName } from '@/lib/plg/contracts'
@@ -259,13 +260,13 @@ function App() {
   // Latest complete day (re-keys daily via today's date in the SQL).
   useEffect(() => {
     if (!mcp) return
-    const input = { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: latestDaySql(todayUTC()) } }
+    const input = { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: freshnessSql(todayUTC()) } }
     const unsub = mcp.watchTool(SIGMA.server, 'query', input, (ev: any) => {
       if (ev.type === 'error') return handleError(ev.error)
-      const row = (ev.result?.payload as { rows?: unknown[][] })?.rows?.[0]
-      const day = row ? String(row[0] ?? '').slice(0, 10) : ''
-      if (/^\d{4}-\d{2}-\d{2}$/.test(day)) setDataEnd(day)
-      else setProblem({ code: 'no_data', message: 'Sigma returned no complete day of data in the last 14 days.' })
+      const payload = ev.result?.payload as { columns?: string[]; rows?: unknown[][] } | undefined
+      const f = payload?.columns && payload.rows ? pickDataEnd(payload, todayUTC()) : null
+      if (f?.dataEnd) setDataEnd(f.dataEnd)
+      else setProblem({ code: 'no_data', message: `No day has fully loaded in every source${f?.limitedBy.length ? ` (${f.limitedBy.join(', ')})` : ''}.` })
     }, { cache: CACHE })
     return unsub
   }, [mcp, handleError, attempt])
@@ -369,7 +370,7 @@ function App() {
   const allow = useCallback(async () => {
     if (!mcp) return
     try {
-      await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: latestDaySql(todayUTC()) } })
+      await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: freshnessSql(todayUTC()) } })
       setProblem(null)
       setAttempt(a => a + 1)
     } catch (e) { handleError(e) }
@@ -585,7 +586,7 @@ function App() {
     const sr = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
     if (route.tab === 'social') return socialSources(sr && effEnd && yt ? socialSql({ ...sr, tagged: taggedVideos(yt, effEnd), fallbacks: channelFallbacks(yt, effEnd) }) : null)
     if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
-    const ws = workspacesSources(sql, latestDaySql(todayUTC()), plan && effEnd ? dailySql(...savedDailyRange([plan]), effEnd) : null)
+    const ws = workspacesSources(sql, freshnessSql(todayUTC()), plan && effEnd ? dailySql(...savedDailyRange([plan]), effEnd) : null)
     const t4 = tier4Sources(sr ? tier4Sql([sr.cur, sr.prev]) : null, effEnd ? tier4ListSql(effEnd) : null)
     const cr = croSources(sr && effEnd ? croSql([sr.cur, sr.prev], effEnd) : null, effEnd ? croTrendSql(effEnd) : null)
     return { sources: [...ws.sources, ...cr.sources, ...t4.sources], queries: [...ws.queries, ...cr.queries, ...t4.queries], notes: [...(ws.notes ?? []), ...(cr.notes ?? []), ...(t4.notes ?? [])] }
