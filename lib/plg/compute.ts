@@ -28,7 +28,7 @@ export interface RangeSummary {
   sot?: { now: number[]; weekAgo: number[]; daily: { d: ISODate; n: number }[] }
 }
 export interface DailyPoint { d: ISODate; n: number; unattr: number | null; hq: number | null; lowq: number | null }
-export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'tier'; key: string; value: number }
+export interface GoalRow { label: string; start: ISODate; end: ISODate; scope: 'tier' | 'tier13'; key: string; value: number }
 export interface Meta {
   min_day: ISODate | null
   max_day: ISODate | null
@@ -67,21 +67,15 @@ export function hqGoalTierTotals(s: RangeSummary): number[] {
 
 // ── Goals ───────────────────────────────────────────────────────────────────
 
-/** Merge goal rows (scope 'tier', key = GOAL_TIERS entry, value = quarterly HQ goal) over code defaults. */
+/** Merge goal rows over code defaults: scope 'tier13' (key ignored), value = the quarter's Tier 1–3 target. */
 export function resolveQuarters(defaults: QuarterGoals[], rows: GoalRow[]): QuarterGoals[] {
   const byStart = new Map<string, QuarterGoals>(defaults.map(q => [q.start, structuredClone(q)]))
   for (const r of rows) {
-    if (r.scope !== 'tier' || !(GOAL_TIERS as readonly string[]).includes(r.key)) continue
+    if (r.scope !== 'tier13') continue
     const start = String(r.start).slice(0, 10)
-    let q = byStart.get(start)
-    if (!q) {
-      q = { label: r.label, start, end: String(r.end).slice(0, 10),
-            tierQuarter: { 'Tier 1': 0, 'Tier 2': 0, 'Tier 3': 0, 'Tier 4 / unmatched': 0 } }
-      byStart.set(start, q)
-    }
-    q.label = r.label
-    q.end = String(r.end).slice(0, 10)
-    q.tierQuarter[r.key as GoalTier] = Number(r.value)
+    const q = byStart.get(start) ?? { label: r.label, start, end: String(r.end).slice(0, 10), target: 0 }
+    q.target = Number(r.value)
+    byStart.set(start, q)
   }
   return [...byStart.values()].sort((a, b) => a.start.localeCompare(b.start))
 }
@@ -204,20 +198,24 @@ export function buildDashboard(i: DashboardInputs) {
   const total = totalOf(i.cur)
   const prevTotal = totalOf(i.prev)
 
-  // ── Goals are on HQ workspaces ─────────────────────────────────────────────
+  // ── HQ (MBR rates only; no goal is set on HQ) ─────────────────────────────
   const hqCur = hqGoalTierTotals(i.cur)
   const hqPrev = hqGoalTierTotals(i.prev)
   const hqTotal = sum(hqCur)
   const hqPrevTotal = sum(hqPrev)
+  // ── The one goal: Tier 1–3 workspaces (all quality), straight-line over the quarter ─
   const goal = goalForRange(i.quarters, i.start, i.end, quarterTotal)
+  const tier13 = (r: RangeSummary) => r.channels.filter(x => x.t === 'Tier 1' || x.t === 'Tier 2' || x.t === 'Tier 3').reduce((a, x) => a + x.n, 0)
+  const t13 = tier13(i.cur)
+  const t13Prev = tier13(i.prev)
 
   // ── KPI: projected quarter finish (always the quarter containing dataEnd) ─
   const q = quarterFor(i.quarters, i.dataEnd)
   let projection: Projection | null = null
   if (q) {
     const qGoal = quarterTotal(q)
-    const qtdActual = sum(i.recentDaily.filter(p => p.d >= q.start && p.d <= i.dataEnd).map(p => p.hq ?? 0))
-    const ratePerDay = hqTotal / days
+    const qtdActual = i.qtd.sot ? sum(i.qtd.sot.now) : tier13(i.qtd)
+    const ratePerDay = t13 / days
     const daysRemaining = Math.max(0, daysBetween(addDays(i.dataEnd, 1), q.end))
     const raw = qtdActual + ratePerDay * daysRemaining
     const weeksRemaining = daysRemaining / 7
@@ -236,11 +234,8 @@ export function buildDashboard(i: DashboardInputs) {
   // ── KPI: tier 1–2 share of HQ ──────────────────────────────────────────────
   const t12 = hqCur[0] + hqCur[1]
 
-  // ── KPI: Tier 1–3 workspaces (all quality) vs the quarter's Tier 1–3 goal, like the QTD tile ─────────────
-  const tier13 = (r: RangeSummary) => r.channels.filter(x => x.t === 'Tier 1' || x.t === 'Tier 2' || x.t === 'Tier 3').reduce((a, x) => a + x.n, 0)
-  const t13 = tier13(i.cur)
-  const t13Prev = tier13(i.prev)
-  const t13Goal = goalForRange(i.quarters, i.start, i.end, qq => qq.tierQuarter['Tier 1'] + qq.tierQuarter['Tier 2'] + qq.tierQuarter['Tier 3'])
+  // ── KPI: Tier 1–3 workspaces (all quality) vs the goal ──────────────────────
+  const t13Goal = goal
 
   // ── KPI: personal vs non-personal (high + low quality rolled up) ──────────
   const mix = (s: RangeSummary) => {
@@ -264,7 +259,7 @@ export function buildDashboard(i: DashboardInputs) {
     /** Cumulative actual by day (quarter start → dataEnd) and the straight pace line to quarter end. */
     series: { d: ISODate; actual: number | null; pace: number }[] } | null = null
   if (q && i.qtd.sot) {
-    const target = q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'] + q.tierQuarter['Tier 3']
+    const target = q.target
     const pace = Math.round(target * daysBetween(q.start, i.dataEnd) / daysBetween(q.start, q.end))
     const totalNow = sum(i.qtd.sot.now)
     const qDays = daysBetween(q.start, q.end)
@@ -278,18 +273,10 @@ export function buildDashboard(i: DashboardInputs) {
     sot = { series, total: totalNow, tiers: i.qtd.sot.now, added: totalNow - sum(i.qtd.sot.weekAgo), target, pace,
       vsPace: pace ? totalNow / pace : 0, status: paceStatus(pace ? totalNow / pace : 0), quarter: q.label, asOf: i.dataEnd }
   }
-  const goalMix = q ? safeDiv(q.tierQuarter['Tier 1'] + q.tierQuarter['Tier 2'], quarterTotal(q)) : null
+  const goalMix = null
 
-  // ── Tier pacing (HQ actual ÷ prorated goal for the selected dates) ─────────
-  const tiers: TierPace[] = GOAL_TIERS.map((t, idx) => {
-    const g = goalForRange(i.quarters, i.start, i.end, qq => qq.tierQuarter[t])
-    const pct = g ? hqCur[idx] / g : null
-    return {
-      tier: t, label: t, actual: hqCur[idx], goal: g, pct,
-      status: pct != null ? paceStatus(pct) : null,
-      prevActual: hqPrev[idx], deltaPct: pctChange(hqCur[idx], hqPrev[idx]),
-    }
-  })
+  // No per-tier goals (the only official goal is all-up Tier 1–3), so no tier pacing.
+  const tiers: TierPace[] = []
 
   // ── Cumulative chart ───────────────────────────────────────────────────────
   const cumulative = buildCumulative(i)
@@ -328,7 +315,7 @@ export function buildDashboard(i: DashboardInputs) {
     kpis: {
       total, prevTotal, deltaPct: pctChange(total, prevTotal),
       hqTotal, hqPrevTotal, hqDeltaPct: pctChange(hqTotal, hqPrevTotal),
-      goal, paceVsGoal: goal ? hqTotal / goal : null,
+      goal, paceVsGoal: goal ? t13 / goal : null,
       projection,
       tier12: { share: safeDiv(t12, hqTotal), count: t12, goalMix },
       tier13: { cur: t13, prev: t13Prev, deltaPct: pctChange(t13, t13Prev), goal: t13Goal, vsGoal: t13Goal ? t13 / t13Goal : null },
@@ -347,7 +334,7 @@ export function buildDashboard(i: DashboardInputs) {
     mcp,
     quality,
     commentary,
-    discuss: buildDiscuss(tiers, table, projection),
+    discuss: buildDiscuss(goal ? t13 / goal : null, table, projection),
     dataQuality: {
       unattrSpikes,
       incidents: incidentsInRange,
@@ -568,30 +555,17 @@ export function buildCommentary(
     })
   }
 
-  // Tier furthest behind QTD pace.
+  // Tier 1–3 against the straight-line goal, quarter to date.
   const q = quarterFor(quarters, dataEnd)
-  if (q) {
-    const qt = hqGoalTierTotals(qtd)
-    const paced = GOAL_TIERS.map((t, idx) => {
-      const g = goalForRange(quarters, q.start, dataEnd, qq => qq.tierQuarter[t])
-      return { t, idx, actual: qt[idx], goal: g, pct: g ? qt[idx] / g : null }
-    }).filter(x => x.pct != null)
-    const worst = paced.sort((a, b) => a.pct! - b.pct!)[0]
-    if (worst && worst.pct! < PACING.onTrack) {
-      // Which channels moved this tier most week over week (all workspaces; Tier 4 includes unmatched)
-      const tierCount = (x: ChannelAgg | undefined) => !x ? 0 : worst.idx < 3 ? x.tiers[worst.idx] : x.tiers[3] + x.tiers[4]
-      const tierMovers = [...new Set([...c.keys(), ...p.keys()])].map(k => {
-        const a = tierCount(c.get(k)); const b = tierCount(p.get(k))
-        return { label: channelLabel(k), delta: a - b, cur: a }
-      }).sort((a, b) => a.delta - b.delta)
-      const largest = [...tierMovers].sort((a, b) => b.cur - a.cur).slice(0, 2)
-      const dropping = tierMovers.filter(m => m.delta < 0).slice(0, 2)
+  if (q && qtd.sot) {
+    const actual = sum(qtd.sot.now)
+    const g = goalForRange(quarters, q.start, dataEnd, quarterTotal)
+    const pctOf = g ? actual / g : null
+    if (pctOf != null && pctOf < PACING.onTrack) {
       bullets.push({
         kind: 'tier',
-        lead: `${worst.t} is furthest behind pace`,
-        body: `QTD ${fmtInt(worst.actual)} HQ workspaces of ${fmtInt(worst.goal!)} expected (${Math.round(worst.pct! * 100)}%). ` +
-          `Largest ${worst.t} sources this week: ${largest.map(m => `${m.label} ${fmtInt(m.cur)}`).join(', ')}.` +
-          (dropping.length ? ` Biggest ${worst.t} declines: ${dropping.map(m => `${m.label} ${fmtSigned(m.delta)}`).join(', ')}.` : ''),
+        lead: 'Tier 1–3 workspaces are behind the goal’s pace',
+        body: `QTD ${fmtInt(actual)} of ${fmtInt(g!)} expected by now (${Math.round(pctOf * 100)}%) on the way to ${fmtInt(q.target)} for ${q.label}.`,
       })
     }
   }
@@ -604,22 +578,21 @@ export function buildCommentary(
 }
 
 function buildDiscuss(
-  tiers: TierPace[],
+  paceVsGoal: number | null,
   table: ReturnType<typeof buildChannelTable>,
   projection: Projection | null,
 ): string[] {
-  const worst = tiers.filter(t => t.pct != null).sort((a, b) => a.pct! - b.pct!)[0]
   const declining = [...table.groups].filter(g => g.id !== 'unattributed').sort((a, b) => a.row.delta - b.row.delta)[0]
   const out = [
-    worst ? `${worst.label} is furthest behind pace (${Math.round(worst.pct! * 100)}% of goal). Which channel owns the gap?`
-      : 'Which tier is furthest behind pace, and which channel owns the gap?',
+    paceVsGoal != null && paceVsGoal < 1 ? `Tier 1–3 workspaces are at ${Math.round(paceVsGoal * 100)}% of the goal's pace for these dates. Which channel owns the gap?`
+      : 'Which channel is carrying Tier 1–3 workspaces, and is it repeatable?',
   ]
   if (declining && declining.row.delta < 0) {
     const worstKids = [...declining.children].sort((a, b) => a.delta - b.delta).slice(0, 2).map(c => c.label.replace(/^[^:]+: /, ''))
     out.push(`Is the ${declining.row.label} decline a one-time dip or a trend? What's the plan for ${worstKids.join(' and ')}?`)
   }
   if (projection?.neededPerWeek != null) {
-    out.push(`Do we need ${fmtInt(projection.neededPerWeek)} HQ workspaces/wk to hit the ${projection.label} goal, or do we re-forecast?`)
+    out.push(`Do we need ${fmtInt(projection.neededPerWeek)} Tier 1–3 workspaces/wk to hit the ${projection.label} goal, or do we re-forecast?`)
   }
   return out
 }

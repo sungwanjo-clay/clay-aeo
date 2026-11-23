@@ -38,8 +38,12 @@ export interface QuarterGoals {
   /** Inclusive ISO dates (UTC). */
   start: string
   end: string
-  /** Whole-quarter HQ-workspace goal per tier; prorated evenly per day for any date range. */
-  tierQuarter: Record<GoalTier, number>
+  /**
+   * The one official goal: new workspaces from Tier 1–3 accounts in the quarter (all quality), the Marketing Q4
+   * scoreboard's "New workspaces from Tier 1–3 accounts" (id t123_workspaces). Paced in a straight line from 0 on the
+   * first day to the target on the last, so any date range gets the days' share. There are no per-tier goals.
+   */
+  target: number
 }
 
 export const DEFAULT_QUARTERS: QuarterGoals[] = [
@@ -47,11 +51,11 @@ export const DEFAULT_QUARTERS: QuarterGoals[] = [
     label: 'Q4',
     start: '2026-11-01',
     end: '2027-01-31',
-    tierQuarter: { 'Tier 1': 2_009, 'Tier 2': 11_207, 'Tier 3': 5_232, 'Tier 4 / unmatched': 34_952 }, // = 53,400
+    target: 18_448,
   },
 ]
 
-export const quarterTotal = (q: QuarterGoals) => GOAL_TIERS.reduce((a, t) => a + q.tierQuarter[t], 0)
+export const quarterTotal = (q: QuarterGoals) => q.target
 
 // ── Channel grouping ─────────────────────────────────────────────────────────
 

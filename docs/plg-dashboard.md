@@ -30,14 +30,14 @@ The Snowflake role needs `SELECT` on `DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBU
 | All dashboard math (pure, no I/O) | `lib/plg/compute.ts` |
 | UI | `components/plg/*` |
 
-Goals (from the Q4 PLG Planning sheet) are **quarterly, per tier, on HQ workspaces only** (`CUSTOMER_DOMAIN_QUALITY_SEGMENT = 'non-personal: high quality'`), with Tier 4 including unmatched domains: Q4 = Tier 1 2,009 · Tier 2 11,207 · Tier 3 5,232 · Tier 4 / unmatched 34,952 = 53,400. There are no channel or MCP goals. Pace, projection, tier pacing, Tier 1–2 share and the cumulative chart all use HQ workspaces; the channel table shows all workspaces. To add Q1 2027, add rows with scope `tier`, key `Tier 1` … `Tier 4 / unmatched` and the quarterly value (Supabase `plg_goals`, or the artifact store doc `config/goals` = `{rows: [...]}`).
+The one official goal is **new workspaces from Tier 1–3 accounts**, all quality, the Marketing Q4 scoreboard's `t123_workspaces`: Q4 (Nov 1 – Jan 31) = 18,448, paced in a straight line from 0 on Nov 1 (`lib/plg/config.ts`, `target`). There are no per-tier goals and no goal on HQ workspaces. The Tier 1–3 tiles, the cumulative chart's default view, the projection and the weekly commentary all use it. To set another quarter, add a row with scope `tier13` and the quarter's target (Supabase `plg_goals`, or the artifact store doc `config/goals` = `{rows: [...]}`).
 
 ## Data definitions (verified against Snowflake via Sigma, Nov 2026)
 
 - **Source**: workspace-level `FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION`, `ATTRIBUTION_WINDOW = '90_days'`, `ATTRIBUTION_TYPE = 'first_touch'`. At that grain the table labels rows `first_touch`; the metrics table labels the same rows `blended`. It reconciles exactly with the metrics table under the five required filters (Nov 2–8: 10,129 both, identical per-channel counts). The ETL re-checks this every night per day (`plg_daily_reconciliation`), and any mismatch shows in the Data quality strip.
 - **Tier**: workspace → `CUSTOMERS.DOMAIN` → SFDC `ACCOUNT.DOMAIN_C` → `SALES_TIER_C` (`Tier 1`–`Tier 4`). If a domain maps to several accounts, the best tier wins. Unmatched domains (about 67% of workspaces, almost all personal email) are stored as `Unassigned` and shown as their own **Unmatched** row/column (report-only, no goal).
 - **Domain quality**: `CUSTOMER_DOMAIN_QUALITY_SEGMENT`; the independent cross-check is `CUSTOMERS.CUSTOMER_DOMAIN_SEGMENT` (hover the HQ share tile).
-- Pace and tier status = HQ actual ÷ quarterly goal prorated evenly per day over the selected dates. Projection = HQ QTD actual + selected-range HQ run rate × days left in the quarter of the latest data day, rounded to 100. Days outside a configured quarter have no goal.
+- Pace = Tier 1–3 actual ÷ the quarter's target prorated evenly per day over the selected dates (the straight line). Projection = Tier 1–3 QTD actual + selected-range Tier 1–3 run rate × days left in the quarter of the latest data day, rounded to 100. Days outside a configured quarter have no goal.
 - Commentary is always the last complete Mon–Sun week vs the week before, generated from movers with |Δ| ≥ 30. It describes what moved, never why.
 
 ## Local development without Supabase
@@ -64,7 +64,7 @@ No Vercel, Supabase or Snowflake credentials needed. The page queries Snowflake 
 ## Headline tiles (MBR definitions)
 
 1. **New workspaces:** all new workspaces, compared with the previous period.
-2. **Tier 1–3 workspaces:** new workspaces at Salesforce Tier 1–3 accounts, all quality (personal emails excluded, the quarter-to-date tile's rule), compared with the previous period. Also shown against the Q4 Tier 1 + 2 + 3 goal prorated to the selected dates. That goal is set on HQ workspaces, so this tile (like the QTD tile) reads above it; HQ pacing by tier stays in the tier pacing card.
+2. **Tier 1–3 workspaces:** new workspaces at Salesforce Tier 1–3 accounts, all quality (personal emails excluded, the quarter-to-date tile's rule), compared with the previous period. Also shown against the Q4 Tier 1–3 goal (18,448), straight-line, prorated to the selected dates.
 3. **Non-personal share:** non-personal is high and low quality combined; personal is shown alongside it. Both counts and shares are compared with the previous period. The remainder (spam, not yet scored) is in neither.
 4. **Conversion rates:** each is compared with the previous period, in percentage points.
    - **Visitor → HQ trial user** = HQ new workspaces ÷ unique visitors. Unique visitors are distinct `ANONYMOUS_ID` on the marketing site plus signup pages in MARKETING_PAGEVIEWS, excluding UTC and Asia/* timezones.

@@ -12,15 +12,14 @@ import { Card, H2, T, fmtInt, fmtK, fmtPct } from './ui'
 
 /**
  * Metrics for the cumulative chart, the headline tiles' numbers. Counts are running totals; rates are running ratios
- * (e.g. visitor → HQ = HQ workspaces so far ÷ visits so far). HQ workspaces is the goal metric; the rest show the
- * period before instead. Visits are daily unique visitors summed over days (not unique over the range, like the tile).
+ * (e.g. visitor → HQ = HQ workspaces so far ÷ visits so far). Tier 1–3 workspaces is the goal metric (the one official
+ * goal, straight-line over the quarter); the rest show the period before instead. Visits are daily unique visitors summed over days (not unique over the range, like the tile).
  */
-type MetricId = 'hq' | 'ws' | 'vis' | 't13' | 'np' | 'paid' | 'visHq' | 'trialPaid' | 'activation' | 'npShare'
+type MetricId = 'ws' | 'vis' | 't13' | 'np' | 'paid' | 'visHq' | 'trialPaid' | 'activation' | 'npShare'
 const METRICS: { id: MetricId; label: string; num: DailyMetric; den?: DailyMetric; rate?: boolean }[] = [
-  { id: 'hq', label: 'HQ workspaces vs goal', num: 'hq' },
+  { id: 't13', label: 'Tier 1–3 workspaces vs goal', num: 't13' },
   { id: 'ws', label: 'New workspaces', num: 'ws' },
   { id: 'vis', label: 'Visits (daily unique visitors)', num: 'vis' },
-  { id: 't13', label: 'Tier 1–3 workspaces', num: 't13' },
   { id: 'np', label: 'Non-personal workspaces', num: 'np' },
   { id: 'paid', label: 'New paid workspaces', num: 'paid' },
   { id: 'npShare', label: 'Non-personal share', num: 'np', den: 'ws', rate: true },
@@ -48,16 +47,16 @@ function series(v: DashboardPayload, daily: DailySeries, m: (typeof METRICS)[num
   return v.cumulative.points.map(p => {
     const k = days(v.range.start, p.end)
     const val = (from: string) => { const n = run(from, k, m.num); if (!m.den) return n; const dd = run(from, k, m.den); return dd ? n / dd : null }
-    return { ...p, actual: val(v.range.start), prev: k <= prevLen ? val(v.range.prevStart) : null, goal: null }
+    return { ...p, actual: val(v.range.start), prev: k <= prevLen ? val(v.range.prevStart) : null, goal: m.id === 't13' ? p.goal : null }
   })
 }
 
 export default function CumulativeChart({ v, onZoom, daily }: { v: DashboardPayload; onZoom: (start: string, end: string) => void; daily?: DailySeries | null }) {
-  const [mid, setMid] = useState<MetricId>('hq')
+  const [mid, setMid] = useState<MetricId>('t13')
   const m = METRICS.find(x => x.id === mid)!
-  const useGoal = mid === 'hq' || !daily
-  const pts: (Omit<Pt, 'actual'> & { actual: number | null; prev?: number | null })[] = useGoal ? v.cumulative.points : series(v, daily, m)
-  const fmtV = (n: number) => (m.rate && !useGoal ? fmtPct(n, 1) : fmtK(n))
+  const useGoal = mid === 't13'
+  const pts: (Omit<Pt, 'actual'> & { actual: number | null; prev?: number | null })[] = daily ? series(v, daily, m) : []
+  const fmtV = (n: number) => (m.rate ? fmtPct(n, 1) : fmtK(n))
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null)
   const idx = (s: MouseHandlerDataParam) => (typeof s?.activeTooltipIndex === 'number' ? s.activeTooltipIndex : Number(s?.activeTooltipIndex))
   const lastIdx = pts.length - 1
@@ -74,7 +73,7 @@ export default function CumulativeChart({ v, onZoom, daily }: { v: DashboardPayl
     <Card className="p-5 sm:p-10 flex flex-col gap-6 min-w-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex flex-wrap items-center gap-3">
-          <H2>{useGoal ? 'Cumulative HQ workspaces vs goal' : `${m.rate ? 'Running' : 'Cumulative'} ${m.label.charAt(0).toLowerCase()}${m.label.slice(1)}`}</H2>
+          <H2>{useGoal ? 'Cumulative Tier 1–3 workspaces vs goal' : `${m.rate ? 'Running' : 'Cumulative'} ${m.label.charAt(0).toLowerCase()}${m.label.slice(1)}`}</H2>
           <select aria-label="Metric" value={mid} onChange={e => setMid(e.target.value as MetricId)} disabled={!daily}
             title={daily ? undefined : 'The other metrics load with the daily series (Clay Sigma or the saved copy)'}
             className="rounded-full px-3 py-1.5 text-[14px]" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
@@ -86,6 +85,7 @@ export default function CumulativeChart({ v, onZoom, daily }: { v: DashboardPayl
             : <>Dashed: {v.range.prevLabel ?? 'the period before'}</>}
         </p>
       </div>
+      {!daily ? <p className="h-[300px] text-[15px]" style={{ color: T.muted }}>Loading the daily series (Clay Sigma, or the saved copy)…</p> :
       <div className="h-[300px] select-none" aria-label="Cumulative workspaces chart">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
@@ -109,7 +109,7 @@ export default function CumulativeChart({ v, onZoom, daily }: { v: DashboardPayl
                 return (
                   <div className="rounded-xl px-3 py-2 text-[13px] shadow-sm" style={{ background: '#fff', border: `1px solid ${T.border}`, fontFamily: T.mono }}>
                     <p className="mb-1" style={{ color: T.muted }}>{p.start === p.end ? fmtRange(p.start, p.end).split(',')[0].split(' – ')[0] : fmtRange(p.start, p.end)}</p>
-                    <p style={{ color: T.pos }}>{useGoal ? 'Actual' : 'This period'} {p.actual == null ? '–' : useGoal || !m.rate ? fmtInt(p.actual) : fmtPct(p.actual, 1)}</p>
+                    <p style={{ color: T.pos }}>{useGoal ? 'Actual' : 'This period'} {p.actual == null ? '–' : !m.rate ? fmtInt(p.actual) : fmtPct(p.actual, 1)}</p>
                     {p.goal != null && <p style={{ color: T.muted }}>Goal {fmtInt(p.goal)}</p>}
                     {!useGoal && p.prev != null && <p style={{ color: T.muted }}>Period before {m.rate ? fmtPct(p.prev, 1) : fmtInt(p.prev)}</p>}
                   </div>
@@ -133,7 +133,7 @@ export default function CumulativeChart({ v, onZoom, daily }: { v: DashboardPayl
             )}
           </LineChart>
         </ResponsiveContainer>
-      </div>
+      </div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-6">
           <LegendSwatch color={T.pos} label={useGoal ? 'Actual' : 'This period'} />

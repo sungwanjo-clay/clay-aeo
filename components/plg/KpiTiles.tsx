@@ -74,8 +74,8 @@ export default function KpiTiles({ v }: { v: DashboardPayload }) {
         <p><Delta value={k.deltaPct}>{fmtPctSigned(k.deltaPct)}</Delta> vs {prevLabel} ({fmtInt(k.prevTotal)})</p>
       </Tile>
       <Tile label="Tier 1–3 workspaces" value={fmtInt(t.cur)}
-        tip={<Def d="New workspaces at Tier 1–3 Salesforce accounts (best tier per domain), personal emails excluded. Goal = the quarter's Tier 1–3 goal prorated to these dates."
-          src="Blended attribution → CUSTOMERS domain → Salesforce tier" note="Same rule as the quarter-to-date tile, for the selected dates." />}>
+        tip={<Def d="New workspaces at Tier 1–3 Salesforce accounts (best tier per domain), personal emails excluded. Goal = the Marketing Q4 scoreboard's Tier 1–3 target, paced in a straight line over the quarter and prorated to these dates."
+          src="Blended attribution → CUSTOMERS domain → Salesforce tier" note="Same rule as the quarter-to-date tile, for the selected dates. It's the only official goal: there are none per tier or on HQ." />}>
         <p><Delta value={t.deltaPct}>{fmtPctSigned(t.deltaPct)}</Delta> vs {prevLabel} ({fmtInt(t.prev)})</p>
         <p>{t.goal != null ? <><span style={mono}>{fmtPct(t.vsGoal, 0)}</span> vs goal of <span style={mono}>{fmtInt(t.goal)}</span> for these dates</> : 'No goal configured for part of these dates'}</p>
       </Tile>

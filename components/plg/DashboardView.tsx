@@ -6,7 +6,6 @@ import { fmtShort } from '@/lib/plg/dates'
 import FilterCard, { type FilterState } from './FilterCard'
 import KpiTiles from './KpiTiles'
 import CumulativeChart from './CumulativeChart'
-import TierPacing from './TierPacing'
 import ChannelTable from './ChannelTable'
 import { DomainQuality, McpByPlatform } from './McpAndQuality'
 import { DataQualityStrip, RestatementBanner } from './Narrative'
@@ -204,10 +203,7 @@ export default function DashboardView({ sources, health, v, loading, error, noti
         {error && <p className="text-[14px]" style={{ color: T.neg }}>Refresh failed: {error}</p>}
         <div id="ws-overview" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
           <Boundary name="Headline tiles" resetKey={v}><KpiTiles v={v} /></Boundary>
-          <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <Boundary name="Cumulative chart" resetKey={v}><CumulativeChart v={v} daily={daily} onZoom={(start, end) => update({ preset: null, start, end })} /></Boundary>
-            <Boundary name="Pacing by tier" resetKey={v}><TierPacing v={v} /></Boundary>
-          </div>
+          <Boundary name="Cumulative chart" resetKey={v}><CumulativeChart v={v} daily={daily} onZoom={(start, end) => update({ preset: null, start, end })} /></Boundary>
         </div>
 
         <div id="ws-moved" className="scroll-mt-20"><Boundary name="What moved" resetKey={v}><WhatMoved insight={workspacesInsight(v)} /></Boundary></div>
