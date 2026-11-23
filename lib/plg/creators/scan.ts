@@ -35,7 +35,10 @@ export type SV = { id: string; c: string; t: string; p: string; m: number; v: nu
 export type Topic = { s: SubjectId; n: number; worked: number; failed: number; hits: number; winChannels: number; med: number | null; ex: string[]; bad: string[]
   formats: { f: FormatId; n: number; worked: number }[]
   /** AI-assistant topics: how each assistant named in the title did (3+ copies). */
-  tools?: { a: string; n: number; worked: number }[] }
+  tools?: { a: string; n: number; worked: number }[]
+  /** What the topic's copies that worked have that the ones that failed don't: length, chapters, title formats, the
+   * assistant named (3+ copies with the trait, up to 8, biggest difference first). */
+  traits?: Sep[] }
 export type Sep = { label: string; w: number; wn: number; f: number; fn: number }
 export type ThemeStat = {
   id: ThemeId; n: number; hits: number; worked: number; failed: number; winChannels: number; x10: number; below: number
@@ -137,6 +140,7 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
         ex: pick(perChannel(w.filter(r => r.raw.v >= SCAN.minOutlierViews).sort((p, q) => q.x! - p.x!), 4).map(r => r.raw.id)),
         bad: pick(perChannel(xs.filter(r => r.x! < SCAN.failed).sort((p, q) => p.x! - q.x!), 2).map(r => r.raw.id)),
         formats: FORMATS.map(f => { const fx = xs.filter(r => r.f.includes(f.id)); return { f: f.id, n: fx.length, worked: fx.filter(r => r.x! >= SCAN.worked).length } }).filter(f => f.n >= 3),
+        traits: topicTraits(w, xs.filter(r => r.x! < SCAN.failed), k === 'ai-assistant'),
         ...(k === 'ai-assistant' ? { tools: ['claude', 'chatgpt', 'grok', 'gemini'].map(a => { const ax = xs.filter(r => assistantOf(r.raw.t) === a); return { a, n: ax.length, worked: ax.filter(r => r.x! >= SCAN.worked).length } }).filter(a => a.n >= 3) } : {}) }
     }).filter(x => x.worked >= 2)
     return {
@@ -202,6 +206,19 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
   }
 }
 
+
+function topicTraits(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number | null }[], F: typeof W, ai: boolean): Sep[] {
+  if (W.length < 2 || F.length < 2) return []
+  const feats: [string, (r: (typeof W)[number]) => boolean][] = [
+    ['20 minutes or longer', r => r.raw.s >= 1200], ['Under 10 minutes', r => r.raw.s < 600], ['Has chapters', r => (r.raw.chapters ?? 0) >= 3],
+    ...FORMATS.map(f => [f.label, (r: (typeof W)[number]) => r.f.includes(f.id)] as [string, (r: (typeof W)[number]) => boolean]),
+    ...(ai ? [['Names Claude', (r: (typeof W)[number]) => assistantOf(r.raw.t) === 'claude'], ['Names ChatGPT', (r: (typeof W)[number]) => assistantOf(r.raw.t) === 'chatgpt'],
+      ['Names Grok', (r: (typeof W)[number]) => assistantOf(r.raw.t) === 'grok']] as [string, (r: (typeof W)[number]) => boolean][] : []),
+  ]
+  return feats.map(([label, p]) => ({ label, w: W.filter(p).length, wn: W.length, f: F.filter(p).length, fn: F.length }))
+    .filter(x => x.w + x.f >= 3)
+    .sort((a, b) => Math.abs(b.w / b.wn - b.f / b.fn) - Math.abs(a.w / a.wn - a.f / a.fn)).slice(0, 8)
+}
 
 function separators(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number | null }[], F: typeof W, all = false): Sep[] {
   if (W.length < 3 || F.length < 3) return []

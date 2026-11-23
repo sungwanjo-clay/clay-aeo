@@ -17,7 +17,7 @@
  * and stayed under RESULT.failedPerK. Only videos with a link of their own, long-form, live 14+ days are judged.
  * Everything is lifetime, since the program's first tracked week (Apr 6).
  */
-import { PLAYS, THEMES, assistantLabel, assistantOf, clayFit, formatLabel, subjectOf, themeLabel, themeOf, topicLabel, type FormatId, type SubjectId, type ThemeId } from './themes'
+import { PLAYS, RESOURCES, THEMES, assistantLabel, assistantOf, clayFit, formatLabel, subjectOf, themeLabel, themeOf, topicLabel, type FormatId, type SubjectId, type ThemeId } from './themes'
 import type { ScanDoc, ScanRec, SV, Sep, ThemeStat, Topic } from './scan'
 
 export type Placement = {
@@ -69,8 +69,8 @@ export type ThemeRow = {
   signup: SignupState; verdict: string; tone: 'pos' | 'neg' | 'neutral'
 }
 /** The brief for one video idea: what to make and where to send people. */
-export type Brief = { title: string; useCase: string; landing: string; landingUrl: string | null; offer: string; cta: string; copy: string; placement: string; thumbnail: string | null; structure: string | null }
-export type BriefKey = Exclude<keyof Brief, 'landingUrl'>
+export type Brief = { title: string; useCase: string; landing: string; landingUrl: string | null; resources: { label: string; url: string | null }[]; offer: string; cta: string; copy: string; placement: string; thumbnail: string | null; structure: string | null }
+export type BriefKey = Exclude<keyof Brief, 'landingUrl' | 'resources'>
 /** Where a decision came from: the weekly review, the evidence alone, or the theme's default play (lib/plg/creators/themes.ts). */
 export type Reason = { k: BriefKey; label: string; why: string; src: 'review' | 'evidence' | 'default' }
 export type Rec = {
@@ -283,11 +283,17 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
       cta: w?.cta ?? play?.cta ?? 'Start free',
       copy: w?.copy ?? `First line of the description: “${play?.cta ?? 'Start free'}: <your ?via= link>”, then ${play?.offer ? play.offer[0].toLowerCase() + play.offer.slice(1) : 'the offer'}.`,
       placement: w?.placement ?? 'Dedicated video, its own ?via= link',
-      thumbnail: w?.thumbnail ?? null, structure: w?.structure ?? null,
+      thumbnail: w?.thumbnail ?? null, structure: w?.structure ?? null, resources: [],
     }
+    // Related resources: the review's landing page first, then the theme's (lib/plg/creators/themes.ts), at most 3.
+    for (const x of [...(w?.landing ? [{ label: w.landing, url: w.landingUrl ?? null }] : []), ...(RESOURCES[stat.id] ?? [])])
+      if (brief.resources.length < 3 && !brief.resources.some(y => y.label === x.label || (x.url && y.url === x.url))) brief.resources.push(x)
     const src = (k: keyof NonNullable<ScanRec['why']>, has: boolean): Reason['src'] => (w?.why?.[k] || (w && has) ? 'review' : 'evidence')
     const words = stat.words.w.length ? ` Words that show up in winning titles on the theme: ${stat.words.w.slice(0, 4).join(', ')}.` : ''
-    const sepLine = stat.seps.slice(0, 2).map(x => `${x.label.toLowerCase()} (${pct(x.w / x.wn)} of winners, ${pct(x.f / x.fn)} of failures)`).join('; ')
+    // The topic's own traits when it has them (scans from Nov 23), else the theme's separators.
+    const traits = topic?.traits?.length ? topic.traits : stat.seps
+    const sepLine = traits.filter(x => x.w / x.wn > x.f / x.fn).slice(0, 2).map(x => `${midLabel(x.label)} (${pct(x.w / x.wn)} of copies that worked, ${pct(x.f / x.fn)} of ones that failed)`).join('; ')
+    const avoid = traits.filter(x => x.f / x.fn > x.w / x.wn).slice(0, 1).map(x => `${midLabel(x.label)} (${pct(x.f / x.fn)} of failures, ${pct(x.w / x.wn)} of winners)`)[0]
     const best = [...judgedOurs].sort((a, b) => (b.perK ?? 0) - (a.perK ?? 0))[0]
     const fmtLine = (fStat ? ` Sold as “${midLabel(fmtLabel!)}”, ${fStat.worked} of ${fStat.n} worked (${pct(fStat.worked / fStat.n)}).` : '')
       + (tools.length > 1 && tool ? ` By assistant: ${tools.map(a => `${assistantLabel(a.a)} ${a.worked} of ${a.n}`).join(', ')}; name ${assistantLabel(tool.a)} in the title.` : '')
@@ -295,7 +301,7 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
       { k: 'title', label: 'Title', src: src('title', true), why: w?.why?.title ?? `${proof.worked} of ${proof.n} copies on this topic worked (2×+ their channel) on ${proof.channels} channels, ${pct(proof.rate)} against ${pct(proof.nicheRate)} across the niche.${fmtLine}${words}`
         + (w ? '' : ' Draft: the top copy’s title, to rewrite in the weekly review.') },
       { k: 'useCase', label: 'Use case', src: w?.useCase ? 'review' : 'default', why: w?.why?.useCase ?? `Clay fit is ${FIT(clayFit(stat.id))} for ${midLabel(themeLabel(stat.id))}: the video can show ${play?.useCase ? play.useCase[0].toLowerCase() + play.useCase.slice(1) : 'Clay doing the work'} on screen.${best ? ` Our best video on the ${oursScope}: ${best.creator}’s “${best.title}”, ${n(best.m.ws)} workspaces (${r1(best.perK)} per 1K views).` : ' None of our creators has a judged video on it yet.'}` },
-      { k: 'landing', label: 'Landing page and offer', src: w?.landing ? 'review' : 'default', why: w?.why?.landing ?? `Program links land on the clay.com homepage today and nothing captures an email before signup. A page that matches the use case (${brief.landing}) keeps the video’s promise; ${brief.offer[0].toLowerCase() + brief.offer.slice(1)} is the reason to click.` },
+      { k: 'landing', label: 'Related resources and offer', src: w?.landing ? 'review' : 'default', why: w?.why?.landing ?? `Program links land on the clay.com homepage today and nothing captures an email before signup. A page that matches the use case (${brief.landing}) keeps the video’s promise; ${brief.offer[0].toLowerCase() + brief.offer.slice(1)} is the reason to click.` },
       { k: 'cta', label: 'CTA and copy', src: w?.cta ? 'review' : 'evidence', why: w?.why?.cta ?? (facts.W
         ? `${facts.wLink3} of our ${facts.W} videos that worked had the Clay link in the first 3 lines of the description, against ${facts.fLink3} of ${facts.F} that failed. Say the offer next to the link, and once on screen when Clay first appears.`
         : 'Put the link and the offer in the first 3 lines of the description.') },
@@ -303,7 +309,7 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
         ? `${facts.wDedicated} of ${facts.W} winners were dedicated videos; ${facts.fIntegration} of ${facts.F} failures were integrations. Its own link is the only way to measure it.`
         : 'A dedicated video with its own link is the only way to measure it.') },
       { k: 'structure', label: 'Length and structure', src: w?.structure ? 'review' : 'evidence', why: w?.why?.structure ?? (sepLine
-        ? `What separates copies that worked from ones that failed on the theme: ${sepLine}.${facts.wMins != null ? ` Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : ''}`
+        ? `What separates copies that worked from ones that failed on the ${topic?.traits?.length ? 'topic' : 'theme'}: ${sepLine}.${avoid ? ` Avoid ${avoid}.` : ''}${facts.wMins != null ? ` Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : ''}`
         : facts.wMins != null ? `Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : 'No clear length or structure separator on this theme.') },
     ]
     const why: string[] = []
@@ -318,7 +324,7 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
       rank: i + 1, key, theme: stat.id, subject, format: fmt, label, formatLabel: fmtLabel,
       status: !scan.prevFetchedAt ? 'first' : (byTheme ? prevThemes.has(stat.id) : prevKeys.has(key)) ? 'still' : 'new',
       written: !!w, title: brief.title, angle: w?.angle ?? (top ? `Model it on ${ch(top)}’s “${top.t}”.` : ''), brief, reasons,
-      stat, topic, themeRow: row, original, examples, losers, ours, oursScope, seps: stat.seps, proof, formats, tools, assistant: tool?.a ?? null, why, score,
+      stat, topic, themeRow: row, original, examples, losers, ours, oursScope, seps: traits, proof, formats, tools, assistant: tool?.a ?? null, why, score,
       measure: [
         ['Link', 'Its own ?via= token, used by this video only (shared links can’t be measured)'],
         ['Landing page', brief.landing],

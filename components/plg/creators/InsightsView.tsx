@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { ATTRIBUTION, REC, RESULT, r1, type CreatorsData, type Rec, type Result, type VideoRow } from '@/lib/plg/creators/compute'
 import { briefMarkdown } from '@/lib/plg/creators/brief'
-import { SCAN, type SV, type ScanDoc } from '@/lib/plg/creators/scan'
+import { SCAN, type SV, type ScanDoc, type Sep } from '@/lib/plg/creators/scan'
 import { assistantLabel, clayFit, formatLabel, themeLabel, type FormatId, type ThemeId } from '@/lib/plg/creators/themes'
 import SectionBar, { Chip } from '../SectionBar'
 import { Card, Def, Eyebrow, H2, InfoTip, T, fmtInt, fmtPct } from '../ui'
@@ -24,6 +24,7 @@ const SECTIONS = [
 ]
 /** What the side panel shows: an idea, a niche video or one of our videos. */
 type Sel = { k: 'idea'; key: string } | { k: 'niche'; id: string } | { k: 'ours'; key: string } | null
+/** Opens an idea (expands its row in place) or a video (its detail panel). */
 type Open = (s: Sel) => void
 /** An idea's own link: #insights-idea=<theme:format> (the dashboard routes #insights* to this tab). */
 const HASH = 'insights-idea='
@@ -61,14 +62,20 @@ export default function InsightsView({ d, thumbs, loading, onDownload }: { d: Cr
   const s = d.scan
   const judged = d.videos.filter(v => v.result !== 'unjudged').length
   // An idea's panel has its own link, so a brief can be shared.
-  const [sel, setSel] = useState<Sel>(() => {
-    try { const h = decodeURIComponent(window.location.hash.slice(1)); return h.startsWith(HASH) ? { k: 'idea', key: h.slice(HASH.length) } : null } catch { return null }
+  const [sel, setSel] = useState<Sel>(null)
+  const [expanded, setExpandedState] = useState<string | null>(() => {
+    try { const h = decodeURIComponent(window.location.hash.slice(1)); return h.startsWith(HASH) ? h.slice(HASH.length) : null } catch { return null }
   })
-  const open: Open = x => {
-    setSel(x)
-    try { history.replaceState(null, '', x?.k === 'idea' ? `#${HASH}${encodeURIComponent(x.key)}` : '#insights') } catch { /* sandboxed */ }
+  const setExpanded = (k: string | null) => {
+    setExpandedState(k)
+    try { history.replaceState(null, '', k ? `#${HASH}${encodeURIComponent(k)}` : '#insights') } catch { /* sandboxed */ }
   }
-  const rec = sel?.k === 'idea' ? d.recs.find(r => r.key === sel.key) ?? null : null
+  // An idea link (#insights-idea=…) lands on its row, expanded.
+  useEffect(() => { if (expanded) setTimeout(() => document.getElementById(`idea-${expanded}`)?.scrollIntoView({ block: 'start' }), 300) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const open: Open = x => {
+    if (x?.k === 'idea') { setSel(null); setExpanded(x.key); setTimeout(() => document.getElementById(`idea-${x.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); return }
+    setSel(x)
+  }
   const niche = sel?.k === 'niche' ? s?.videos.find(v => v.id === sel.id) ?? null : null
   const ours = sel?.k === 'ours' ? d.rows.find(v => v.key === sel.key) ?? d.videos.find(v => v.key === sel.key) ?? null : null
   return (
@@ -81,17 +88,14 @@ export default function InsightsView({ d, thumbs, loading, onDownload }: { d: Cr
         </span>
       </SectionBar>
 
-      <MakeNext d={d} open={open} />
+      <MakeNext d={d} thumbs={thumbs} expanded={expanded} setExpanded={setExpanded} open={open} onDownload={onDownload} />
       {s && <ThisWeek s={s} d={d} open={open} />}
       <Explorer d={d} thumbs={thumbs} open={open} />
       <Themes d={d} thumbs={thumbs} open={open} />
       <WinnersLosers d={d} />
       <ProgramData d={d} />
 
-      <Drawer open={!!(rec || niche || ours)} onClose={() => open(null)}
-        title={rec ? `Idea ${rec.rank} of ${d.recs.length}` : niche ? 'Niche video' : 'Our creator’s video'}
-        nav={rec ? { prev: d.recs[rec.rank - 2] ? () => open({ k: 'idea', key: d.recs[rec.rank - 2].key }) : null, next: d.recs[rec.rank] ? () => open({ k: 'idea', key: d.recs[rec.rank].key }) : null } : undefined}>
-        {rec && <IdeaDetail r={rec} d={d} thumbs={thumbs} open={open} onDownload={onDownload} />}
+      <Drawer open={!!(niche || ours)} onClose={() => open(null)} title={niche ? 'Niche video' : 'Our creator’s video'}>
         {niche && s && <NicheDetail v={niche} s={s} d={d} thumbs={thumbs} open={open} />}
         {ours && <OursDetail v={ours} thumbs={thumbs} />}
       </Drawer>
@@ -167,20 +171,13 @@ function Trend({ stat }: { stat: Rec['stat'] }) {
   if (r == null || p == null) return <span style={{ color: T.faint }}>–</span>
   const d = r - p
   const [label, color] = d > 0.05 ? ['▲ Rising', GOOD.fg] : d < -0.05 ? ['▼ Cooling', T.neg] : ['Steady', T.muted]
-  return <span className="flex flex-col items-start whitespace-nowrap"><span style={{ color, fontWeight: 600 }}>{label}</span><span className="text-[12px]" style={{ ...mono, color: T.muted }}>{fmtPct(p, 0)} → {fmtPct(r, 0)}</span></span>
-}
-/** Hit rate with the niche's rate marked, so "52%" reads against "29% for everyone". */
-function RateBar({ rate, base }: { rate: number; base: number }) {
-  return (
-    <span className="relative block h-1.5 w-28 rounded-full" style={{ background: T.barTrack }} aria-hidden>
-      <span className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${Math.min(100, rate * 100)}%`, background: GOOD.fg }} />
-      <span className="absolute -top-1 h-3.5 w-px" style={{ left: `${Math.min(100, base * 100)}%`, background: T.ink }} />
-    </span>
-  )
+  return <span className="flex flex-col whitespace-nowrap"><span style={{ color, fontWeight: 600 }}>{label}</span><span className="text-[12px]" style={{ ...mono, color: T.muted }}>{fmtPct(p, 0)} → {fmtPct(r, 0)} at 3×+</span></span>
 }
 
-// ── 1. Make these next ─────────────────────────────────────────────────────────
-function MakeNext({ d, open }: { d: CreatorsData; open: Open }) {
+/** Column template shared by the header and every row (md+); on phones a row stacks. */
+const IDEA_COLS = 'md:grid md:grid-cols-[32px_minmax(0,2.4fr)_minmax(0,1.3fr)_150px_150px_140px_20px] md:gap-4 md:items-start'
+
+function MakeNext({ d, thumbs, expanded, setExpanded, open, onDownload }: { d: CreatorsData; thumbs: Record<string, string>; expanded: string | null; setExpanded: (k: string | null) => void; open: Open; onDownload?: (f: string, t: string) => Promise<void> }) {
   if (!d.recs.length) return (
     <Section id="ci-next" eyebrow="Make these next" title="No niche scan yet">
       <p className="text-[15px]" style={{ color: T.muted }}>Recommendations come from the weekly niche scan (scripts/niche-scan.mjs, then niche-analyze.mjs → youtube/scan).</p>
@@ -188,50 +185,48 @@ function MakeNext({ d, open }: { d: CreatorsData; open: Open }) {
   )
   const s = d.scan!
   const fresh = d.recs.filter(r => r.status === 'new').length
+  const tip = (label: string, body: React.ReactNode) => <InfoTip label={`About ${label}`}>{body}</InfoTip>
   return (
     <Section id="ci-next" eyebrow={`Make these next · scan of ${s.fetchedAt.slice(0, 10)}`} title={`${d.recs.length} videos to make next`}
-      sub={<>One idea per topic: a theme narrowed to the tool it’s about. How to sell it (title format, which AI assistant to name) is part of the brief, not a separate idea. Ranked on how often the niche’s copies beat their channel, then <b style={{ color: T.ink }}>signups</b> where our creators have made it. Click one for its sources, the brief and why.</>}>
-      <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 1080 }}>
-          <thead><tr style={head}>
-            <th className={`${th} text-left pl-5 sm:pl-8 w-10`}>#</th>
-            <th className={`${th} text-left`}>Topic · working title</th>
-            <th className={`${th} text-left`}><span className="inline-flex items-center gap-1">Niche hit rate<InfoTip label="About niche hit rate"><Def d="Share of the niche’s videos on this topic that got 2×+ their channel’s median views. The tick is the niche’s rate across every topic." note="Views only: other creators’ videos carry no Clay link, so their signups can’t be seen." /></InfoTip></span></th>
-            <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Views vs median<InfoTip label="About views vs median"><Def d="The median copy’s views against its channel’s median long-form video, and the top copy’s." /></InfoTip></span></th>
-            <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Our signups<InfoTip label="About our signups"><Def d="New workspaces from our creators’ videos on this topic (first touch on the video’s own link), and how many of the judged ones worked. When none name the topic’s tool, the theme’s." src="FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION × MARKETING_WEBSITE_SESSIONS" /></InfoTip></span></th>
-            <th className={`${th} text-left`}>Trend</th>
-            <th className={`${th} text-left`}>Lands on</th><th className={`${th} pr-5 sm:pr-8`} />
-          </tr></thead>
-          <tbody>{d.recs.map(r => {
-            const p = r.proof
-            return (
-              <tr key={r.key} onClick={() => open({ k: 'idea', key: r.key })} className="cursor-pointer hover:bg-[#F6F5F1]" style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td className="py-3.5 pl-5 sm:pl-8 align-top text-[18px]" style={{ ...mono, color: T.faint }}>{r.rank}</td>
-                <td className="px-3 py-3.5 align-top">
-                  <span className="flex flex-col gap-1 min-w-[300px] max-w-[440px]">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <button type="button" className="text-left font-semibold leading-snug hover:underline" onClick={e => { e.stopPropagation(); open({ k: 'idea', key: r.key }) }}>{r.label}</button>
-                      {r.status === 'new' && <Badge tone={NEW}>New</Badge>}{!r.written && <Badge tone={MID}>Draft</Badge>}
-                    </span>
-                    <span className="text-[13px] leading-snug line-clamp-1" style={{ color: T.muted }}>“{r.title}”</span>
-                    {(r.formatLabel || r.assistant) && <span className="text-[12px]" style={{ color: T.muted }}>Sell it as: {[r.formatLabel, r.assistant ? `name ${assistantLabel(r.assistant)}` : null].filter(Boolean).join(' · ')}</span>}
+      sub={<>One idea per topic. Ranked on how far the niche’s copies beat their own channel, then <b style={{ color: T.ink }}>signups</b> where our creators have made it. Click a row to see everything behind it.</>}>
+      <Card className="p-0">
+        <div className={`hidden ${IDEA_COLS} px-5 sm:px-8 py-3 whitespace-nowrap`} style={{ ...head, fontFamily: 'inherit' }}>
+          <span className="text-[12px] uppercase" style={mono}>#</span>
+          <span className="text-[12px] uppercase" style={mono}>Working title</span>
+          <span className="text-[12px] uppercase" style={mono}>Topic</span>
+          <span className="text-[12px] uppercase inline-flex items-center gap-1 justify-end"><span style={mono}>Views vs median</span>{tip('views vs median', <Def d="The median copy’s views against its channel’s median long-form video, and the top copy’s. Other creators’ videos carry no Clay link, so views are the only evidence for them." />)}</span>
+          <span className="text-[12px] uppercase inline-flex items-center gap-1 justify-end"><span style={mono}>Our signups</span>{tip('our signups', <Def d="New workspaces from our creators’ videos on this topic (first touch on the video’s own link), and how many of the judged ones worked. “Theme” when none name the topic’s tool." src="FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION × MARKETING_WEBSITE_SESSIONS" />)}</span>
+          <span className="text-[12px] uppercase inline-flex items-center gap-1"><span style={mono}>Trend</span>{tip('trend', <Def d="The theme’s share of videos at 3×+ their channel: the year before against the last 90 days." />)}</span>
+          <span />
+        </div>
+        {d.recs.map(r => {
+          const p = r.proof, on = expanded === r.key
+          return (
+            <div key={r.key} id={`idea-${r.key}`} className="scroll-mt-40" style={{ borderTop: `1px solid ${T.border}` }}>
+              <button type="button" aria-expanded={on} onClick={() => setExpanded(on ? null : r.key)}
+                className={`w-full text-left flex flex-col gap-2 ${IDEA_COLS} px-5 sm:px-8 py-4 hover:bg-[#F6F5F1]`} style={{ background: on ? T.tile : undefined }}>
+                <span className="hidden md:block text-[18px]" style={{ ...mono, color: T.faint }}>{r.rank}</span>
+                <span className="flex flex-col gap-1 min-w-0">
+                  <span className="font-semibold leading-snug"><span className="md:hidden" style={{ ...mono, color: T.faint }}>{r.rank}. </span>{r.title}</span>
+                  <span className="flex flex-wrap items-center gap-1.5 text-[12px]" style={{ color: T.muted }}>
+                    {(r.formatLabel || r.assistant) && <span>Sell it as: {[r.formatLabel, r.assistant ? `name ${assistantLabel(r.assistant)}` : null].filter(Boolean).join(' · ')}</span>}
+                    {r.status === 'new' && <Badge tone={NEW}>New</Badge>}{!r.written && <Badge tone={MID}>Draft</Badge>}
                   </span>
-                </td>
-                <td className="px-3 py-3.5 align-top"><span className="flex flex-col gap-1.5">
-                  <span style={mono}><b>{fmtPct(p.rate, 0)}</b> <span className="text-[12px]" style={{ color: T.muted }}>of {fmtInt(p.n)} copies</span></span>
-                  <RateBar rate={p.rate} base={p.nicheRate} />
-                  <span className="text-[12px]" style={{ color: T.muted }}>niche {fmtPct(p.nicheRate, 0)} · {p.channels} channels</span></span></td>
-                <td className={`${num} align-top`}><span className="flex flex-col items-end"><b style={mono}>{p.med == null ? '–' : `${r1(p.med)}×`}</b><span className="text-[12px]" style={{ ...mono, color: T.muted }}>top {p.top == null ? '–' : `${r1(p.top)}×`}</span></span></td>
-                <td className={`${num} align-top`}>{r.ours.length
-                  ? <span className="flex flex-col items-end"><b style={mono}>{fmtInt(p.ws)} ws</b><span className="text-[12px]" style={{ color: T.muted }}>{p.judged ? `${p.oursWorked} of ${p.judged} worked` : 'none judged yet'}{r.oursScope === 'theme' ? ' · theme' : ''}</span></span>
-                  : <span className="flex flex-col items-end"><span style={{ color: T.muted }}>No data</span><span className="text-[12px]" style={{ color: T.faint }}>not made by us yet</span></span>}</td>
-                <td className="px-3 py-3.5 align-top"><Trend stat={r.stat} /></td>
-                <td className="px-3 py-3.5 align-top text-[13px]" style={{ color: T.muted }}>{r.brief.landing}</td>
-                <td className="px-3 py-3.5 pr-5 sm:pr-8 text-right align-top" style={{ color: T.faint }}>→</td>
-              </tr>
-            )
-          })}</tbody>
-        </table></div>
+                </span>
+                <span className="text-[14px] leading-snug" style={{ color: T.ink }}>{r.label}</span>
+                <span className="flex md:flex-col md:items-end gap-2 md:gap-0 whitespace-nowrap"><b style={mono}>{p.med == null ? '–' : `${r1(p.med)}×`}</b><span className="text-[12px]" style={{ ...mono, color: T.muted }}>top {p.top == null ? '–' : `${r1(p.top)}×`} · {p.channels} ch.</span></span>
+                {r.ours.length
+                  ? <span className="flex md:flex-col md:items-end gap-2 md:gap-0"><b style={mono}>{fmtInt(p.ws)} ws</b><span className="text-[12px]" style={{ color: T.muted }}>{p.judged ? `${p.oursWorked} of ${p.judged} worked` : 'none judged yet'}{r.oursScope === 'theme' ? ' · theme' : ''}</span></span>
+                  : <span className="flex md:flex-col md:items-end gap-2 md:gap-0"><span style={{ color: T.muted }}>No data</span><span className="text-[12px]" style={{ color: T.faint }}>not made by us yet</span></span>}
+                <Trend stat={r.stat} />
+                <span className="hidden md:block text-right text-[18px]" style={{ color: T.faint, transform: on ? 'rotate(90deg)' : undefined, transition: 'transform 150ms' }}>›</span>
+              </button>
+              {on && <div className="px-5 sm:px-8 pb-8 pt-2 flex flex-col gap-8" style={{ background: T.tile }}>
+                <IdeaDetail r={r} d={d} thumbs={thumbs} open={open} onDownload={onDownload} />
+              </div>}
+            </div>
+          )
+        })}
       </Card>
       <p className="text-[13px] px-1" style={{ color: T.muted }}>
         {s.prevFetchedAt ? `${fresh} new since the scan of ${s.prevFetchedAt.slice(0, 10)}. ` : ''}
@@ -249,92 +244,72 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
   const copy = async () => { try { await navigator.clipboard.writeText(md()); setCopied('Copied') } catch { setCopied('Copy failed: use Download') } }
   const b = r.brief
   const rows: [string, React.ReactNode][] = [
-    ['Title', <b key="t">{b.title}</b>], ['Use case', b.useCase],
-    ['Landing page', b.landingUrl ? <a key="l" href={b.landingUrl} target="_blank" rel="noreferrer" className="underline">{b.landing}</a> : b.landing],
-    ['Offer', b.offer], ['CTA', b.cta], ['Copy', b.copy], ['Placement', b.placement],
+    ['Title', <b key="t">{b.title}</b>], ['Use case', b.useCase], ['Offer', b.offer], ['CTA', b.cta],
     ...(b.thumbnail ? [['Thumbnail', b.thumbnail] as [string, React.ReactNode]] : []), ...(b.structure ? [['Structure', b.structure] as [string, React.ReactNode]] : []),
+    ['Related resources', <span key="r" className="flex flex-col gap-0.5">{b.resources.map(x => x.url
+      ? <a key={x.label} href={x.url} target="_blank" rel="noreferrer" className="underline">{x.label}</a> : <span key={x.label}>{x.label}</span>)}</span>],
   ]
+  const lift = (x: Sep) => { const w = x.w / x.wn, f = x.f / x.fn; return f ? w / f : null }
   return <>
+    {r.angle && <p className="text-[15px] max-w-[860px]" style={{ color: T.muted }}>{r.angle}</p>}
+
+    {/* 1. Views vs channel median: the niche copies it's modeled on */}
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2"><Eyebrow>{r.label}</Eyebrow>
-        {r.status === 'new' && <Badge tone={NEW}>New this week</Badge>}{r.status === 'still' && <Badge tone={MID}>Still on the list</Badge>}
-        {!r.written && <Badge tone={MID}>Draft from the evidence</Badge>}</div>
-      <p className="text-[24px] sm:text-[28px] font-bold leading-tight" style={{ letterSpacing: '-0.02em' }}>{r.title}</p>
-      {r.angle && <p className="text-[15px]" style={{ color: T.muted }}>{r.angle}</p>}
+      <H2>Views vs their channel’s median</H2>
+      <p className="text-[13px]" style={{ color: T.muted }}>{r.proof.worked} of {fmtInt(r.proof.n)} copies on this topic got 2×+ their channel’s usual views (niche {fmtPct(r.proof.nicheRate, 0)}), on {r.proof.channels} channels; the median copy {r.proof.med == null ? '–' : `${r1(r.proof.med)}×`}. These are other creators’ videos: no Clay link, so no signups to show.</p>
+      <div className="flex flex-col gap-1">{r.examples.map(v => <NicheRow key={v.id} v={v} s={s} thumbs={thumbs} open={open} />)}</div>
     </div>
 
-    {/* 1. Sources and their downstream impact */}
-    <div className="flex flex-col gap-3">
-      <H2>Sourced from</H2>
-      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
-        {[[r.proof.med == null ? '–' : `${r1(r.proof.med)}×`, 'views vs channel median', `median copy; ${fmtPct(r.proof.rate, 0)} of ${fmtInt(r.proof.n)} got 2×+ (niche ${fmtPct(r.proof.nicheRate, 0)})`],
-          [String(r.proof.channels), 'channels with a winner', 'not one creator’s series'],
-          [r.ours.length ? fmtInt(r.proof.ws) : 'No data', `workspaces from our videos on the ${r.oursScope}`, r.ours.length ? (r.proof.judged ? `${r.proof.oursWorked} of ${r.proof.judged} judged worked` : 'none judged yet') : 'we haven’t made it; the niche’s videos have no Clay link']].map(([v, l, x]) => (
-          <div key={l} className="rounded-2xl p-4 flex flex-col gap-0.5" style={{ background: T.tile }}>
-            <span className="text-[24px] leading-none" style={mono}>{v}</span><span className="text-[13px] font-medium">{l}</span><span className="text-[12px]" style={{ color: T.muted }}>{x}</span>
-          </div>))}
-      </div>
-      <Eyebrow>Our creators on this {r.oursScope} · signups</Eyebrow>
-      {r.ours.length ? <div className="flex flex-col gap-2">{r.ours.map(v => (
-        <button type="button" key={v.key} onClick={() => open({ k: 'ours', key: v.key })} className="flex items-center gap-3 text-[14px] text-left rounded-xl p-2 -mx-2 hover:bg-[#F1F0EC]">
-          <span className="hidden sm:block"><Thumb vid={v.vid} thumbs={thumbs} w={72} /></span>
-          <span className="flex-1 min-w-0"><span className="line-clamp-2 sm:line-clamp-1 font-medium">{v.title}</span><span className="text-[13px]" style={{ color: T.muted }}>{v.creator} · {v.placement} · {fmtInt(v.views)} views</span></span>
-          <span className="text-right whitespace-nowrap" style={mono}><b>{fmtInt(v.m.ws)}</b> ws<span className="block text-[12px]" style={{ color: T.muted }}>{v.perK == null ? 'shared link' : `${r1(v.perK)} per 1K`}</span></span>
-          <Badge tone={resultTone(v.result)}>{RESULT_LABEL[v.result]}</Badge>
-        </button>))}</div>
-        : <p className="text-[14px]" style={{ color: T.muted }}>None of our creators has made this yet, so there’s no signup data: this video doubles as the test.</p>}
-      <Eyebrow>Niche copies it’s modeled on · views vs their channel’s median</Eyebrow>
-      <p className="text-[13px] -mt-1" style={{ color: T.muted }}>Other creators’ videos carry no Clay link, so there are no signups to show for them: the evidence is how far they beat their own channel.</p>
-      <div className="flex flex-col gap-2">{r.examples.map(v => <NicheRow key={v.id} v={v} s={s} thumbs={thumbs} open={open} />)}</div>
-      {(r.formats.length > 0 || r.tools.length > 1) && <>
-        <Eyebrow>How it’s been sold · copies that worked (2×+) of those tried</Eyebrow>
-        <div className="flex flex-wrap gap-2">{[...r.tools.length > 1 ? r.tools.map(a => ({ k: `a-${a.a}`, l: assistantLabel(a.a), n: a.n, w: a.worked, on: a.a === r.assistant })) : [],
-          ...r.formats.map(f => ({ k: f.f, l: formatLabel(f.f), n: f.n, w: f.worked, on: f.f === r.format }))].map(x => (
-          <span key={x.k} className="rounded-full px-3 py-1 text-[13px]" style={{ background: x.on ? GOOD.bg : T.tile, color: x.on ? GOOD.fg : T.ink }}>{x.l} <span style={mono}>{x.w}/{x.n}</span></span>))}</div>
-      </>}
+    {/* 2. Our creators on this topic */}
+    <div className="flex flex-col gap-2">
+      <H2>Our creators on this {r.oursScope}</H2>
+      {r.ours.length ? <>
+        <p className="text-[13px]" style={{ color: T.muted }}>{fmtInt(r.proof.ws)} new workspaces{r.proof.judged ? `; ${r.proof.oursWorked} of ${r.proof.judged} judged videos worked` : ''}{r.proof.bestPerK != null ? `; best ${r1(r.proof.bestPerK)} per 1K views` : ''}.{r.oursScope === 'theme' ? ' None of our videos name this topic’s tool, so these are the theme’s.' : ''}</p>
+        <div className="flex flex-col gap-1">{r.ours.map(v => (
+          <button type="button" key={v.key} onClick={() => open({ k: 'ours', key: v.key })} className="flex items-center gap-3 text-[14px] text-left rounded-xl p-2 -mx-2 hover:bg-[#ECEAE4]">
+            <span className="hidden sm:block"><Thumb vid={v.vid} thumbs={thumbs} w={72} /></span>
+            <span className="flex-1 min-w-0"><span className="line-clamp-2 sm:line-clamp-1 font-medium">{v.title}</span><span className="text-[13px]" style={{ color: T.muted }}>{v.creator} · {v.placement} · {fmtInt(v.views)} views</span></span>
+            <span className="text-right whitespace-nowrap" style={mono}><b>{fmtInt(v.m.ws)}</b> ws<span className="block text-[12px]" style={{ color: T.muted }}>{v.perK == null ? 'shared link' : `${r1(v.perK)} per 1K`}</span></span>
+            <Badge tone={resultTone(v.result)}>{RESULT_LABEL[v.result]}</Badge>
+          </button>))}</div>
+      </> : <p className="text-[14px]" style={{ color: T.muted }}>None of our creators has made this yet, so there’s no signup data: this video doubles as the test.</p>}
     </div>
 
-    {/* 2. The brief */}
+    {/* 3. The brief */}
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2"><H2>The brief</H2>
         <span className="ml-auto flex flex-wrap gap-2">
           {onDownload && <button type="button" onClick={() => onDownload(file, md())} className="rounded-full px-4 py-2 text-[13px] font-medium" style={{ background: T.ink, color: '#fff' }}>Download full brief (.md)</button>}
           <button type="button" onClick={copy} className="rounded-full px-4 py-2 text-[13px] font-medium" style={{ border: `1px solid ${T.border}`, background: '#fff' }}>{copied ?? 'Copy for an agent'}</button>
         </span></div>
-      <Card className="p-5"><dl className="grid grid-cols-[84px_1fr] sm:grid-cols-[110px_1fr] gap-x-4 gap-y-2.5 text-[14px]">
+      <Card className="p-5"><dl className="grid grid-cols-[96px_1fr] sm:grid-cols-[140px_1fr] gap-x-4 gap-y-2.5 text-[14px]">
         {rows.map(([k, v]) => <Fragment key={k}><dt style={{ color: T.muted }}>{k}</dt><dd>{v}</dd></Fragment>)}
       </dl></Card>
-      <p className="text-[13px]" style={{ color: T.muted }}>The full brief has every source with links, the reasons, the separators and how to measure it, written to hand to a person or an agent with no other context.</p>
     </div>
 
-    {/* 3. Why each decision */}
+    {/* 4. How it's been sold: the topic's winners vs losers, condensed */}
+    {r.seps.length > 0 && <div className="flex flex-col gap-2">
+      <H2>How it’s been sold</H2>
+      <p className="text-[13px]" style={{ color: T.muted }}>The {r.topic?.traits?.length ? 'topic’s' : 'theme’s'} copies that worked (2×+ their channel) against the ones that failed (under 0.7×): how often each has the trait.</p>
+      <Card className="p-5"><div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 480 }}>
+        <thead><tr style={head}><th className={`${th} text-left pl-0`}>What we see</th><th className={`${th} text-right`}>Worked ({r.seps[0].wn})</th><th className={`${th} text-right`}>Failed ({r.seps[0].fn})</th><th className={`${th} text-right`}>Read</th></tr></thead>
+        <tbody>{r.seps.map(x => { const w = x.w / x.wn, f = x.f / x.fn, l = lift(x); return (
+          <tr key={x.label} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3">{x.label}</td>
+            <td className={num} style={{ ...mono, color: w > f ? GOOD.fg : T.ink }}>{fmtPct(w, 0)} <span style={{ color: T.faint }}>({x.w})</span></td>
+            <td className={num} style={{ ...mono, color: f > w ? T.neg : T.ink }}>{fmtPct(f, 0)} <span style={{ color: T.faint }}>({x.f})</span></td>
+            <td className={num} style={{ fontWeight: 600, color: w > f ? GOOD.fg : T.neg }}>{w > f ? (l == null ? 'Only in winners' : `Do it · ${r1(l)}×`) : 'Avoid'}</td></tr>) })}</tbody>
+      </table></div></Card>
+    </div>}
+
+    {/* 5. Why each decision */}
     <div className="flex flex-col gap-3">
       <H2>Why each decision</H2>
-      <ul className="flex flex-col gap-3">{r.reasons.map(x => (
-        <li key={x.k} className="flex flex-col gap-0.5 text-[14px] leading-relaxed">
+      <ul className="flex flex-col gap-3">{r.reasons.filter(x => x.k !== 'placement').map(x => (
+        <li key={x.k} className="flex flex-col gap-0.5 text-[14px] leading-relaxed max-w-[920px]">
           <span className="flex items-center gap-2"><b>{x.label}</b><span className="text-[12px]" style={{ color: T.faint }}>{x.src === 'review' ? 'weekly review' : x.src === 'default' ? 'theme default' : 'from the data'}</span></span>
           <span>{x.why}</span>
         </li>))}</ul>
-      <div className="rounded-2xl p-4 flex flex-col gap-1.5 text-[14px]" style={{ background: T.tile }}>
-        <Eyebrow>Evidence</Eyebrow>{r.why.map((w, i) => <p key={i}>{w}</p>)}
-      </div>
     </div>
-
-    {(r.seps.length > 0 || r.losers.length > 0) && <details className="flex flex-col gap-3">
-      <summary className="cursor-pointer select-none text-[15px] font-semibold">What separates the copies that worked, and the ones that failed</summary>
-      <div className="flex flex-col gap-3 pt-3">
-        {r.seps.length > 0 && <table className="w-full text-[14px]">
-          <thead><tr style={head}><th className={`${th} text-left pl-0`}>Trait (theme-wide)</th><th className={`${th} text-right`}>Worked ({r.stat.worked})</th><th className={`${th} text-right`}>Failed ({r.stat.failed})</th></tr></thead>
-          <tbody>{r.seps.map(x => {
-            const w = x.w / x.wn, f = x.f / x.fn
-            return <tr key={x.label} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3">{x.label}</td>
-              <td className={num} style={{ ...mono, color: w > f ? GOOD.fg : T.ink }}>{fmtPct(w, 0)} <span style={{ color: T.faint }}>({x.w})</span></td>
-              <td className={num} style={{ ...mono, color: f > w ? T.neg : T.ink }}>{fmtPct(f, 0)} <span style={{ color: T.faint }}>({x.f})</span></td></tr>
-          })}</tbody></table>}
-        {r.losers.length > 0 && <><Eyebrow>Copies that failed</Eyebrow><div className="flex flex-col gap-2">{r.losers.map(v => <NicheRow key={v.id} v={v} s={s} thumbs={thumbs} open={open} />)}</div></>}
-        <dl className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-2 text-[14px] pt-2">{r.measure.map(([k, v]) => <Fragment key={k}><dt style={{ color: T.muted }}>{k}</dt><dd>{v}</dd></Fragment>)}</dl>
-      </div>
-    </details>}
   </>
 }
 

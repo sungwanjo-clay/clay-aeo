@@ -115,3 +115,35 @@ export const assistantLabel = (id: string) => ASSISTANTS.find(a => a.id === id)?
 export const subjectLabel = (id: SubjectId) => SUBJECTS.find(s => s.id === id)?.label ?? id
 /** A topic's name: the theme, narrowed by its subject ("AI tool + lead gen build: Claude"). */
 export const topicLabel = (theme: ThemeId, s: SubjectId) => (s === 'general' ? themeLabel(theme) : `${themeLabel(theme)}: ${subjectLabel(s)}`)
+
+/** Up to three related clay.com resources per theme, most relevant first (real entry pages; the play's landing is first). */
+export type Resource = { label: string; url: string }
+const R = (label: string, url: string): Resource => ({ label, url })
+const U = {
+  clay101: R('Clay 101 on Clay University', 'https://university.clay.com/courses/clay-101'), courses: R('Clay University courses', 'https://university.clay.com/courses'),
+  templates: R('Templates', 'https://www.clay.com/templates'), claybooks: R('Claybooks', 'https://www.clay.com/claybooks'), mcp: R('Clay MCP', 'https://www.clay.com/mcp'),
+  claygent: R('Claygent', 'https://www.clay.com/claygent'), waterfall: R('Waterfall enrichment', 'https://www.clay.com/waterfall-enrichment'), signals: R('Signals', 'https://www.clay.com/signals'),
+  outbound: R('Outbound use case', 'https://www.clay.com/use-cases/outbound'), gtmGuide: R('GTM engineering guide', 'https://www.clay.com/guides/gtm-engineering'),
+  gtmBlog: R('Blog: GTM engineering', 'https://www.clay.com/blog/gtm-engineering'), aiLeadBlog: R('Blog: AI lead generation', 'https://www.clay.com/blog/ai-lead-generation'),
+  freeLeads: R('Free tool: generate leads', 'https://www.clay.com/tools/generate-leads-for-free'), dataProviders: R('Guide: best B2B data providers', 'https://www.clay.com/guides/best/b2b-data-providers'),
+  salesNav: R('Claybook: enrich Sales Navigator lists', 'https://www.clay.com/claybooks/enrich-sales-navigator-lists-with-work-emails-and-phone-numbers'),
+  linkedinBlog: R('Blog: LinkedIn automation', 'https://www.clay.com/blog/linkedin-automation'), useCaseTemplates: R('Use-case templates on Clay University', 'https://university.clay.com/use-case-templates'),
+  emailTemplate: R('Template: personalized emails from website data', 'https://www.clay.com/templates/write-personalized-emails-based-on-website-data'),
+  sequencer: R('Sequencer', 'https://www.clay.com/sequencer'), customers: R('Customer stories', 'https://www.clay.com/customers'), abm: R('ABM use case', 'https://www.clay.com/use-cases/abm'),
+}
+export const RESOURCES: Partial<Record<ThemeId, Resource[]>> = {
+  'gtm-career': [U.gtmGuide, U.clay101, U.gtmBlog],
+  'clay-course': [U.clay101, U.courses, U.templates],
+  'clay-narrow': [U.templates, U.claybooks, U.claygent],
+  authority: [U.claybooks, U.customers, U.templates],
+  'ai-leads': [U.mcp, U.aiLeadBlog, U.templates],
+  'lead-lists': [U.waterfall, U.freeLeads, U.dataProviders],
+  'cold-email': [U.emailTemplate, U.outbound, U.sequencer],
+  linkedin: [U.salesNav, U.linkedinBlog, U.waterfall],
+  deliverability: [U.waterfall],
+  'cold-calling': [U.waterfall],
+  signals: [U.signals, U.abm, U.claybooks],
+  automation: [U.templates, U.claybooks, U.mcp],
+  'ai-use-cases': [U.mcp, U.claygent, U.useCaseTemplates],
+  'agency-growth': [U.outbound, U.templates, U.claybooks],
+}

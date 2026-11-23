@@ -107,7 +107,7 @@ const scenarios = [
   ['creator list not synced', (() => { const d = clone(); delete d['youtube/creators']; return d })(), /creator program list isn’t synced/, '#insights'],
   ['no niche scan yet', (() => { const d = clone(); delete d['youtube/scan']; return d })(), /No niche scan yet/, '#insights'],
   // An idea's own link opens its side panel: sources, the brief, the reasons.
-  ...(() => { const r = clone()['youtube/scan']?.recs?.[0]; return r ? [['idea link opens its brief', clone(), /Sourced from[\s\S]*The brief[\s\S]*Why each decision/, `#insights-idea=${encodeURIComponent(`${r.theme}:${r.subject ?? 'general'}`)}`]] : [] })(),
+  ...(() => { const r = clone()['youtube/scan']?.recs?.[0]; return r ? [['idea link opens its brief', clone(), /Views vs their channel’s median[\s\S]*The brief[\s\S]*Why each decision/, `#insights-idea=${encodeURIComponent(`${r.theme}:${r.subject ?? 'general'}`)}`]] : [] })(),
   // Scans before Nov 23 have no topics or written briefs per topic: one idea per theme, still a table.
   ['scan without topics', (() => { const d = clone(); const sc = d['youtube/scan']; if (sc) { for (const t of sc.themes) delete t.topics; delete sc.recs; delete sc.prevRecKeys; delete sc.traits } return d })(), /videos to make next[\s\S]*Winners vs losers/, '#insights'],
 ]

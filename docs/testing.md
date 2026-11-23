@@ -30,12 +30,12 @@ The tab joins two sources:
 
 The weekly niche scan (docs/niche-scan.md) adds `youtube/scan` and `youtube/scan-thumbs-<i>`. On the tab:
 
-- **Make next** is a table of up to 15 ideas, one per topic (theme + subject, lib/plg/creators/compute.ts `recommend`):
-  niche hit rate against the niche's, median views vs channel, our signups where we've made it, trend, landing page. A
-  row opens a side panel: the sources (our creators' videos with workspaces, then the niche copies with views vs their
-  channel's median, labelled as having no Clay link), how the topic has been sold (formats, assistants), the brief, why
-  each decision, and a Markdown brief to download or copy for an agent (lib/plg/creators/brief.ts). An idea has its own
-  link, `#insights-idea=<theme:subject>`.
+- **Make next** lists up to 15 ideas, one per topic (theme + subject, lib/plg/creators/compute.ts `recommend`): working
+  title, topic, median views vs channel, our signups where we've made it, trend. A row expands in place: the niche
+  copies (views vs their channel's median, no Clay link), our creators on the topic (workspaces), the brief (title, use
+  case, offer, CTA, up to 3 related resources), how it's been sold (the topic's winners vs losers by trait), and why each
+  decision; plus a Markdown brief to download or copy for an agent (lib/plg/creators/brief.ts). An idea has its own
+  link, `#insights-idea=<theme:subject>`, which opens it expanded. Video rows open a side panel with the video's details.
 - **New this week** (a table, signups only where the video is ours), **Videos**, **Themes** and **Winners vs losers**
   (our factors, reach vs signups, the niche's traits by lift and title formats) follow. Rows open the same panel.
 - The e2e run opens an idea link and loads a scan without topics (scans before Nov 23) to check both still render.
