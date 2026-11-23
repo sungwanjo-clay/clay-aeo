@@ -27,3 +27,14 @@ The tab joins two sources:
   goes to `dist/creators/`, which is git-ignored; store each file in the page's `youtube` collection under its file name.
   The sheet carries fees and contacts: the export script reads only the Placements and Ingest - Youtube sheets.
 - the `creators` saved copy (lib/plg/creators/sql.ts), refreshed daily with the other saved views.
+
+The weekly niche scan (docs/niche-scan.md) adds `youtube/scan` and `youtube/scan-thumbs-<i>`. On the tab:
+
+- **Make next** is a table of 15 ideas (theme × title format, lib/plg/creators/compute.ts `recommend`). A row opens a
+  side panel: the sources (our creators' videos with workspaces, then the niche copies with views), the brief (title,
+  use case, landing page, offer, CTA, copy, placement), why each decision, and a Markdown brief to download or copy for
+  an agent (lib/plg/creators/brief.ts). An idea has its own link, `#insights-idea=<theme:format>`.
+- **What we're learning** is the synthesis (`learn`): what converts, what's watched but doesn't, open lanes, title
+  formats, our winners vs losers, what's moving. The theme scorecard, factor table and formats table are folded under it.
+- **New this week** and **Videos** rows open the same panel with the video's metadata.
+- The e2e run opens an idea link and loads a scan without angles (scans before Nov 23) to check both still render.

@@ -188,7 +188,7 @@ function App() {
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
     return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' } : h === 'social-eric' ? { tab: 'social', channel: 'eric' }
-      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'insights' ? { tab: 'insights', channel: 'all' } : h === 'tier4' ? { tab: 'workspaces', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'insights' || h.startsWith('insights-idea=') ? { tab: 'insights', channel: 'all' } : h === 'tier4' ? { tab: 'workspaces', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
@@ -200,6 +200,8 @@ function App() {
   // Content insights: the program's placement list + YouTube metadata (youtube/creators, written by scripts/sync-creators.mjs).
   const [creatorsDoc, setCreatorsDoc] = useState<CreatorsDoc | null | undefined>(undefined)
   const [creatorThumbs, setCreatorThumbs] = useState<Record<string, string>>({})
+  const [scanThumbs, setScanThumbs] = useState<Record<string, string>>({})
+  const allThumbs = useMemo(() => ({ ...scanThumbs, ...creatorThumbs }), [scanThumbs, creatorThumbs])
   // The weekly niche scan (youtube/scan, scripts/niche-scan.mjs + niche-analyze.mjs); null when there isn't one yet.
   const [scanDoc, setScanDoc] = useState<ScanDoc | null>(null)
   const [socialResult, setSocialResult] = useState<{ key: string; payload: unknown } | null>(null)
@@ -227,7 +229,14 @@ function App() {
       setDb(d)
       Promise.all(CACHE_NAMES.map(n => readCached(d, n)))
         .then(xs => setSaved(Object.fromEntries(CACHE_NAMES.map((n, i) => [n, xs[i]])) as Saved)).catch(() => setSaved(noSaved()))
-      d.doc('youtube/scan').get().then((x: any) => setScanDoc(x?.exists ? (x.data() as ScanDoc) : null)).catch(() => setScanDoc(null))
+      d.doc('youtube/scan').get().then(async (x: any) => {
+        const doc = x?.exists ? (x.data() as ScanDoc) : null
+        setScanDoc(doc)
+        // Niche thumbnails (scripts/niche-thumbs.mjs): this week's new videos and the ideas' source videos.
+        if (!doc?.thumbParts) return
+        const parts = await Promise.all(Array.from({ length: doc.thumbParts }, (_, i) => d.doc(`youtube/scan-thumbs-${i}`).get().then((y: any) => (y?.exists ? y.data()?.thumbs ?? {} : {})).catch(() => ({}))))
+        setScanThumbs(Object.assign({}, ...parts))
+      }).catch(() => setScanDoc(null))
       d.doc('youtube/creators').get().then(async (x: any) => {
         const doc = x?.exists ? (x.data() as CreatorsDoc) : null
         setCreatorsDoc(doc)
@@ -647,7 +656,8 @@ function App() {
     : secProblem.creators && !creatorsView ? <p className="text-[15px]" style={{ color: T.neg }}>{problemCopy(secProblem.creators).title}: {problemCopy(secProblem.creators).body}</p>
     : !creatorsView ? <p className="text-[15px]" style={{ color: T.muted }}>{offline && !saved?.creators ? 'No saved copy of this tab yet. It needs a Clay Sigma connection.' : 'Querying Sigma for creator links… first load takes 10–30 seconds.'}</p>
     : 'error' in creatorsView ? <p className="text-[15px]" style={{ color: T.neg }}>{creatorsView.error}</p>
-    : <InsightsView d={creatorsView.v!} thumbs={creatorThumbs} loading={creatorsView.stale} />
+    : <InsightsView d={creatorsView.v!} thumbs={allThumbs} loading={creatorsView.stale}
+        onDownload={downloads ? async (filename, text) => { await downloads.save({ filename, data: new Blob([text], { type: 'text/markdown' }) }) } : undefined} />
   return (
     <DashboardView
       insights={insightsPane}

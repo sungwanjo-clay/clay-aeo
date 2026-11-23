@@ -37,7 +37,7 @@ const TABS = {
   social: { hash: '#social', must: ['What moved'] },
   startup: { hash: '#startup', must: ['What moved', 'Funnel'] },
   portfolio: { hash: '#portfolio', must: [] },
-  insights: { hash: '#insights', must: ['Five videos to make next', 'New this week', 'Videos', 'What worked and what didn’t, by theme', 'Winners vs losers, side by side', 'Open lanes and title formats'] },
+  insights: { hash: '#insights', must: ['videos to make next', 'What we’re learning', 'New this week', 'Videos'] },
 }
 const PRESETS = quick ? ['last7', 'last28'] : ['last7', 'last28', 'last90', 'qtd', 'ytd']
 const COMPARES = quick ? ['previous_period'] : ['previous_period', 'previous_year']
@@ -106,6 +106,10 @@ const scenarios = [
   })(), /Data check failed/, '#insights'],
   ['creator list not synced', (() => { const d = clone(); delete d['youtube/creators']; return d })(), /creator program list isn’t synced/, '#insights'],
   ['no niche scan yet', (() => { const d = clone(); delete d['youtube/scan']; return d })(), /No niche scan yet/, '#insights'],
+  // An idea's own link opens its side panel: sources, the brief, the reasons.
+  ...(() => { const r = clone()['youtube/scan']?.recs?.[0]; return r ? [['idea link opens its brief', clone(), /Sourced from[\s\S]*The brief[\s\S]*Why each decision/, `#insights-idea=${encodeURIComponent(`${r.theme}:${r.format ?? ''}`)}`]] : [] })(),
+  // Scans before Nov 23 have no angles or written briefs per angle: one idea per theme, still a table.
+  ['scan without angles', (() => { const d = clone(); const sc = d['youtube/scan']; if (sc) { for (const t of sc.themes) delete t.angles; delete sc.recs; delete sc.prevRecKeys } return d })(), /videos to make next[\s\S]*What we’re learning/, '#insights'],
 ]
 for (const [name, d, expect, hash = ''] of scenarios) {
   const r = await visit(d, hash, '', 4000); runs++

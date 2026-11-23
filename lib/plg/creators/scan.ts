@@ -24,15 +24,30 @@ export type Raw = {
   searches: Record<string, string[]>; fresh: Record<string, string[]>; newChannels: string[]
 }
 /** Compact video row in the scan document. */
-export type SV = { id: string; c: string; t: string; p: string; m: number; v: number; x: number | null; nb: number | null; ch: number; th: ThemeId; f: FormatId[]; early?: 1; isNew?: 1 }
+export type SV = { id: string; c: string; t: string; p: string; m: number; v: number; x: number | null; nb: number | null; ch: number; th: ThemeId; f: FormatId[]; early?: 1; isNew?: 1
+  /** Likes and comments (public counts; absent in scans before Nov 23). */
+  l?: number; cm?: number }
+/** One title format within a theme: the copies that sell the theme that way, judged like the theme. */
+export type Angle = { f: FormatId; n: number; worked: number; failed: number; hits: number; winChannels: number; ex: string[]; bad: string[] }
 export type Sep = { label: string; w: number; wn: number; f: number; fn: number }
 export type ThemeStat = {
   id: ThemeId; n: number; hits: number; worked: number; failed: number; winChannels: number; x10: number; below: number
   recentHits: number; recentN: number; priorHits: number; priorN: number
   original: string | null; winners: string[]; losers: string[]; seps: Sep[]; words: { w: string[]; f: string[] }; bestFormat: FormatId | null
+  /** Title formats with 5+ judged copies in the theme (absent in scans before Nov 23). */
+  angles?: Angle[]
 }
 export type FormatStat = { id: FormatId; n: number; hits: number; below: number; best: string[]; worst: string[] }
-export type ScanRec = { theme: ThemeId; title: string; angle: string; thumbnail: string; structure: string; offer: string; notes?: string }
+/**
+ * A written recommendation (the weekly review, docs/niche-scan.md step 4). `format` picks the angle within the theme;
+ * without it the entry covers the theme's top idea. Each decision carries its reason (`why`), grounded in the scan or
+ * the program data.
+ */
+export type ScanRec = {
+  theme: ThemeId; format?: FormatId | null; title: string; angle: string; thumbnail: string; structure: string; offer: string; notes?: string
+  useCase?: string; landing?: string; landingUrl?: string; cta?: string; copy?: string; placement?: string
+  why?: Partial<Record<'title' | 'useCase' | 'landing' | 'cta' | 'copy' | 'placement' | 'thumbnail' | 'structure', string>>
+}
 export type ScanDoc = {
   version: 1; fetchedAt: string; analyzedAt: string; prevFetchedAt: string | null; partial: boolean
   pool: { channels: number; videos: number; scored: number; outliers: number; outliers10x: number; under: number; baseRate: number; workedRate: number }
@@ -45,7 +60,11 @@ export type ScanDoc = {
   recs?: ScanRec[]
   /** Themes recommended in the previous scan, to mark what's new. */
   prevRecThemes?: ThemeId[]
+  /** Ideas recommended in the previous scan (theme:format keys), to mark what's new. */
+  prevRecKeys?: string[]
   seen: string[]
+  /** Parts of youtube/scan-thumbs-<i> (scripts/niche-thumbs.mjs): 160×90 thumbnails of new and source videos. */
+  thumbParts?: number
   /** Every tracked channel id, so next week's pull starts from the same list (scripts/niche-scan.mjs --prev-scan). */
   tracked: string[]
 }
@@ -98,8 +117,16 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
     const lo = [...cw.entries()].filter(([, [a, b]]) => a + b >= 3).map(([w, [a, b]]) => [w, Math.log((a + 0.5) / (W.length + 1)) - Math.log((b + 0.5) / (F.length + 1))] as const)
     const fmt = FORMATS.map(f => { const xs = vs.filter(r => r.f.includes(f.id)); return { id: f.id, n: xs.length, rate: xs.length ? xs.filter(r => r.x! >= SCAN.worked).length / xs.length : 0 } })
       .filter(f => f.n >= 5).sort((a, b) => b.rate - a.rate)[0]
+    // Angles: the theme sold through each title format, with up to 4 winning examples (one per channel) and 2 failures.
+    const angles: Angle[] = FORMATS.map(f => {
+      const xs = vs.filter(r => r.f.includes(f.id)), w = xs.filter(r => r.x! >= SCAN.worked)
+      return { f: f.id, n: xs.length, worked: w.length, failed: xs.filter(r => r.x! < SCAN.failed).length, hits: xs.filter(r => r.x! >= SCAN.outlier).length,
+        winChannels: new Set(w.map(r => r.raw.ch)).size, xs, w }
+    }).filter(a => a.n >= 5 && a.worked >= 2).map(({ xs, w, ...a }) => ({ ...a,
+      ex: pick(perChannel(w.filter(r => r.raw.v >= SCAN.minOutlierViews).sort((p, q) => q.x! - p.x!), 4).map(r => r.raw.id)),
+      bad: pick(perChannel(xs.filter(r => r.x! < SCAN.failed).sort((p, q) => p.x! - q.x!), 2).map(r => r.raw.id)) }))
     return {
-      id: t.id, n: vs.length, hits: hits.length, worked: W.length, failed: F.length, winChannels: new Set(W.map(r => r.raw.ch)).size,
+      id: t.id, n: vs.length, hits: hits.length, angles, worked: W.length, failed: F.length, winChannels: new Set(W.map(r => r.raw.ch)).size,
       x10: vs.filter(r => r.x! >= 10).length, below: vs.filter(r => r.x! < SCAN.under).length,
       recentHits: recent.filter(r => r.x! >= SCAN.outlier).length, recentN: recent.length, priorHits: prior.filter(r => r.x! >= SCAN.outlier).length, priorN: prior.length,
       original: pick(winnersAll.slice(0, 1).map(r => r.raw.id))[0] ?? null,
@@ -138,7 +165,7 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
   for (const t of terms) { t.vids = t.vids.sort((a, b) => (rows.find(r => r.raw.id === b)?.x ?? 0) - (rows.find(r => r.raw.id === a)?.x ?? 0)).slice(0, 4); pick(t.vids) }
 
   const sv = (r: (typeof rows)[number]): SV => ({ id: r.raw.id, c: r.raw.ch, t: r.raw.t, p: r.raw.p, m: Math.round(r.raw.s / 60), v: r.raw.v, x: r.x == null ? null : +r.x.toFixed(2), nb: r.nb == null ? null : +r.nb.toFixed(2),
-    ch: r.raw.chapters ?? 0, th: r.th, f: r.f, ...(r.age < SCAN.minAgeDays ? { early: 1 as const } : {}), ...(r.isNew ? { isNew: 1 as const } : {}) })
+    ch: r.raw.chapters ?? 0, th: r.th, f: r.f, l: r.raw.l, cm: r.raw.c, ...(r.age < SCAN.minAgeDays ? { early: 1 as const } : {}), ...(r.isNew ? { isNew: 1 as const } : {}) })
   const byId = new Map(rows.map(r => [r.raw.id, r]))
   const usedCh = new Set<string>()
   const videos = [...keep].map(i => byId.get(i)).filter((r): r is NonNullable<typeof r> => !!r).map(r => { usedCh.add(r.raw.ch); return sv(r) })
@@ -154,6 +181,7 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
     channels, videos, themes, formats,
     pulse: { newTotal: fresh.length, earlyHits: fresh.filter(r => r.x! >= 1.5).length, newVideos, newChannels: raw.newChannels, terms },
     prevRecThemes: prev?.recs?.map(r => r.theme) ?? prev?.prevRecThemes ?? [],
+    prevRecKeys: prev?.recs?.map(r => `${r.theme}:${r.format ?? ''}`) ?? prev?.prevRecKeys ?? [],
     seen: [...new Set([...seen, ...raw.videos.map(v => v.id)])],
     tracked: Object.keys(raw.channels),
   }

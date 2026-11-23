@@ -56,3 +56,26 @@ export const FORMATS: { id: FormatId; label: string; rule: RegExp }[] = [
 ]
 export const formatsOf = (title: string): FormatId[] => FORMATS.filter(f => f.rule.test(title)).map(f => f.id)
 export const formatLabel = (id: FormatId) => FORMATS.find(f => f.id === id)?.label ?? id
+
+/**
+ * Default play per theme: the Clay use case a video on it should show, where its link should land, the offer and the
+ * call to action. A judgment, like clayFit, used until the weekly review writes the idea's own brief (ScanRec). Landing
+ * pages are real clay.com pages (entry pages seen in the Conversion section).
+ */
+export type Play = { useCase: string; landing: string; landingUrl: string; offer: string; cta: string }
+export const PLAYS: Partial<Record<ThemeId, Play>> = {
+  'gtm-career': { useCase: 'Build a first outbound system in Clay, the GTM engineer’s portfolio piece', landing: 'GTM engineering guide', landingUrl: 'https://www.clay.com/guides/gtm-engineering', offer: 'The guide plus Clay 101 on Clay University, free', cta: 'Start free and build the system from the video' },
+  'clay-course': { useCase: 'Clay end to end: find companies, enrich, write, send', landing: 'Clay 101 on Clay University', landingUrl: 'https://university.clay.com/courses/clay-101', offer: 'The free Clay 101 course to follow along', cta: 'Sign up free and follow along with Clay 101' },
+  'clay-narrow': { useCase: 'The one feature in the video, on a real list', landing: 'Templates', landingUrl: 'https://www.clay.com/templates', offer: 'The template from the video, ready to copy', cta: 'Copy the template into a free workspace' },
+  authority: { useCase: 'The operator’s playbook rebuilt as a Clay table', landing: 'Claybooks', landingUrl: 'https://www.clay.com/claybooks', offer: 'The playbook as a Claybook', cta: 'Get the Claybook and run it free' },
+  'ai-leads': { useCase: 'Claude or ChatGPT driving Clay through the MCP to build and enrich a lead list', landing: 'Clay MCP', landingUrl: 'https://www.clay.com/mcp', offer: 'Connect Clay to your AI assistant, free credits to start', cta: 'Connect Clay to Claude or ChatGPT free' },
+  'lead-lists': { useCase: 'Waterfall enrichment: work emails and phones from many providers in one column', landing: 'Waterfall enrichment', landingUrl: 'https://www.clay.com/waterfall-enrichment', offer: 'Free credits to enrich your first list', cta: 'Enrich your first list free' },
+  'cold-email': { useCase: 'Personalized first lines from each prospect’s website with Claygent', landing: 'Template: personalized emails from website data', landingUrl: 'https://www.clay.com/templates/write-personalized-emails-based-on-website-data', offer: 'The personalization template from the video', cta: 'Copy the template and write your first 100 emails free' },
+  linkedin: { useCase: 'Sales Navigator lists turned into work emails and phones', landing: 'Claybook: enrich Sales Navigator lists', landingUrl: 'https://www.clay.com/claybooks/enrich-sales-navigator-lists-with-work-emails-and-phone-numbers', offer: 'The Claybook from the video', cta: 'Run the Claybook on your Sales Navigator list free' },
+  deliverability: { useCase: 'Verify and clean a list before it’s sent', landing: 'Waterfall enrichment', landingUrl: 'https://www.clay.com/waterfall-enrichment', offer: 'Free credits to verify a list', cta: 'Verify your next list free' },
+  'cold-calling': { useCase: 'Mobile numbers for a call list through waterfall enrichment', landing: 'Waterfall enrichment', landingUrl: 'https://www.clay.com/waterfall-enrichment', offer: 'Free credits to find mobile numbers', cta: 'Build your call list free' },
+  signals: { useCase: 'Signal-based outbound: job changes, funding, hiring as triggers', landing: 'Signals', landingUrl: 'https://www.clay.com/signals', offer: 'A signals Claybook from the video', cta: 'Set up your first signal free' },
+  automation: { useCase: 'Clay as the data step inside an n8n, Make or Zapier workflow', landing: 'Templates', landingUrl: 'https://www.clay.com/templates', offer: 'The workflow’s Clay table as a template', cta: 'Copy the table and plug it into your workflow' },
+  'ai-use-cases': { useCase: 'An AI assistant using Clay’s data through the MCP', landing: 'Clay MCP', landingUrl: 'https://www.clay.com/mcp', offer: 'Connect Clay to your AI assistant', cta: 'Connect Clay to Claude or ChatGPT free' },
+  'agency-growth': { useCase: 'Outbound for clients: find, enrich and personalize in one table', landing: 'Outbound use case', landingUrl: 'https://www.clay.com/use-cases/outbound', offer: 'The outbound table from the video as a template', cta: 'Start free and run your first client campaign' },
+}

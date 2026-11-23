@@ -17,8 +17,8 @@
  * and stayed under RESULT.failedPerK. Only videos with a link of their own, long-form, live 14+ days are judged.
  * Everything is lifetime, since the program's first tracked week (Apr 6).
  */
-import { THEMES, clayFit, formatLabel, themeLabel, themeOf, type FormatId, type ThemeId } from './themes'
-import type { ScanDoc, ScanRec, SV, Sep, ThemeStat } from './scan'
+import { PLAYS, THEMES, clayFit, formatLabel, themeLabel, themeOf, type FormatId, type ThemeId } from './themes'
+import type { Angle, ScanDoc, ScanRec, SV, Sep, ThemeStat } from './scan'
 
 export type Placement = {
   creator: string | null; fit: string | null; status: string | null; agency: string | null; title: string | null; channelUrl: string | null
@@ -68,13 +68,23 @@ export type ThemeRow = {
   best: VideoRow | null; demand: ThemeStat | null
   signup: SignupState; verdict: string; tone: 'pos' | 'neg' | 'neutral'
 }
+/** The brief for one video idea: what to make and where to send people. */
+export type Brief = { title: string; useCase: string; landing: string; landingUrl: string | null; offer: string; cta: string; copy: string; placement: string; thumbnail: string | null; structure: string | null }
+export type BriefKey = Exclude<keyof Brief, 'landingUrl'>
+/** Where a decision came from: the weekly review, the evidence alone, or the theme's default play (lib/plg/creators/themes.ts). */
+export type Reason = { k: BriefKey; label: string; why: string; src: 'review' | 'evidence' | 'default' }
 export type Rec = {
-  rank: number; theme: ThemeId; label: string; status: 'new' | 'still' | 'first'
-  /** Written by the weekly review when there is one; otherwise generated from the evidence. */
-  title: string; angle: string; thumbnail: string | null; structure: string | null; offer: string | null; notes: string | null; written: boolean
-  stat: ThemeStat; themeRow: ThemeRow | null; original: SV | null; winners: SV[]; losers: SV[]; seps: Sep[]
+  rank: number; key: string; theme: ThemeId; format: FormatId | null; label: string; angleLabel: string | null; status: 'new' | 'still' | 'first'
+  /** The weekly review wrote this idea's brief (ScanRec); otherwise it's drafted from the evidence and the theme's play. */
+  written: boolean; title: string; angle: string; brief: Brief; reasons: Reason[]
+  stat: ThemeStat; anglePick: Angle | null; themeRow: ThemeRow | null; original: SV | null
+  /** Niche copies the idea is sourced from (worked), copies that failed, and our creators' videos on the theme. */
+  examples: SV[]; losers: SV[]; ours: VideoRow[]; seps: Sep[]
+  proof: { worked: number; failed: number; n: number; channels: number; rate: number; themeRate: number; nicheRate: number }
   why: string[]; measure: [string, string][]; score: number
 }
+/** One synthesis callout: a finding, its evidence and what to do about it. */
+export type Learning = { head: string; tone: 'pos' | 'neg' | 'neutral'; bullets: string[]; so: string }
 export type Factor = { factor: string; worked: string; failed: string }
 export type FunnelStep = { label: string; value: number | null; note: string; owner: string; of?: { label: string; value: number } }
 
@@ -82,8 +92,9 @@ export type CreatorsData = {
   dataEnd: string; fetchedAt: string
   scan: ScanDoc | null
   recs: Rec[]
-  /** Recommended last week and not this week. */
-  dropped: ThemeId[]
+  /** Ideas recommended last week and not this week (labels). */
+  dropped: string[]
+  learnings: Learning[]
   /** Table rows: videos with their own link, plus one row per shared link. */
   rows: VideoRow[]
   videos: VideoRow[]
@@ -156,63 +167,210 @@ function themeRows(videos: VideoRow[], scan: ScanDoc | null): ThemeRow[] {
 const SIGNUP_RANK: Record<SignupState, number> = { converts: 3, mixed: 2, untested: 1, no: 0 }
 
 /** Smoothed share of copies that worked, so a theme with 3 of 3 doesn't beat one with 37 of 50. */
-const winRate = (t: ThemeStat) => (t.worked + 1) / (t.worked + t.failed + 2)
+const winRate = (t: { worked: number; failed: number }) => (t.worked + 1) / (t.worked + t.failed + 2)
 /** Recent hit rate against the year before, clipped to [0.5, 2]: rising themes move up week to week. */
 const momentum = (t: ThemeStat) => {
   const r = t.recentN >= 5 ? t.recentHits / t.recentN : null, p = t.priorN >= 5 ? t.priorHits / t.priorN : null
   return r == null || p == null ? 1 : Math.min(2, Math.max(0.5, (r + 0.02) / (p + 0.02)))
 }
 /** Signup proof multiplies watch demand: a theme our creators proved converts outranks an equally watched untested one. */
-export const REC = { minCopies: 8, minWinChannels: 3, count: 5, signup: { converts: 1.5, mixed: 1.1, untested: 1, no: 0.6 } as Record<SignupState, number> }
+export const REC = { minCopies: 8, minWinChannels: 3, count: 15, perTheme: 3, perFormat: 4, angleMinChannels: 2, signup: { converts: 1.5, mixed: 1.1, untested: 1, no: 0.6 } as Record<SignupState, number> }
+const pct = (x: number) => `${Math.round(x * 100)}%`
+/** A label mid-sentence: lower-case the first letter unless it starts with a name or acronym. */
+const midLabel = (x: string) => (/^(AI|GTM|LinkedIn|Clay|I\b|“I)/.test(x) ? x : x[0].toLowerCase() + x.slice(1))
+const FIT = (x: number) => (x >= 1 ? 'high' : x >= 0.6 ? 'medium' : 'low')
 
-function recommend(scan: ScanDoc | null, themes: ThemeRow[]): { recs: Rec[]; dropped: ThemeId[] } {
+/** Program facts the briefs' reasons cite: placement and link position among our winners and losers. */
+type ProgramFacts = { W: number; F: number; wDedicated: number; fIntegration: number; wLink3: number; fLink3: number; wMins: number | null; fMins: number | null; wChapters: number; fChapters: number }
+function programFacts(w: VideoRow[], f: VideoRow[]): ProgramFacts {
+  const c = (vs: VideoRow[], p: (v: VideoRow) => boolean) => vs.filter(p).length
+  const med = (vs: VideoRow[]) => median(vs.map(v => v.mins).filter((x): x is number => x != null))
+  return { W: w.length, F: f.length, wDedicated: c(w, v => v.placement === 'Dedicated'), fIntegration: c(f, v => v.placement === 'Integration'),
+    wLink3: c(w, v => v.clayLine != null && v.clayLine <= 3), fLink3: c(f, v => v.clayLine != null && v.clayLine <= 3), wMins: med(w), fMins: med(f),
+    wChapters: c(w, v => (v.chapters ?? 0) > 2), fChapters: c(f, v => (v.chapters ?? 0) > 2) }
+}
+
+/**
+ * The ideas to make next: each theme sold through one title format (an angle), ranked by how often that angle's copies
+ * beat their channel, on how many channels, how naturally Clay fits, whether the theme is rising and what our creators'
+ * signups say. At most REC.perTheme per theme and REC.perFormat per format, so the list isn't one theme fifteen times.
+ * Scans without angles (before Nov 23) give one idea per theme.
+ */
+function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts): { recs: Rec[]; dropped: string[] } {
   if (!scan) return { recs: [], dropped: [] }
   const vid = new Map(scan.videos.map(v => [v.id, v]))
-  const written = new Map((scan.recs ?? []).map(r => [r.theme, r] as [ThemeId, ScanRec]))
-  // Candidates: watched more than the niche's base rate, with enough copies on enough channels, and somewhere Clay fits.
-  const cand = scan.themes.filter(t => t.worked + t.failed >= REC.minCopies && t.winChannels >= REC.minWinChannels && clayFit(t.id) > 0 && t.n > 0 && t.hits / t.n >= scan.pool.baseRate)
-  const scored = cand.map(stat => {
+  const reviewed = scan.recs ?? []
+  const base = scan.pool.baseRate
+  const themeOk = (t: ThemeStat, row: ThemeRow | null) => clayFit(t.id) > 0 && t.n > 0 && t.worked + t.failed >= REC.minCopies && t.winChannels >= REC.minWinChannels
+    && (t.hits / t.n >= base || row?.signup === 'converts')
+  type Cand = { stat: ThemeStat; row: ThemeRow | null; angle: Angle | null; score: number }
+  const angleOk = (stat: ThemeStat, a: Angle) => a.winChannels >= REC.angleMinChannels && a.ex.length > 0 && a.worked / a.n > Math.max(stat.worked / stat.n, scan.pool.workedRate)
+  const cands: Cand[] = []
+  for (const stat of scan.themes) {
     const row = themes.find(x => x.id === stat.id) ?? null
-    const score = winRate(stat) * Math.log2(1 + stat.winChannels) * clayFit(stat.id) * momentum(stat) * REC.signup[row?.signup ?? 'untested']
-    return { stat, row, score }
-  }).sort((a, b) => b.score - a.score).slice(0, REC.count)
-  const prev = new Set(scan.prevRecThemes ?? [])
-  const recs: Rec[] = scored.map(({ stat, row, score }, i) => {
-    const w = written.get(stat.id)
+    if (!themeOk(stat, row)) continue
+    const k = clayFit(stat.id) * momentum(stat) * REC.signup[row?.signup ?? 'untested']
+    // An angle has to beat both its theme and the niche as a whole, or it's not a reason to pick it.
+    const angles = (stat.angles ?? []).filter(a => angleOk(stat, a))
+    if (angles.length) for (const a of angles) cands.push({ stat, row, angle: a, score: winRate(a) * Math.log2(1 + a.winChannels) * k })
+    else cands.push({ stat, row, angle: null, score: winRate(stat) * Math.log2(1 + stat.winChannels) * k })
+  }
+  cands.sort((a, b) => b.score - a.score)
+  const perTheme = new Map<string, number>(), perFormat = new Map<string, number>(), picked: Cand[] = []
+  // Two angles of one theme often share their best copies (a "2026 beginner's guide" is both): an idea whose lead copy,
+  // or half its copies, already source a picked idea is the same video and is skipped.
+  const usedEx = new Set<string>()
+  for (const c of cands) {
+    if (picked.length >= REC.count) break
+    const t = perTheme.get(c.stat.id) ?? 0, f = c.angle ? perFormat.get(c.angle.f) ?? 0 : 0
+    if (t >= REC.perTheme || f >= REC.perFormat) continue
+    const ex = c.angle?.ex ?? c.stat.winners
+    if (ex.length && (usedEx.has(ex[0]) || ex.filter(x => usedEx.has(x)).length * 2 >= ex.length)) continue
+    ex.forEach(x => usedEx.add(x))
+    perTheme.set(c.stat.id, t + 1); if (c.angle) perFormat.set(c.angle.f, f + 1)
+    picked.push(c)
+  }
+  // Scans before Nov 23 recommended themes, not angles: compare those by theme.
+  const legacy = !scan.prevRecKeys?.some(k => !k.endsWith(':'))
+  const prevKeys = new Set(scan.prevRecKeys ?? [])
+  const prevThemes = new Set<string>(scan.prevRecThemes ?? [])
+  const ch = (v: SV | null) => (v ? scan.channels[v.c]?.t ?? 'a channel' : '')
+  const recs: Rec[] = picked.map(({ stat, row, angle, score }, i) => {
+    const fmt = angle?.f ?? null
+    const key = `${stat.id}:${fmt ?? ''}`
+    // The review's entry for this idea: same theme and format, or (older reviews) same theme without a format.
+    const w = reviewed.find(r => r.theme === stat.id && (r.format ?? null) === fmt) ?? (fmt ? undefined : reviewed.find(r => r.theme === stat.id && !r.format))
+    const examples = (angle?.ex ?? stat.winners).map(x => vid.get(x)).filter((x): x is SV => !!x)
+    const losers = (angle ? angle.bad : stat.losers).map(x => vid.get(x)).filter((x): x is SV => !!x)
     const original = stat.original ? vid.get(stat.original) ?? null : null
-    const winners = stat.winners.map(x => vid.get(x)).filter((x): x is SV => !!x)
-    const losers = stat.losers.map(x => vid.get(x)).filter((x): x is SV => !!x)
-    const fmt = stat.bestFormat as FormatId | null
-    const ch = (v: SV | null) => (v ? scan.channels[v.c]?.t ?? 'a channel' : '')
+    const ours = (row?.videos ?? []).filter(v => v.attribution === 'direct' || v.attribution === 'shared').sort((a, b) => b.m.ws - a.m.ws).slice(0, 6)
+    const pr = angle ?? stat
+    const proof = { worked: pr.worked, failed: pr.failed, n: pr.n, channels: pr.winChannels, rate: pr.n ? pr.worked / pr.n : 0, themeRate: stat.n ? stat.worked / stat.n : 0, nicheRate: scan.pool.workedRate }
+    const play = PLAYS[stat.id]
+    const angleLabel = fmt ? formatLabel(fmt) : null
+    const top = examples[0] ?? original
+    const brief: Brief = {
+      title: w?.title ?? (top ? top.t : themeLabel(stat.id)),
+      useCase: w?.useCase ?? play?.useCase ?? themeLabel(stat.id),
+      landing: w?.landing ?? play?.landing ?? 'clay.com homepage', landingUrl: w?.landingUrl ?? (w?.landing ? null : play?.landingUrl ?? null),
+      offer: w?.offer ?? play?.offer ?? 'To define',
+      cta: w?.cta ?? play?.cta ?? 'Start free',
+      copy: w?.copy ?? `First line of the description: “${play?.cta ?? 'Start free'}: <your ?via= link>”, then ${play?.offer ? play.offer[0].toLowerCase() + play.offer.slice(1) : 'the offer'}.`,
+      placement: w?.placement ?? 'Dedicated video, its own ?via= link',
+      thumbnail: w?.thumbnail ?? null, structure: w?.structure ?? null,
+    }
+    const src = (k: keyof NonNullable<ScanRec['why']>, has: boolean): Reason['src'] => (w?.why?.[k] || (w && has) ? 'review' : 'evidence')
+    const words = stat.words.w.length ? ` Words that show up in winning titles on this theme: ${stat.words.w.slice(0, 4).join(', ')}.` : ''
+    const sepLine = stat.seps.slice(0, 2).map(x => `${x.label.toLowerCase()} (${pct(x.w / x.wn)} of winners, ${pct(x.f / x.fn)} of failures)`).join('; ')
+    const best = row?.best
+    const reasons: Reason[] = [
+      { k: 'title', label: 'Title', src: src('title', true), why: w?.why?.title ?? (angle
+        ? `${angleLabel}: ${angle.worked} of ${angle.n} copies on this theme worked (2×+ their channel) on ${angle.winChannels} channels, ${pct(proof.rate)} against ${pct(proof.themeRate)} for the theme and ${pct(proof.nicheRate)} across the niche.${words}`
+        : `${stat.worked} of ${stat.n} copies worked on ${stat.winChannels} channels (${pct(proof.themeRate)} vs ${pct(proof.nicheRate)} across the niche).${words}`)
+        + (w ? '' : ' Draft: the top copy’s title, to rewrite in the weekly review.') },
+      { k: 'useCase', label: 'Use case', src: w?.useCase ? 'review' : 'default', why: w?.why?.useCase ?? `Clay fit is ${FIT(clayFit(stat.id))} for ${themeLabel(stat.id).toLowerCase()}: the video can show ${play?.useCase ? play.useCase[0].toLowerCase() + play.useCase.slice(1) : 'Clay doing the work'} on screen.${best ? ` Our best video on the theme: ${best.creator}’s “${best.title}”, ${n(best.m.ws)} workspaces (${r1(best.perK)} per 1K views).` : ' None of our creators has a judged video on it yet.'}` },
+      { k: 'landing', label: 'Landing page and offer', src: w?.landing ? 'review' : 'default', why: w?.why?.landing ?? `Program links land on the clay.com homepage today and nothing captures an email before signup. A page that matches the use case (${brief.landing}) keeps the video’s promise; ${brief.offer[0].toLowerCase() + brief.offer.slice(1)} is the reason to click.` },
+      { k: 'cta', label: 'CTA and copy', src: w?.cta ? 'review' : 'evidence', why: w?.why?.cta ?? (facts.W
+        ? `${facts.wLink3} of our ${facts.W} videos that worked had the Clay link in the first 3 lines of the description, against ${facts.fLink3} of ${facts.F} that failed. Say the offer next to the link, and once on screen when Clay first appears.`
+        : 'Put the link and the offer in the first 3 lines of the description.') },
+      { k: 'placement', label: 'Placement', src: w?.placement ? 'review' : 'evidence', why: w?.why?.placement ?? (facts.W
+        ? `${facts.wDedicated} of ${facts.W} winners were dedicated videos; ${facts.fIntegration} of ${facts.F} failures were integrations. Its own link is the only way to measure it.`
+        : 'A dedicated video with its own link is the only way to measure it.') },
+      { k: 'structure', label: 'Length and structure', src: w?.structure ? 'review' : 'evidence', why: w?.why?.structure ?? (sepLine
+        ? `What separates copies that worked from ones that failed on this theme: ${sepLine}.${facts.wMins != null ? ` Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : ''}`
+        : facts.wMins != null ? `Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : 'No clear length or structure separator on this theme.') },
+    ]
     const why: string[] = []
-    why.push(`Watch demand: ${stat.worked} copies worked and ${stat.failed} failed on ${stat.winChannels} channels with a winner${original ? `; the original hit is ${ch(original)}’s “${original.t}” at ${r1(original.x)}× its channel` : ''}.`)
+    why.push(`${pr.worked} copies worked and ${pr.failed} failed${angle ? ` when sold as “${angleLabel!.toLowerCase()}”` : ''}, on ${pr.winChannels} channels with a winner${top ? `; the top one is ${ch(top)}’s “${top.t}” at ${r1(top.x)}× its channel` : ''}.`)
     const mo = momentum(stat)
-    if (mo >= 1.25) why.push(`Rising: ${stat.recentHits} of ${stat.recentN} videos in the last 90 days hit 3×+, against ${stat.priorHits} of ${stat.priorN} in the year before.`)
+    if (mo >= 1.25) why.push(`Rising: ${stat.recentHits} of ${stat.recentN} videos on the theme in the last 90 days hit 3×+, against ${stat.priorHits} of ${stat.priorN} in the year before.`)
     else if (mo <= 0.8) why.push(`Cooling: ${stat.recentHits} of ${stat.recentN} recent videos hit 3×+, against ${stat.priorHits} of ${stat.priorN} in the year before. Pick a fresh angle.`)
-    if (row?.signup === 'converts' || row?.signup === 'mixed') {
-      const b = row.best!
-      why.push(`Signup proof: ${row.worked} of ${row.judged} of our creators’ videos on this theme worked, ${n(row.ws)} workspaces in all. Best: ${b.creator}’s “${b.title}”, ${r1(b.perK)} per 1K views.`)
-    } else if (row?.signup === 'no') {
-      const b = row.videos.filter(v => v.result === 'failed').sort((a, c) => (c.views ?? 0) - (a.views ?? 0))[0]
-      why.push(`Signup proof is weak so far${b ? `: ${b.creator}’s “${b.title}” got ${r1(b.perK)} workspaces per 1K views` : ''}. Make it a dedicated video, not an integration.`)
-    } else why.push('None of our creators has made this yet: a measured test (its own link, dedicated) would settle the signup question.')
+    if (row?.signup === 'converts' || row?.signup === 'mixed') why.push(`Signup proof: ${row.worked} of ${row.judged} of our creators’ videos on the theme worked, ${n(row.ws)} workspaces in all.`)
+    else if (row?.signup === 'no') why.push(`Signup proof is weak so far: ${row.failed} of ${row.judged} of our videos on the theme failed. Make it dedicated, with its own landing page.`)
+    else why.push('None of our creators has a judged video on the theme: a measured test (dedicated, its own link) settles the signup question.')
     return {
-      rank: i + 1, theme: stat.id, label: themeLabel(stat.id), status: !scan.prevFetchedAt ? 'first' : prev.has(stat.id) ? 'still' : 'new',
-      title: w?.title ?? `${themeLabel(stat.id)}${fmt ? `, as a ${formatLabel(fmt).toLowerCase()}` : ''}`,
-      angle: w?.angle ?? (original ? `Model it on ${ch(original)}’s “${original.t}”${fmt ? `; lead with the ${formatLabel(fmt).toLowerCase()} angle` : ''}.` : ''),
-      thumbnail: w?.thumbnail ?? null, structure: w?.structure ?? null, offer: w?.offer ?? null, notes: w?.notes ?? null, written: !!w,
-      stat, themeRow: row, original, winners, losers, seps: stat.seps, why, score,
+      rank: i + 1, key, theme: stat.id, format: fmt, label: themeLabel(stat.id), angleLabel,
+      status: !scan.prevFetchedAt ? 'first' : (legacy ? prevThemes.has(stat.id) : prevKeys.has(key)) ? 'still' : 'new',
+      written: !!w, title: brief.title, angle: w?.angle ?? (top ? `Model it on ${ch(top)}’s “${top.t}”.` : ''), brief, reasons,
+      stat, anglePick: angle, themeRow: row, original, examples, losers, ours, seps: stat.seps, proof, why, score,
       measure: [
         ['Link', 'Its own ?via= token, used by this video only (shared links can’t be measured)'],
-        ['Clay link', 'In the first 3 lines of the description, with the offer'],
-        ['Placement', 'A dedicated video: integrations rarely convert'],
-        ['Landing page', 'Today: clay.com homepage. To test: the template page'],
+        ['Landing page', brief.landing],
+        ['Read it', 'Workspaces per 1K views after 14 days: 1+ with 10+ workspaces worked, under 0.25 failed'],
         ['Nurture', 'To define with lifecycle'],
       ],
     }
   })
-  const now = new Set(recs.map(r => r.theme))
-  return { recs, dropped: [...prev].filter(t => !now.has(t)) }
+  const now = new Set(recs.map(r => r.key))
+  const labelOf = (k: string) => { const [t, f] = k.split(':'); return `${themeLabel(t as ThemeId)}${f ? ` (${formatLabel(f as FormatId).toLowerCase()})` : ''}` }
+  const themesNow = new Set<string>(recs.map(r => r.theme))
+  return { recs, dropped: legacy ? [...prevThemes].filter(t => !themesNow.has(t)).map(t => themeLabel(t as ThemeId)) : [...prevKeys].filter(k => !now.has(k)).map(labelOf) }
+}
+
+/**
+ * Videos any idea could show (sources and failures of every eligible angle, or of the theme when it has none), whatever
+ * our signups say: scripts/niche-thumbs.mjs downloads thumbnails for these. Mirrors recommend()'s filters.
+ */
+export function ideaVideoIds(scan: ScanDoc): string[] {
+  const ids = new Set<string>()
+  for (const stat of scan.themes) {
+    if (!(clayFit(stat.id) > 0 && stat.n > 0 && stat.worked + stat.failed >= REC.minCopies && stat.winChannels >= REC.minWinChannels)) continue
+    const angles = (stat.angles ?? []).filter(a => a.winChannels >= REC.angleMinChannels && a.ex.length > 0 && a.worked / a.n > Math.max(stat.worked / stat.n, scan.pool.workedRate))
+    if (angles.length) for (const a of angles) [...a.ex, ...a.bad].forEach(x => ids.add(x))
+    else [...stat.winners, ...stat.losers].forEach(x => ids.add(x))
+  }
+  return [...ids]
+}
+
+/** The synthesis: what converts, what's watched but doesn't convert, open lanes, title formats, our winners vs losers, momentum. */
+function learn(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts, recs: Rec[]): Learning[] {
+  const out: Learning[] = []
+  const ideaRef = (id: ThemeId) => { const r = recs.filter(x => x.theme === id).map(x => `#${x.rank}`); return r.length ? ` (ideas ${r.join(', ')})` : '' }
+  const base = scan?.pool.baseRate ?? 0
+  const rate = (t: ThemeRow) => (t.demand ? t.demand.hits / t.demand.n : null)
+  const conv = themes.filter(t => t.signup === 'converts' || t.signup === 'mixed').sort((a, b) => b.ws - a.ws).slice(0, 3)
+  if (conv.length) out.push({ head: `${conv.length === 1 ? 'One theme converts' : `${conv.length} themes convert`} for our creators`, tone: 'pos',
+    bullets: conv.map(t => `${t.label}: ${t.worked} of ${t.judged} judged videos worked, ${n(t.ws)} workspaces${t.best ? `; best ${t.best.creator}’s “${t.best.title}” at ${r1(t.best.perK)} per 1K views` : ''}${ideaRef(t.id)}.`),
+    so: 'Keep these funded first: proven signups beat views.' })
+  // Two failures at least: one video isn't a pattern.
+  const leaky = themes.filter(t => t.signup === 'no' && t.failed >= 2 && (rate(t) ?? 0) >= base).slice(0, 3)
+  if (leaky.length) out.push({ head: 'Watched, but our videos on it don’t convert', tone: 'neg',
+    bullets: leaky.map(t => `${t.label}: the niche hits 3×+ on ${pct(rate(t)!)} of videos (base ${pct(base)}), but ${t.failed} of our ${t.judged} judged videos failed on signups.`),
+    so: facts.F ? `Change the format, not the topic: ${facts.fIntegration} of our ${facts.F} failures were integrations. Make it dedicated, with a landing page that matches.` : 'Change the format, not the topic: dedicated, with a landing page that matches.' })
+  if (scan) {
+    const open = scan.themes.filter(t => t.n >= 10 && clayFit(t.id) >= 0.6 && t.hits / t.n >= base && !(themes.find(x => x.id === t.id)?.judged))
+      .sort((a, b) => b.hits / b.n - a.hits / a.n).slice(0, 3)
+    if (open.length) out.push({ head: 'Open lanes: watched, untested by us', tone: 'neutral',
+      bullets: open.map(t => `${themeLabel(t.id)}: ${pct(t.hits / t.n)} of ${n(t.n)} videos at 3×+ on ${t.winChannels} channels with a winner${ideaRef(t.id)}.`),
+      so: 'Test one with a dedicated video and its own link; that’s the only way to learn whether it converts.' })
+    const fm = scan.formats.filter(f => f.n >= 20).map(f => ({ f, r: f.hits / f.n })).sort((a, b) => b.r - a.r)
+    if (fm.length >= 4) {
+      const hi = fm.slice(0, 3), lo = fm.slice(-2).filter(x => x.r < base)
+      out.push({ head: 'Title formats that travel, and ones that don’t', tone: 'neutral',
+        bullets: [...hi.map(x => `${formatLabel(x.f.id)}: ${pct(x.r)} of ${n(x.f.n)} at 3×+ (base ${pct(base)}).`), ...lo.map(x => `Avoid ${midLabel(formatLabel(x.f.id))}: ${pct(x.r)} of ${n(x.f.n)}.`)],
+        so: `Lead titles with ${hi.map(x => midLabel(formatLabel(x.f.id))).slice(0, 2).join(' or ')}; the ideas above use them where the theme’s own copies prove it.` })
+    }
+  }
+  if (facts.W && facts.F) out.push({ head: 'What our winners do that our losers don’t', tone: 'neutral',
+    bullets: [
+      `Placement: ${facts.wDedicated} of ${facts.W} winners were dedicated videos; ${facts.fIntegration} of ${facts.F} failures were integrations.`,
+      `Link: ${facts.wLink3} of ${facts.W} winners had the Clay link in the first 3 description lines, against ${facts.fLink3} of ${facts.F} failures.`,
+      ...(facts.wMins != null && facts.fMins != null && Math.abs(facts.wMins - facts.fMins) >= 0.2 * Math.max(facts.wMins, facts.fMins) ? [`Length: winners run a median ${Math.round(facts.wMins)} min, failures ${Math.round(facts.fMins)} min.`] : []),
+    ],
+    so: 'Brief every creator on the same three: dedicated video, link and offer in the first 3 lines, its own link.' })
+  if (scan) {
+    const mv = scan.themes.filter(t => t.recentN >= 10 && t.priorN >= 10).map(t => ({ t, d: t.recentHits / t.recentN - t.priorHits / t.priorN })).sort((a, b) => b.d - a.d)
+    const up = mv.filter(x => x.d > 0.03).slice(0, 2), down = mv.filter(x => x.d < -0.03).slice(-2).reverse()
+    const terms = scan.pulse.terms.slice(0, 3)
+    if (up.length || down.length || terms.length) out.push({ head: 'What’s moving this week', tone: 'neutral',
+      bullets: [
+        ...up.map(x => `Rising: ${themeLabel(x.t.id)}, ${pct(x.t.priorHits / x.t.priorN)} → ${pct(x.t.recentHits / x.t.recentN)} of videos at 3×+ (last 90 days vs the year before).`),
+        ...down.map(x => `Cooling: ${themeLabel(x.t.id)}, ${pct(x.t.priorHits / x.t.priorN)} → ${pct(x.t.recentHits / x.t.recentN)}.`),
+        ...(terms.length ? [`Rising title terms: ${terms.map(t => `“${t.term}” (${t.now} new, ${r1(t.lift)}× last year’s share)`).join(', ')}.`] : []),
+      ],
+      so: up.length ? `Rising themes move up the list on their own; ${midLabel(themeLabel(up[0].t.id))} is where a new video has the tailwind.` : 'No theme is gaining fast: the list leans on proven themes this week.' })
+  }
+  return out
 }
 
 /** Winners vs losers on signups, factor by factor, in words. */
@@ -305,6 +463,7 @@ export function buildCreators(doc: CreatorsDoc, payload: unknown, dataEnd: strin
   const worked = judged.filter(v => v.result === 'worked').sort((a, b) => b.perK! - a.perK!)
   const failed = judged.filter(v => v.result === 'failed').sort((a, b) => (b.views ?? 0) - (a.views ?? 0))
   const { factors, takeaway } = compare(worked, failed)
+  const facts = programFacts(worked, failed)
 
   const programTokens = new Set(yt.map(x => x.token))
   const program = zero(), all = zero()
@@ -334,8 +493,9 @@ export function buildCreators(doc: CreatorsDoc, payload: unknown, dataEnd: strin
     { label: 'Paid', value: program.paid, note: 'Paying customer', owner: 'Lifecycle', of: of('workspaces', program.ws) },
   ]
 
+  const rd = recommend(scan, themes, facts)
   return {
-    dataEnd, fetchedAt: doc.fetchedAt, scan, ...recommend(scan, themes), rows, videos: live, themes, factors, takeaway,
+    dataEnd, fetchedAt: doc.fetchedAt, scan, ...rd, learnings: learn(scan, themes, facts, rd.recs), rows, videos: live, themes, factors, takeaway,
     worked, failed, medianPerK, program, all, programShare: all.ws ? program.ws / all.ws : null, funnel, unmapped, reconcile,
   }
 }
