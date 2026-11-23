@@ -7,7 +7,7 @@
  * invariants that can only fail when something upstream broke (conversions > visitors, negative counts, a day with no
  * visitors at all). Ranges are labels "<start>~<end>" (lib/plg/offline.ts).
  */
-export type Name = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators'
+export type Name = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators' | 'daily'
 export type Verdict = { ok: boolean; problems: string[]; rows: number }
 
 type Tbl = { columns: unknown[]; rows: unknown[][] }
@@ -87,8 +87,8 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       break
     }
     case 'crotrend': {
-      if (!need(['k', 'b', 'd', 'n', 'a', 'p', 'x'])) break
-      nonNum(['n', 'a', 'p', 'x']); negative(['n', 'a', 'p', 'x'])
+      if (!need(['k', 'b', 'd', 'n', 'a', 'p', 'x', 'q'])) break
+      nonNum(['n', 'a', 'p', 'x', 'q']); negative(['n', 'a', 'p', 'x', 'q'])
       const days = new Set(rows.map(r => str(r, 'b').slice(0, 10)))
       if (days.size < 150) problems.push(`trend covers only ${days.size} days`)
       const hp = new Map<string, number>()
@@ -96,6 +96,7 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       const empty = [...days].filter(d => !(hp.get(d)! > 0))
       if (empty.length > 2) problems.push(`days with no new homepage visitors: ${empty.slice(0, 5).join(', ')}`)
       if (rows.some(r => num(r, 'p') > num(r, 'a') || num(r, 'x') > num(r, 'a'))) problems.push('a day with conversions or clickers above new visitors')
+      if (rows.some(r => num(r, 'q') > num(r, 'p'))) problems.push('a day with more new customers than workspaces')
       break
     }
     case 'creators': {
@@ -110,9 +111,22 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       if (weeks.size < 8) problems.push(`only ${weeks.size} weeks of affiliate data`)
       break
     }
+    case 'daily': {
+      if (!need(['k', 'd', 'm', 'n'])) break
+      nonNum(['n']); negative(['n'])
+      const by = new Map<string, Map<string, number>>()
+      for (const r of rows) (by.get(str(r, 'm')) ?? by.set(str(r, 'm'), new Map()).get(str(r, 'm'))!).set(str(r, 'd').slice(0, 10), num(r, 'n'))
+      for (const m of ['ws', 'hq', 'vis']) if (!by.get(m)?.size) problems.push(`no daily ${m} rows`)
+      const days = by.get('ws')?.size ?? 0
+      if (days < 7) problems.push(`only ${days} days of workspaces`)
+      for (const [day, n] of by.get('hq') ?? []) if (n > (by.get('ws')?.get(day) ?? 0)) { problems.push(`more HQ than all workspaces on ${day}`); break }
+      for (const [day, n] of by.get('act') ?? []) if (n > (by.get('mat')?.get(day) ?? 0)) { problems.push(`more activated than matured workspaces on ${day}`); break }
+      if ([...(by.get('vis')?.values() ?? [])].some(n => n === 0)) problems.push('a day with no visitors')
+      break
+    }
     case 'cro': {
-      if (!need(['k', 'b', 'd', 'n', 'a', 'p', 'x', 'c', 'y', 'z'])) break
-      nonNum(['n', 'a', 'p', 'x', 'c', 'y', 'z']); negative(['n', 'a', 'p', 'x', 'c', 'y', 'z'])
+      if (!need(['k', 'b', 'd', 'n', 'a', 'p', 'x', 'c', 'y', 'z', 'q'])) break
+      nonNum(['n', 'a', 'p', 'x', 'c', 'y', 'z', 'q']); negative(['n', 'a', 'p', 'x', 'c', 'y', 'z', 'q'])
       const all = new Map(rows.filter(r => str(r, 'k') === 'all').map(r => [str(r, 'b'), r]))
       for (const l of ranges) {
         const r = all.get(l)
@@ -120,6 +134,7 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
         if (num(r, 'p') > num(r, 'a')) problems.push(`more conversions than new visitors for ${l}`)
         if (num(r, 'x') > num(r, 'a')) problems.push(`more CTA clickers than new visitors for ${l}`)
         if (num(r, 'a') > num(r, 'n')) problems.push(`more new visitors than entry sessions for ${l}`)
+        if (num(r, 'q') > num(r, 'p')) problems.push(`more new customers than workspaces for ${l}`)
       }
       if (!rows.some(r => str(r, 'k') === 'lx')) problems.push('no page type × channel rows')
       break

@@ -45,7 +45,7 @@ export type TabSources = { sources: Source[]; queries: SourceQuery[]; notes?: st
 
 const SIGMA_NOTE = 'Runs through the Clay Sigma connector (Snowflake connection 2d269863…). The Snowflake version swaps Sigma’s table ids for warehouse paths.'
 
-export function workspacesSources(sql: string | null, latest: string): TabSources {
+export function workspacesSources(sql: string | null, latest: string, daily: string | null = null): TabSources {
   return {
     sources: [
       { name: 'New workspaces, channel, quality, activation', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: '90-day window, first-touch attribution; one row per workspace. Activation = golden table within 7 days, among workspaces 7+ days old' },
@@ -58,6 +58,7 @@ export function workspacesSources(sql: string | null, latest: string): TabSource
     queries: [
       ...(sql ? [{ label: 'Dashboard query (current filters)', sql, note: SIGMA_NOTE }] : []),
       { label: 'Latest complete day', sql: latest },
+      ...(daily ? [{ label: 'Daily series for the cumulative chart’s metric picker', sql: daily, note: 'Visits are daily unique visitors summed over days, so they run above the unique-visitor tile. ' + SIGMA_NOTE }] : []),
     ],
   }
 }
@@ -99,6 +100,7 @@ export function croSources(sql: string | null, trend: string | null = null): Tab
       { name: 'Entry sessions, landing page, channel, device', where: 'DBT.PROD.MARKETING_WEBSITE_SESSIONS', what: 'First-ever session per cookie (SESSION_ASC_RANKER = 1); WORKSPACE_STATUS = no existing workspace' },
       { name: 'Bot filter', where: 'DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION', what: 'BINARY_BOT_EXCLUSION = 1 and no Clay (numeric) user id' },
       { name: 'Visitor → workspace', where: 'DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP, DBT.PROD.CUSTOMERS', what: 'Workspace created within 24 hours of the first visit; prior workspace = FIRST_SEEN before it' },
+      { name: 'New customers', where: 'DBT.PROD.CUSTOMERS', what: 'Of the workspaces created within 1 day of the first visit, those with FIRST_INVOICE_UTC set (paid at any time since); recent periods read low' },
       { name: 'CTA clicks', where: 'SEGMENT.MARKETING_WEBSITE.CONVERSION_BUTTON_CLICKED', what: 'BUTTON_TYPE Self-serve | Contact Form; ELEMENT_LOCATION → zone; 1 minute before to 24 hours after' },
     ],
     queries: [

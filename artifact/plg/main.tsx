@@ -30,7 +30,8 @@ import { DEFAULT_QUARTERS, GUARDRAILS } from '@/lib/plg/config'
 import { addDays, mondayOf, todayUTC, type ISODate } from '@/lib/plg/dates'
 import { assembleDashboard, planDashboard } from '@/lib/plg/plan'
 import { SIGMA, dashboardSql, latestDaySql, parseDashboardRows } from '@/lib/plg/sigma'
-import { covers, relabel } from '@/lib/plg/offline'
+import { OFFLINE_COMBOS, comboQs, covers, relabel } from '@/lib/plg/offline'
+import { dailySql, parseDaily, savedDailyRange } from '@/lib/plg/daily'
 import { validate, type Name as ContractName } from '@/lib/plg/contracts'
 
 /** Data contract gate (lib/plg/contracts.ts): a result that breaks it throws, so the section shows the problem instead of numbers. */
@@ -71,12 +72,12 @@ type Problem = { code: string; message: string } | null
  */
 /** `ranges`: set by the daily job's multi-view copy (lib/plg/offline.ts): the date ranges it computed. Absent = one view. */
 type Cached = { key: string; payload: unknown; storedAt: number; dataEnd: ISODate; ranges?: string[] }
-type CacheName = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators'
-const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend', 'creators']
+type CacheName = 'main' | 'social' | 'startup' | 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators' | 'daily'
+const CACHE_NAMES: CacheName[] = ['main', 'social', 'startup', 'tier4', 'tier4list', 'cro', 'crotrend', 'creators', 'daily']
 type Saved = Record<CacheName, Cached | null>
 /** Section queries with their own saved copy (each loads only on its tab). */
-type SecName = 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators'
-const noSaved = (): Saved => ({ main: null, social: null, startup: null, tier4: null, tier4list: null, cro: null, crotrend: null, creators: null })
+type SecName = 'tier4' | 'tier4list' | 'cro' | 'crotrend' | 'creators' | 'daily'
+const noSaved = (): Saved => ({ main: null, social: null, startup: null, tier4: null, tier4list: null, cro: null, crotrend: null, creators: null, daily: null })
 const CACHE_PART = 200_000   // characters per db document (db documents are capped at 256 KB)
 async function readCached(db: Db, name: string): Promise<Cached | null> {
   try {
@@ -453,25 +454,31 @@ function App() {
     [socialRanges?.cur[0], socialRanges?.cur[1], socialRanges?.prev[0], socialRanges?.prev[1], dataEnd, route.tab, offline])
   const croTrendText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? croTrendSql(dataEnd) : null), [dataEnd, route.tab, offline])
   const tier4ListText = useMemo(() => (dataEnd && route.tab === 'workspaces' && !offline ? tier4ListSql(dataEnd) : null), [dataEnd, route.tab, offline])
+  // Daily series for the cumulative chart's metric picker: this view's current and previous ranges.
+  const dailyText = useMemo(() => {
+    if (!plan || !dataEnd || route.tab !== 'workspaces' || offline) return null
+    const [lo, hi] = savedDailyRange([plan])
+    return dailySql(lo, hi, dataEnd)
+  }, [plan, dataEnd, route.tab, offline])
   const creatorsText = useMemo(() => (dataEnd && route.tab === 'insights' && !offline ? creatorsSql(dataEnd) : null), [dataEnd, route.tab, offline])
   const [secRes, setSecRes] = useState<Partial<Record<SecName, { key: string; payload: unknown }>>>({})
   const [secProblem, setSecProblem] = useState<Partial<Record<SecName, Problem>>>({})
   useEffect(() => {
     if (!mcp) return
-    const unsubs = ([['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText], ['crotrend', croTrendText], ['creators', creatorsText]] as const).filter(([, q]) => q).map(([name, q]) =>
+    const unsubs = ([['tier4', tier4Text], ['tier4list', tier4ListText], ['cro', croText], ['crotrend', croTrendText], ['creators', creatorsText], ['daily', dailyText]] as const).filter(([, q]) => q).map(([name, q]) =>
       mcp.watchTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: q } }, (ev: any) => {
         if (ev.type === 'error') { setSecProblem(x => ({ ...x, [name]: { code: ev.error?.code ?? 'upstream_error', message: ev.error?.message ?? '' } })); return }
         setSecProblem(x => ({ ...x, [name]: null }))
         setSecRes(x => ({ ...x, [name]: { key: q!, payload: ev.result?.payload } }))
       }, { cache: CACHE }))
     return () => unsubs.forEach(u => u())
-  }, [mcp, tier4Text, tier4ListText, croText, croTrendText, creatorsText])
+  }, [mcp, tier4Text, tier4ListText, croText, croTrendText, creatorsText, dailyText])
   /** Section data: live, or the saved copy when it covers these dates (a single-view copy only covers the default view). */
   const pick = (name: SecName, text: string | null): { payload: unknown; stale: boolean } | { uncovered: true } | null => {
     if (offline) {
       const c = saved?.[name]
       if (!c) return null
-      const ok = name === 'tier4list' || name === 'crotrend' || name === 'creators' || (c.ranges ? !!secRanges && covers(c.ranges, { cur: secRanges[0], prev: secRanges[1] }) : offlineQs === '')
+      const ok = name === 'tier4list' || name === 'crotrend' || name === 'creators' || name === 'daily' || (c.ranges ? !!secRanges && covers(c.ranges, { cur: secRanges[0], prev: secRanges[1] }) : offlineQs === '')
       return ok ? { payload: c.payload, stale: false } : { uncovered: true }
     }
     const r = secRes[name]
@@ -500,6 +507,12 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secRes.tier4, secRes.tier4list, saved?.tier4, saved?.tier4list, offline, tier4Text, tier4ListText, portfolio, socialRanges?.cur[0], socialRanges?.prev[0], socialRanges?.cur[1], socialRanges?.prev[1]])
 
+  const dailyView = useMemo(() => {
+    const r = pick('daily', dailyText)
+    if (!r || 'uncovered' in r) return null
+    try { return parseDaily(guard('daily', r.payload)) } catch { return null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secRes.daily, saved?.daily, offline, dailyText])
   const creatorsView = useMemo(() => {
     const r = pick('creators', creatorsText)
     if (!r || !creatorsDoc || !effEnd) return null
@@ -517,7 +530,7 @@ function App() {
     if (!db || saved === undefined || !dataEnd || !isDefault) return
     const live: [CacheName, { key: string; payload: unknown } | null | undefined, string | null][] = [
       ['social', socialResult, socialSqlText], ['startup', startupResult, startupSqlText],
-      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText], ['creators', secRes.creators, creatorsText]]
+      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText], ['creators', secRes.creators, creatorsText], ['daily', secRes.daily, dailyText]]
     for (const [name, r, text] of live) {
       if (!r || r.key !== text) continue
       if (keepSaved(name)) continue
@@ -528,7 +541,7 @@ function App() {
       const c: Cached = { key: r.key, payload: r.payload, storedAt: Date.now(), dataEnd }
       writeCached(db, name, c).then(ok => { if (ok) { setCanWrite(true); setSaved(s => ({ ...(s ?? noSaved()), [name]: c })) } })
     }
-  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, secRes, tier4Text, tier4ListText, croText, croTrendText, creatorsText, saved])
+  }, [db, dataEnd, isDefault, socialResult, startupResult, socialSqlText, startupSqlText, secRes, tier4Text, tier4ListText, croText, croTrendText, creatorsText, dailyText, saved])
   useEffect(() => {
     if (!db || !mcp || !dataEnd || !isDefault || !socialRanges || yt == null || saved === undefined) return
     let live = true
@@ -548,6 +561,10 @@ function App() {
       if (due(saved.cro ?? null) && route.tab !== 'workspaces' && !keepSaved('cro')) jobs.push(['cro', croSql(sr, dataEnd)])
       if (due(saved.crotrend ?? null) && route.tab !== 'workspaces' && !keepSaved('crotrend')) jobs.push(['crotrend', croTrendSql(dataEnd)])
       if (due(saved.creators ?? null) && route.tab !== 'insights' && !keepSaved('creators')) jobs.push(['creators', creatorsSql(dataEnd)])
+      if (due(saved.daily ?? null) && !keepSaved('daily')) {
+        const [lo, hi] = savedDailyRange(OFFLINE_COMBOS.map(c => planDashboard(new URLSearchParams(comboQs(c.preset, c.compare)), dataEnd, savedQuarters)))
+        jobs.push(['daily', dailySql(lo, hi, dataEnd)])
+      }
       for (const [name, text] of jobs) {
         try {
           const res = await mcp.callTool(SIGMA.server, 'query', { query: { type: 'connection', connectionId: SIGMA.connectionId, sql: text } })
@@ -567,7 +584,7 @@ function App() {
     const sr = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
     if (route.tab === 'social') return socialSources(sr && effEnd && yt ? socialSql({ ...sr, tagged: taggedVideos(yt, effEnd), fallbacks: channelFallbacks(yt, effEnd) }) : null)
     if (route.tab === 'startup') return startupSources(sr ? startupSql(sr) : null)
-    const ws = workspacesSources(sql, latestDaySql(todayUTC()))
+    const ws = workspacesSources(sql, latestDaySql(todayUTC()), plan && effEnd ? dailySql(...savedDailyRange([plan]), effEnd) : null)
     const t4 = tier4Sources(sr ? tier4Sql([sr.cur, sr.prev]) : null, effEnd ? tier4ListSql(effEnd) : null)
     const cr = croSources(sr && effEnd ? croSql([sr.cur, sr.prev], effEnd) : null, effEnd ? croTrendSql(effEnd) : null)
     return { sources: [...ws.sources, ...cr.sources, ...t4.sources], queries: [...ws.queries, ...cr.queries, ...t4.queries], notes: [...(ws.notes ?? []), ...(cr.notes ?? []), ...(t4.notes ?? [])] }
@@ -632,6 +649,7 @@ function App() {
   return (
     <DashboardView
       insights={insightsPane}
+      daily={dailyView}
       sources={<SourcesPanel key={route.tab} src={sourcesFor} />}
       tier4={tier4Pane}
       cro={croPane}

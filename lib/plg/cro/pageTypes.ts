@@ -3,8 +3,9 @@
  * consolidated where groups were too small to read on their own (sizes checked on 28 days of new-visitor entries):
  *
  *   - Pricing is split from Conversion pages: it's a key page with its own intent.
- *   - Use cases and Solutions merge; Glossary, Tools, Templates, Claybooks, Number of Employees and Data Tests merge
- *     into one SEO resources group (each was under ~2% of entries, some under 0.1%).
+ *   - Use cases and Solutions merge; Glossary, Templates, Claybooks, Number of Employees and Data Tests merge into one
+ *     SEO resources group (each was under ~2% of entries, some under 0.1%).
+ *   - Tools (/tools, /all-tools: the free tools pages) is its own type, at the growth team's request.
  *   - Added: newer product pages (/mcp, /agent*, /workflows, /functions, /inbound-sdr, signal catalogue), the Ploy
  *     landing-page sites (ploy-*), the signup / login / university / guides sites, a Not found (404) group (a
  *     fixable leak) and a Company & community group (about, press, partners, legal, community, FAQ, experts).
@@ -14,7 +15,7 @@
  */
 export type PageType =
   | 'Homepage' | 'Pricing' | 'Conversion pages' | 'Product' | 'Integrations' | 'Solutions & use cases' | 'Customer stories'
-  | 'Blog' | 'Dossier' | 'Guides' | 'University' | 'SEO resources' | 'Webinars & livestreams' | 'Landing pages'
+  | 'Blog' | 'Dossier' | 'Guides' | 'University' | 'Tools' | 'SEO resources' | 'Webinars & livestreams' | 'Landing pages'
   | 'Careers' | 'Company & community' | 'Not found (404)' | 'Other'
 
 type Rule = { type: PageType; sites?: string[]; sitePrefix?: string; eq?: string[]; like?: string[] }
@@ -37,7 +38,8 @@ export const PAGE_RULES: Rule[] = [
   { type: 'Blog', like: ['/blog%'] },
   { type: 'Dossier', like: ['/dossier%'] },
   { type: 'Guides', like: ['/guides%'] },
-  { type: 'SEO resources', like: ['/glossary%', '/tools%', '/all-tools%', '/templates%', '/claybooks%', '/number-of-employees%', '/data-tests%'] },
+  { type: 'Tools', like: ['/tools%', '/all-tools%'] },
+  { type: 'SEO resources', like: ['/glossary%', '/templates%', '/claybooks%', '/number-of-employees%', '/data-tests%'] },
   { type: 'Webinars & livestreams', like: ['/webinar%', '/livestreams%'] },
   { type: 'Landing pages', like: ['/lp/%'] },
   { type: 'Careers', like: ['/jobs%', '/careers%', '/job-board%'] },
@@ -46,7 +48,7 @@ export const PAGE_RULES: Rule[] = [
     '/clay-campus%', '/community-scholarship%', '/series-%', '/gift%', '/the-wheel%', '/faq%', '/experts%'] },
 ]
 export const PAGE_TYPES: PageType[] = ['Homepage', 'Pricing', 'Conversion pages', 'Product', 'Integrations', 'Solutions & use cases',
-  'Customer stories', 'Blog', 'Dossier', 'Guides', 'University', 'SEO resources', 'Webinars & livestreams', 'Landing pages', 'Careers',
+  'Customer stories', 'Blog', 'Dossier', 'Guides', 'University', 'Tools', 'SEO resources', 'Webinars & livestreams', 'Landing pages', 'Careers',
   'Company & community', 'Not found (404)', 'Other']
 
 const q = (s: string) => `'${s.replace(/'/g, "''")}'`

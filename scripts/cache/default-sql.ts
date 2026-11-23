@@ -16,6 +16,7 @@ import { startupSql } from '@/lib/plg/startup/sql'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
 import { croSql, croTrendSql } from '@/lib/plg/cro/sql'
 import { creatorsSql } from '@/lib/plg/creators/sql'
+import { dailySql, savedDailyRange } from '@/lib/plg/daily'
 import { OFFLINE_COMBOS, comboQs, rangeLabel, savedRanges } from '@/lib/plg/offline'
 
 export { validate } from '@/lib/plg/contracts'
@@ -58,5 +59,7 @@ export function defaults(dataEnd: string, ytDir: string) {
     crotrend: croTrendSql(dataEnd),
     // Not range-dependent: creator program links per week, Apr 6 (at most 39 weeks back) to dataEnd.
     creators: creatorsSql(dataEnd),
+    // Not range-dependent: every day any preset × comparison shows, for the cumulative chart's metric picker.
+    daily: dailySql(...savedDailyRange(plans), dataEnd),
   }
 }

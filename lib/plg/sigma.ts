@@ -121,7 +121,7 @@ GROUP BY "day", CASE WHEN "ch" = 'unattributable' THEN 'unattributable' ELSE '' 
 ${[...summaryParts, ...domainParts, ...extraParts, ...sotParts, dailyPart].join('\nUNION ALL')}`
 }
 
-function dashboardCtes(lo: ISODate, hi: ISODate, extra = ''): string {
+export function dashboardCtes(lo: ISODate, hi: ISODate, extra = ''): string {
   return `WITH ws AS (
   SELECT "WORKSPACE_ID" AS "wid",
          CAST("WORKSPACE_CREATED_AT_UTC" AS date) AS "day",

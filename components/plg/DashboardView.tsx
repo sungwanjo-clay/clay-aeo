@@ -16,6 +16,7 @@ import { Eyebrow, Pill, Segmented, T } from './ui'
 import StickyFilters from './StickyFilters'
 import Boundary from './Boundary'
 import { useRef } from 'react'
+import type { DailySeries } from '@/lib/plg/daily'
 
 export type DashboardTab = 'workspaces' | 'social' | 'startup' | 'portfolio' | 'insights'
 const TABS = [
@@ -114,7 +115,7 @@ function HealthBanner({ h }: { h: Health | null | undefined }) {
   )
 }
 
-export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, insights, tier4, cro }: {
+export default function DashboardView({ sources, health, v, loading, error, notice, onChange, refreshedAt, sourceNote, tab = 'workspaces', onTab, social, socialSubtitle, startup, portfolio, insights, tier4, cro, daily }: {
   /** Collapsed "Sources and SQL" panel for the active tab, shown at the bottom. */
   sources?: React.ReactNode
   /** Daily health check verdict; undefined while loading. */
@@ -139,6 +140,8 @@ export default function DashboardView({ sources, health, v, loading, error, noti
   startup?: React.ReactNode
   /** Rendered when tab === 'portfolio'. */
   portfolio?: React.ReactNode
+  /** Daily series for the cumulative chart's metric picker (null until loaded). */
+  daily?: DailySeries | null
   /** Rendered when tab === 'insights' (Content insights: creator program). */
   insights?: React.ReactNode
   /** Workspaces tab section: Tier 4 SLG hand-raisers. */
@@ -202,7 +205,7 @@ export default function DashboardView({ sources, health, v, loading, error, noti
         <div id="ws-overview" className="flex flex-col gap-6 sm:gap-8 scroll-mt-20">
           <Boundary name="Headline tiles" resetKey={v}><KpiTiles v={v} /></Boundary>
           <div className="grid gap-6 sm:gap-8 grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <Boundary name="Cumulative chart" resetKey={v}><CumulativeChart v={v} onZoom={(start, end) => update({ preset: null, start, end })} /></Boundary>
+            <Boundary name="Cumulative chart" resetKey={v}><CumulativeChart v={v} daily={daily} onZoom={(start, end) => update({ preset: null, start, end })} /></Boundary>
             <Boundary name="Pacing by tier" resetKey={v}><TierPacing v={v} /></Boundary>
           </div>
         </div>

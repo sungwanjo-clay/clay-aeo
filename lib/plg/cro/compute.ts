@@ -10,22 +10,23 @@ import { addDays, type ISODate } from '../dates'
 import { b, chg, code, driverPara, ratePara, type Block, type Insight, type Item, type Para } from '../insights'
 import { PAGE_TYPES } from './pageTypes'
 
-type Row = { k: string; b: string; d: string; n: number; a: number; p: number; x: number; c: number; y: number; z: number }
+type Row = { k: string; b: string; d: string; n: number; a: number; p: number; x: number; c: number; y: number; z: number; q: number }
 export function parseCroRows(payload: unknown): Row[] {
   const t = payload as { columns: string[]; rows: unknown[][] }
   if (!t || !Array.isArray(t.columns) || !Array.isArray(t.rows)) throw new Error('Unexpected Sigma response shape')
   const ix = Object.fromEntries(t.columns.map((c, i) => [String(c).toLowerCase(), i]))
   const s = (r: unknown[], c: string) => String(r[ix[c]] ?? '')
   const n = (r: unknown[], c: string) => Number(r[ix[c]] ?? 0) || 0
-  return t.rows.map(r => ({ k: s(r, 'k'), b: s(r, 'b'), d: s(r, 'd'), n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), x: n(r, 'x'), c: n(r, 'c'), y: n(r, 'y'), z: n(r, 'z') }))
+  return t.rows.map(r => ({ k: s(r, 'k'), b: s(r, 'b'), d: s(r, 'd'), n: n(r, 'n'), a: n(r, 'a'), p: n(r, 'p'), x: n(r, 'x'), c: n(r, 'c'), y: n(r, 'y'), z: n(r, 'z'), q: n(r, 'q') }))
 }
 
 /** One segment's entry funnel for a period. */
-export type Seg = { entries: number; newVisitors: number; converted: number; clickers: number; demo: number; selfServe: number; bots: number }
-const zero = (): Seg => ({ entries: 0, newVisitors: 0, converted: 0, clickers: 0, demo: 0, selfServe: 0, bots: 0 })
-const seg = (r?: Row): Seg => ({ entries: r?.n ?? 0, newVisitors: r?.a ?? 0, converted: r?.p ?? 0, clickers: r?.x ?? 0, demo: r?.c ?? 0, selfServe: r?.z ?? 0, bots: r?.y ?? 0 })
+/** customers: of the converted, workspaces that have paid since (first invoice at any time up to now). */
+export type Seg = { entries: number; newVisitors: number; converted: number; customers: number; clickers: number; demo: number; selfServe: number; bots: number }
+const zero = (): Seg => ({ entries: 0, newVisitors: 0, converted: 0, customers: 0, clickers: 0, demo: 0, selfServe: 0, bots: 0 })
+const seg = (r?: Row): Seg => ({ entries: r?.n ?? 0, newVisitors: r?.a ?? 0, converted: r?.p ?? 0, customers: r?.q ?? 0, clickers: r?.x ?? 0, demo: r?.c ?? 0, selfServe: r?.z ?? 0, bots: r?.y ?? 0 })
 const plus = (a: Seg, x: Seg): Seg => ({ entries: a.entries + x.entries, newVisitors: a.newVisitors + x.newVisitors, converted: a.converted + x.converted,
-  clickers: a.clickers + x.clickers, demo: a.demo + x.demo, selfServe: a.selfServe + x.selfServe, bots: a.bots + x.bots })
+  customers: a.customers + x.customers, clickers: a.clickers + x.clickers, demo: a.demo + x.demo, selfServe: a.selfServe + x.selfServe, bots: a.bots + x.bots })
 export const rate = (n: number, d: number) => (d > 0 ? n / d : null)
 export const convRate = (s: Seg) => rate(s.converted, s.newVisitors)
 export const ctr = (s: Seg) => rate(s.clickers, s.newVisitors)
