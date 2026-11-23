@@ -530,7 +530,8 @@ function App() {
     if (!db || saved === undefined || !dataEnd || !isDefault) return
     const live: [CacheName, { key: string; payload: unknown } | null | undefined, string | null][] = [
       ['social', socialResult, socialSqlText], ['startup', startupResult, startupSqlText],
-      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText], ['creators', secRes.creators, creatorsText], ['daily', secRes.daily, dailyText]]
+      ['tier4', secRes.tier4, tier4Text], ['tier4list', secRes.tier4list, tier4ListText], ['cro', secRes.cro, croText], ['crotrend', secRes.crotrend, croTrendText], ['creators', secRes.creators, creatorsText]]
+    // Not 'daily': a live view covers only its own dates, and the saved copy must cover every preset (the warm job writes it).
     for (const [name, r, text] of live) {
       if (!r || r.key !== text) continue
       if (keepSaved(name)) continue
