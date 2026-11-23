@@ -89,6 +89,19 @@ export function buildCro(payload: unknown, trendPayload: unknown | null, dataEnd
   }
 }
 
+/** Entry-page label: the SQL prefixes paths on other sites with the site id; show where the page lives instead. */
+export function pathLabel(type: string, key: string): string {
+  if (!key) return '/'
+  const i = key.indexOf(':')
+  if (i < 0 || key.startsWith('/')) return key
+  const site = key.slice(0, i), path = key.slice(i + 1) || '/'
+  if (type === 'Marketplace') return `marketplace.clay.com${path === '/' ? '' : path}`
+  if (site === 'ploy-guides') return `clay.com${path}`
+  if (site === 'university') return `university.clay.com${path === '/' ? '' : path}`
+  if (site === 'signup' || site === 'login') return `app.clay.com/${site}${path === '/' ? '' : path}`
+  return key
+}
+
 /** Sum cells over the selected page types, grouped by their key (channel, device or path). */
 function rollup(cs: Cell[], types: Set<string> | null, label = (k: string) => k): SegRow[] {
   const m = new Map<string, SegRow>()
@@ -123,7 +136,7 @@ export function cut(v: CroData, selected: string[] | null): CroCut {
     zm.set(z.zone, x)
   }
   if (!types) for (const c of v.cta) { const x = zm.get(c.zone); if (x) { if (c.motion === 'demo') x.demo! += c.cur.clicks; else if (c.motion === 'self_serve') x.ss! += c.cur.clicks } }
-  const paths = v.paths.filter(p => !types || types.has(p.type)).map(p => ({ id: `${p.type}|${p.key}`, label: p.key || '/', type: p.type, cur: p.cur, prev: p.prev }))
+  const paths = v.paths.filter(p => !types || types.has(p.type)).map(p => ({ id: `${p.type}|${p.key}`, label: pathLabel(p.type, p.key), type: p.type, cur: p.cur, prev: p.prev }))
     .sort((a, c) => c.cur.newVisitors - a.cur.newVisitors)
   return { total, landing, channels, devices, paths, zones: [...zm.values()].sort((a, c) => c.cur.clicks - a.cur.clicks) }
 }
@@ -140,7 +153,11 @@ export function trend(v: CroData, types: string[], grain: 'day' | 'week'): { k: 
     g[r.type] = plus(g[r.type] ?? zero(), r.s)
     m.set(k, g)
   }
-  return [...m.entries()].sort(([a], [c]) => a.localeCompare(c)).map(([k, byType]) => ({ k, byType }))
+  // Weekly: only whole weeks, so a week cut by the window's start or the data end doesn't plot as a dip.
+  const days = new Map<string, Set<string>>()
+  if (grain === 'week') for (const r of v.days) if (r.day <= v.complete) { const k = monday(r.day); (days.get(k) ?? days.set(k, new Set()).get(k)!).add(r.day) }
+  return [...m.entries()].filter(([k]) => grain === 'day' || (days.get(k)?.size ?? 0) === 7)
+    .sort(([a], [c]) => a.localeCompare(c)).map(([k, byType]) => ({ k, byType }))
 }
 
 /** What moved for Conversion (lib/plg/insights.ts rules), for the selection. */
