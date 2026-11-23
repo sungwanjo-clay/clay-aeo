@@ -112,16 +112,16 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       break
     }
     case 'daily': {
-      if (!need(['k', 'd', 'm', 'n'])) break
-      nonNum(['n']); negative(['n'])
-      const by = new Map<string, Map<string, number>>()
-      for (const r of rows) (by.get(str(r, 'm')) ?? by.set(str(r, 'm'), new Map()).get(str(r, 'm'))!).set(str(r, 'd').slice(0, 10), num(r, 'n'))
-      for (const m of ['ws', 'hq', 'vis']) if (!by.get(m)?.size) problems.push(`no daily ${m} rows`)
-      const days = by.get('ws')?.size ?? 0
-      if (days < 7) problems.push(`only ${days} days of workspaces`)
-      for (const [day, n] of by.get('hq') ?? []) if (n > (by.get('ws')?.get(day) ?? 0)) { problems.push(`more HQ than all workspaces on ${day}`); break }
-      for (const [day, n] of by.get('act') ?? []) if (n > (by.get('mat')?.get(day) ?? 0)) { problems.push(`more activated than matured workspaces on ${day}`); break }
-      if ([...(by.get('vis')?.values() ?? [])].some(n => n === 0)) problems.push('a day with no visitors')
+      const ms = ['ws', 'hq', 'np', 't13', 't13hq', 'act', 'mat', 'vis', 'paid']
+      if (!need(['k', 'd', ...ms])) break
+      nonNum(ms); negative(ms)
+      const w = rows.filter(r => str(r, 'k') === 'w'), v = rows.filter(r => str(r, 'k') === 'v')
+      if (w.length < 7) problems.push(`only ${w.length} days of workspaces`)
+      if (!v.length) problems.push('no daily visitor rows')
+      const bad = w.find(r => num(r, 'hq') > num(r, 'np') || num(r, 'np') > num(r, 'ws') || num(r, 't13hq') > num(r, 't13') || num(r, 't13') > num(r, 'ws') || num(r, 'act') > num(r, 'mat') || num(r, 'mat') > num(r, 'ws'))
+      if (bad) problems.push(`impossible counts on ${str(bad, 'd').slice(0, 10)} (a subset above its whole)`)
+      if (w.length > 20 && w.every(r => num(r, 'ws') <= 1)) problems.push('workspaces are 0 or 1 on every day')
+      if (v.some(r => num(r, 'vis') === 0)) problems.push('a day with no visitors')
       break
     }
     case 'cro': {

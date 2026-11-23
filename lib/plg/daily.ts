@@ -3,7 +3,7 @@
  * definitions as the headline tiles (lib/plg/sigma.ts): the dashboard's base CTE for workspaces, the MBR visitor and
  * paid rules. Kept out of the main query, which is close to Sigma's 10,000-row limit.
  *
- * Rows (k = 'dx', d = day, m = metric, n = count):
+ * Rows: k = 'w' (workspaces), 'v' (visitors) or 'p' (paid); d = day; one column per metric (zero where it doesn't apply):
  *   ws     new workspaces                hq     high-quality workspaces          np     non-personal (high + low quality)
  *   t13    Tier 1–3 workspaces            t13hq  Tier 1–3 high-quality workspaces
  *   act    activated within 7 days        mat    matured (created 7+ days before the data end): activation's base
@@ -23,20 +23,20 @@ const d = (x: ISODate) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) throw new Error(
 
 export function dailySql(lo: ISODate, hi: ISODate, dataEnd: ISODate): string {
   const matured = `"day" <= DATE_ADD('day', -${ACTIVATION_WINDOW_DAYS}, ${d(dataEnd)})`
-  const ws = (m: string, cond: string) => `SELECT 'dx' AS "k", CAST("day" AS string) AS "d", '${m}' AS "m", SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END) AS "n" FROM base GROUP BY "day"`
+  // One wide row per day, then visitors and paid. Sigma folds SUM(CASE WHEN <condition on the grouped day> THEN 1 …) into
+  // the constant 1, so a per-day condition is applied outside the aggregate (matured) and constant cases are avoided.
   return `${dashboardCtes(lo, hi)}
-${ws('ws', 'TRUE')}
-UNION ALL ${ws('hq', HQ)}
-UNION ALL ${ws('np', NP)}
-UNION ALL ${ws('t13', T13)}
-UNION ALL ${ws('t13hq', `${HQ} AND ${T13}`)}
-UNION ALL SELECT 'dx', CAST("day" AS string), 'act', SUM(CASE WHEN ${matured} THEN "act" ELSE 0 END) FROM base GROUP BY "day"
-UNION ALL ${ws('mat', matured)}
-UNION ALL SELECT 'dx', CAST(CAST("TIMESTAMP_UTC" AS date) AS string), 'vis', COUNT(DISTINCT "ANONYMOUS_ID") FROM ${t(SIGMA.pageviews)}
+SELECT 'w' AS "k", CAST("day" AS string) AS "d", COUNT(*) AS "ws",
+       SUM(CASE WHEN ${HQ} THEN 1 ELSE 0 END) AS "hq", SUM(CASE WHEN ${NP} THEN 1 ELSE 0 END) AS "np",
+       SUM(CASE WHEN ${T13} THEN 1 ELSE 0 END) AS "t13", SUM(CASE WHEN ${HQ} AND ${T13} THEN 1 ELSE 0 END) AS "t13hq",
+       SUM(CASE WHEN ${matured} THEN "act" ELSE 0 END) AS "act", CASE WHEN ${matured} THEN COUNT(*) ELSE 0 END AS "mat",
+       0 AS "vis", 0 AS "paid"
+FROM base GROUP BY "day"
+UNION ALL SELECT 'v', CAST(CAST("TIMESTAMP_UTC" AS date) AS string), 0, 0, 0, 0, 0, 0, 0, COUNT(DISTINCT "ANONYMOUS_ID"), 0 FROM ${t(SIGMA.pageviews)}
   WHERE "SITE" IN ('marketing_website', 'signup') AND CAST("TIMESTAMP_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
     AND COALESCE("TIMEZONE", '') NOT LIKE 'Asia/%' AND COALESCE("TIMEZONE", '') NOT IN ('UTC', 'Etc/UTC')
   GROUP BY CAST("TIMESTAMP_UTC" AS date)
-UNION ALL SELECT 'dx', CAST(CAST("FIRST_INVOICE_UTC" AS date) AS string), 'paid', COUNT(DISTINCT "WORKSPACE_ID") FROM ${t(SIGMA.customers)}
+UNION ALL SELECT 'p', CAST(CAST("FIRST_INVOICE_UTC" AS date) AS string), 0, 0, 0, 0, 0, 0, 0, 0, COUNT(DISTINCT "WORKSPACE_ID") FROM ${t(SIGMA.customers)}
   WHERE "FIRST_GTM_MOTION" = 'PLG' AND CAST("FIRST_INVOICE_UTC" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
   GROUP BY CAST("FIRST_INVOICE_UTC" AS date)`
 }
@@ -44,10 +44,12 @@ UNION ALL SELECT 'dx', CAST(CAST("FIRST_INVOICE_UTC" AS date) AS string), 'paid'
 export type DailySeries = Record<DailyMetric, Map<string, number>>
 export function parseDaily(payload: unknown): DailySeries {
   const p = payload as { columns: string[]; rows: unknown[][] }
-  const ix = (c: string) => p.columns.map(x => String(x).toLowerCase()).indexOf(c)
-  const [k, dd, m, n] = ['k', 'd', 'm', 'n'].map(ix)
+  const cols = p.columns.map(x => String(x).toLowerCase()), dd = cols.indexOf('d')
   const out = Object.fromEntries(DAILY_METRICS.map(x => [x, new Map<string, number>()])) as DailySeries
-  for (const r of p.rows) if (r[k] === 'dx' && out[r[m] as DailyMetric]) out[r[m] as DailyMetric].set(String(r[dd]).slice(0, 10), Number(r[n]) || 0)
+  for (const r of p.rows) {
+    const day = String(r[dd]).slice(0, 10)
+    for (const m of DAILY_METRICS) { const i = cols.indexOf(m), n = Number(r[i]) || 0; if (n) out[m].set(day, (out[m].get(day) ?? 0) + n) }
+  }
   return out
 }
 
