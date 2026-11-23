@@ -109,12 +109,13 @@ for (const qs of ['', 'preset=last28', 'preset=qtd&compare=previous_year']) {
     checks++; if (v.all.cur.converted > v.all.cur.newVisitors || v.all.cur.clickers > v.all.cur.newVisitors) { fails++; console.log('FAIL [cro] conversions or clickers above new visitors') }
     checks++; if (sum(all.paths.map(p => p.cur.newVisitors)) > v.all.cur.newVisitors) { fails++; console.log('FAIL [cro] entry pages exceed all new visitors') }
     if (v.days) {
-      checks++; if (v.days.some(d => d.s.converted > d.s.newVisitors || d.s.clickers > d.s.newVisitors)) { fails++; console.log('FAIL [cro] trend day with conversions above visitors') }
+      // Workspaces come from the attribution model by created day, so they aren't bounded by that day's new visitors.
+      checks++; if (v.days.some(d => d.s.clickers > d.s.newVisitors)) { fails++; console.log('FAIL [cro] trend day with CTA clickers above visitors') }
       // Entry pages classify into the same types in TypeScript as in SQL.
       const tr = trend(v, ['Homepage'], 'day'); checks++; if (!tr.length) { fails++; console.log('FAIL [cro] empty homepage trend') }
     }
     // Only clay.com paths (other sites are prefixed site:path and the old copies didn't prefix, so skip type Other there).
-    for (const p of all.paths) { if (p.type && p.type !== 'Other' && p.label.startsWith('/') && !p.label.startsWith('/fr')) { checks++; const t = pageTypeOf('marketing_website', p.label); if (t !== p.type && p.type !== 'Conversion pages' && p.type !== 'Landing pages' && p.type !== 'University' && p.type !== 'Guides') { fails++; console.log(`FAIL [cro] ${p.label}: SQL type ${p.type} vs TS ${t}`) } } }
+    for (const p of all.paths) { if (p.type && p.type !== 'Other' && p.label.startsWith('/') && !p.label.startsWith('/fr')) { checks++; const t = pageTypeOf('marketing_website', p.label); if (t !== p.type && p.type !== 'Conversion pages' && p.type !== 'Marketplace' && p.type !== 'University' && p.type !== 'Guides') { fails++; console.log(`FAIL [cro] ${p.label}: SQL type ${p.type} vs TS ${t}`) } } }
   }
   if (existsSync(`${cacheDir}/tier4.json`)) {
     const t = buildTier4(relabel(cached('tier4').payload, sr), existsSync(`${cacheDir}/tier4list.json`) ? cached('tier4list').payload : null)
