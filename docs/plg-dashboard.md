@@ -64,7 +64,7 @@ No Vercel, Supabase or Snowflake credentials needed. The page queries Snowflake 
 ## Headline tiles (MBR definitions)
 
 1. **New workspaces:** all new workspaces, compared with the previous period.
-2. **Tier 1–3 workspaces:** HQ (non-personal: high quality) workspaces at Salesforce Tier 1–3 accounts, compared with the previous period. Also shown against the Q4 Tier 1 + 2 + 3 HQ goal, prorated to the selected dates.
+2. **Tier 1–3 workspaces:** new workspaces at Salesforce Tier 1–3 accounts, all quality (personal emails excluded, the quarter-to-date tile's rule), compared with the previous period. Also shown against the Q4 Tier 1 + 2 + 3 goal prorated to the selected dates. That goal is set on HQ workspaces, so this tile (like the QTD tile) reads above it; HQ pacing by tier stays in the tier pacing card.
 3. **Non-personal share:** non-personal is high and low quality combined; personal is shown alongside it. Both counts and shares are compared with the previous period. The remainder (spam, not yet scored) is in neither.
 4. **Conversion rates:** each is compared with the previous period, in percentage points.
    - **Visitor → HQ trial user** = HQ new workspaces ÷ unique visitors. Unique visitors are distinct `ANONYMOUS_ID` on the marketing site plus signup pages in MARKETING_PAGEVIEWS, excluding UTC and Asia/* timezones.
