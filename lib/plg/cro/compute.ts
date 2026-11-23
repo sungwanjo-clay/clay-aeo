@@ -1,7 +1,8 @@
 /**
  * Conversion view model. Pure: Sigma rows (sql.ts), already relabelled to cur / prev for the range rows, in;
  * render-ready numbers out. "New visitors" are first-ever sessions that aren't likely bots and had no workspace;
- * conversion and CTA clicks are within 1 day of that first visit.
+ * workspaces and new customers are the blended attribution model's (unbounded window, first touch), by the landing
+ * page of their attributed session; CTA clicks are within 1 day of the first visit.
  *
  * Every cut is kept by page type, so the section's page-type filter applies to all of it: tiles, channels, devices,
  * entry pages, CTA zones and the trend (`cut(view, types)`).
@@ -47,7 +48,7 @@ export type CroData = {
   cta: { zone: string; motion: string; cur: { clicks: number; clickers: number }; prev: { clicks: number; clickers: number } }[]
   /** Daily trend by page type (separate query; null until it loads). */
   days: DayRow[] | null
-  /** Last day whose 1-day conversion window has closed. */
+  /** Last day whose CTA-click window (1 day after the visit) has closed. */
   complete: ISODate
 }
 
@@ -149,11 +150,11 @@ export function croInsight(c: CroCut): Insight {
   const conv = (rows: SegRow[]): Item[] => rows.map(r => ({ label: r.label, cur: r.cur.converted, prev: r.prev.converted }))
   const visits = (rows: SegRow[]): Item[] => rows.map(r => ({ label: r.label, cur: r.cur.newVisitors, prev: r.prev.newVisitors }))
   const drivers: (Para | Block)[] = []
-  const d1 = driverPara('Workspaces from new visitors (within 1 day)', 'workspaces', { cur: cur.converted, prev: prev.converted }, conv(c.landing), { minVolume: 10, noun: 'page types' })
+  const d1 = driverPara('Workspaces (attribution model)', 'workspaces', { cur: cur.converted, prev: prev.converted }, conv(c.landing), { minVolume: 10, noun: 'page types' })
   if (d1) drivers.push(d1)
   const d2 = driverPara('New visitors', 'visitors', { cur: cur.newVisitors, prev: prev.newVisitors }, visits(c.landing), { minVolume: 100, noun: 'page types' })
   if (d2) drivers.push(d2)
-  const r1 = ratePara('Visit → workspace (1 day)', { cur: cur.converted, prev: prev.converted, noun: 'workspaces' }, { cur: cur.newVisitors, prev: prev.newVisitors, noun: 'new visitors' }, 500)
+  const r1 = ratePara('Workspaces per new visitor', { cur: cur.converted, prev: prev.converted, noun: 'workspaces' }, { cur: cur.newVisitors, prev: prev.newVisitors, noun: 'new visitors' }, 500)
   const r2 = ratePara('CTA click-through', { cur: cur.clickers, prev: prev.clickers, noun: 'clickers' }, { cur: cur.newVisitors, prev: prev.newVisitors, noun: 'new visitors' }, 500)
   for (const r of [r1, r2]) if (r) drivers.push(r)
   const ds = demoShare(cur), dps = demoShare(prev)
@@ -171,7 +172,7 @@ export function croInsight(c: CroCut): Insight {
   if (bs != null && bps != null && Math.abs(bs - bps) >= 0.1)
     anomalies.push([`Likely-bot share of entry sessions moved `, chg((bs - bps) * 100, 'pp', false), ` to ${(bs * 100).toFixed(0)}%. Bots are excluded from new visitors, but a swing this size usually means some unflagged bot traffic is still in the denominator.`])
   for (const r of c.devices) if (r.cur.newVisitors >= 200 && r.cur.converted === 0 && anomalies.length < 3)
-    anomalies.push([code(r.label), `: ${r.cur.newVisitors.toLocaleString('en-US')} new visitors and no workspaces within a day. Either signup is broken there or these visitors can't be linked to a workspace.`])
+    anomalies.push([code(r.label), `: ${r.cur.newVisitors.toLocaleString('en-US')} new visitors and no attributed workspaces. Either signup is broken there or the attribution model can't link these visitors to a workspace.`])
   const nf = c.landing.find(r => r.id === 'Not found (404)')
   if (nf && nf.cur.newVisitors >= 500) anomalies.push([code('Not found (404)'), `: ${nf.cur.newVisitors.toLocaleString('en-US')} new visitors landed on a missing page this period. Broken inbound links are a direct conversion leak.`])
   return { headline: [], drivers, emerging, anomalies, goals: [] }

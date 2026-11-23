@@ -62,8 +62,8 @@ export default function CroView({ v, loading }: { v: CroData; loading?: boolean 
           tip={<Def d="First-ever sessions from people with no workspace yet, by the page type they entered on." src="MARKETING_WEBSITE_SESSIONS" note="Likely bots (crawler IP, no Clay user id) are left out." />}>
           <Delta value={rel(cur.newVisitors, prev.newVisitors)}>{fmtPctSigned(rel(cur.newVisitors, prev.newVisitors))}</Delta> <span style={{ color: T.muted }}>vs period before</span>
         </Tile>
-        <Tile label="Visit → workspace (1 day)" value={fmtPct(convRate(cur), 1)}
-          tip={<Def d="New visitors who created a workspace within 24 hours of their first visit." src="COOKIE_TO_WORKSPACE_RELATIONSHIP → CUSTOMERS" note="The latest day reads low until its window closes." />}>
+        <Tile label="Workspaces per new visitor" value={fmtPct(convRate(cur), 1)}
+          tip={<Def d="Workspaces created in the period ÷ new visitors in the period. Workspaces are the attribution model’s, by the landing page of their first-touch session." src="FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION (unbounded) · MARKETING_WEBSITE_SESSIONS" note="Two counts from the same dates, not one cohort: a workspace’s first visit can be older." />}>
           {fmtInt(cur.converted)} workspaces · {ppLine(convRate(cur), convRate(prev))}
         </Tile>
         <Tile label="CTA click-through" value={fmtPct(ctr(cur), 1)}>
@@ -149,12 +149,12 @@ function SegTable({ title, sub, rows, total, compact, paths, selected, onPick }:
             {S('visitors', 'New visitors')}
             {S('visD', 'Δ', true, 'New visitors: change vs the period before')}
             {!compact && <th className={`${th} text-right sticky top-0`} style={{ background: '#fff' }}>Share</th>}
-            {S('ws', 'Workspaces', true, 'Workspaces created within 1 day of the first visit')}
+            {S('ws', 'Workspaces', true, 'Workspaces created in the period whose first-touch session (blended attribution model, unbounded window) landed here')}
             {S('wsD', 'Δ', true, 'Workspaces: change vs the period before')}
-            {S('cust', 'New customers', true, 'Of those workspaces, the ones that have paid since (first invoice). Recent periods read low until workspaces have had time to pay.')}
+            {S('cust', 'New customers', true, 'Workspaces whose first invoice is in the period (blended attribution model, unbounded window), by their first-touch landing page')}
             {S('custD', 'Δ', true, 'New customers: change vs the period before')}
-            {S('conv', '1-day conv.')}
-            {S('convD', 'Δ conv.', true, 'Change in 1-day conversion vs the period before, in percentage points')}
+            {S('conv', 'WS / visitor', true, 'Workspaces ÷ new visitors, both in the period')}
+            {S('convD', 'Δ', true, 'Change in workspaces per new visitor vs the period before, in percentage points')}
             {S('ctr', 'CTA CTR')}
             {!compact && S('demo', 'Demo share')}
           </tr></thead>
@@ -240,11 +240,11 @@ function CtaZones({ c, filtered, scope }: { c: CroCut; filtered: boolean; scope:
 
 type Metric = 'ws' | 'cust' | 'visits' | 'visitors' | 'conv' | 'ctr' | 'demo'
 const METRIC: Record<Metric, { label: string; f: (s: Seg) => number | null; fmt: (n: number) => string }> = {
-  ws: { label: 'New workspaces (within 1 day)', f: s => s.converted, fmt: n => fmtInt(n) },
+  ws: { label: 'New workspaces', f: s => s.converted, fmt: n => fmtInt(n) },
   cust: { label: 'New customers', f: s => s.customers, fmt: n => fmtInt(n) },
   visits: { label: 'Visits (first sessions, bots excluded)', f: s => s.entries - s.bots, fmt: n => fmtInt(n) },
   visitors: { label: 'New visitors', f: s => s.newVisitors, fmt: n => fmtInt(n) },
-  conv: { label: '1-day workspace conversion', f: s => convRate(s), fmt: n => fmtPct(n, 1) },
+  conv: { label: 'Workspaces per new visitor', f: s => convRate(s), fmt: n => fmtPct(n, 1) },
   ctr: { label: 'CTA click-through', f: s => ctr(s), fmt: n => fmtPct(n, 1) },
   demo: { label: 'Demo share of CTA clickers', f: s => demoShare(s), fmt: n => fmtPct(n, 0) },
 }
@@ -264,7 +264,7 @@ function Trend({ v, types, defaulted, more }: { v: CroData; types: string[]; def
           <H2>Page types over time</H2>
           <p className="text-[15px]" style={{ color: T.muted }}>
             {defaulted ? 'Homepage and Pricing, the two biggest entry points; pick page types in the bar above to compare others. ' : more ? 'The first 6 selected page types. ' : ''}
-            Last {Math.round(CRO.trendDays / 7)} weeks, through the last day whose 1-day window has closed; not tied to the date filter.
+            Last {Math.round(CRO.trendDays / 7)} weeks, through the day before the data end; not tied to the date filter. Workspaces by created day, new customers by first-invoice day, visitors by first-visit day.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

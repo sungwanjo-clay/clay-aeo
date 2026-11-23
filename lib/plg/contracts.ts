@@ -95,8 +95,9 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       for (const r of rows) if (str(r, 'd') === 'Homepage') hp.set(str(r, 'b').slice(0, 10), num(r, 'a'))
       const empty = [...days].filter(d => !(hp.get(d)! > 0))
       if (empty.length > 2) problems.push(`days with no new homepage visitors: ${empty.slice(0, 5).join(', ')}`)
-      if (rows.some(r => num(r, 'p') > num(r, 'a') || num(r, 'x') > num(r, 'a'))) problems.push('a day with conversions or clickers above new visitors')
-      if (rows.some(r => num(r, 'q') > num(r, 'p'))) problems.push('a day with more new customers than workspaces')
+      if (rows.some(r => num(r, 'x') > num(r, 'a'))) problems.push('a day with CTA clickers above new visitors')
+      const wsDays = new Set(rows.filter(r => num(r, 'p') > 0).map(r => str(r, 'b').slice(0, 10)))
+      if (wsDays.size < days.size - 2) problems.push(`days with no workspaces: ${days.size - wsDays.size}`)
       break
     }
     case 'creators': {
@@ -131,12 +132,12 @@ export function validate(name: Name, payload: unknown, ranges: string[] = []): V
       for (const l of ranges) {
         const r = all.get(l)
         if (!r || !(num(r, 'a') > 0)) { problems.push(`no new visitors for ${l}`); continue }
-        if (num(r, 'p') > num(r, 'a')) problems.push(`more conversions than new visitors for ${l}`)
         if (num(r, 'x') > num(r, 'a')) problems.push(`more CTA clickers than new visitors for ${l}`)
         if (num(r, 'a') > num(r, 'n')) problems.push(`more new visitors than entry sessions for ${l}`)
-        if (num(r, 'q') > num(r, 'p')) problems.push(`more new customers than workspaces for ${l}`)
       }
       if (!rows.some(r => str(r, 'k') === 'lx')) problems.push('no page type × channel rows')
+      // Workspaces come from the attribution model: every range has some, and most have a first-touch session.
+      for (const l of ranges) { const r = all.get(l); if (r && !(num(r, 'p') > 0)) problems.push(`no workspaces for ${l}`) }
       break
     }
   }

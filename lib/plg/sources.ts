@@ -99,8 +99,7 @@ export function croSources(sql: string | null, trend: string | null = null): Tab
     sources: [
       { name: 'Entry sessions, landing page, channel, device', where: 'DBT.PROD.MARKETING_WEBSITE_SESSIONS', what: 'First-ever session per cookie (SESSION_ASC_RANKER = 1); WORKSPACE_STATUS = no existing workspace' },
       { name: 'Bot filter', where: 'DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION', what: 'BINARY_BOT_EXCLUSION = 1 and no Clay (numeric) user id' },
-      { name: 'Visitor → workspace', where: 'DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP, DBT.PROD.CUSTOMERS', what: 'Workspace created within 24 hours of the first visit; prior workspace = FIRST_SEEN before it' },
-      { name: 'New customers', where: 'DBT.PROD.CUSTOMERS', what: 'Of the workspaces created within 1 day of the first visit, those with FIRST_INVOICE_UTC set (paid at any time since); recent periods read low' },
+      { name: 'Workspaces and new customers', where: 'DBT.PROD.FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION', what: 'The blended attribution model as is: ATTRIBUTION_WINDOW unbounded, first touch. Workspaces by WORKSPACE_CREATED_AT_UTC, new customers BINARY_CONVERTED_CUSTOMER = 1 by FIRST_INVOICE_UTC; landing page, channel and device from the attributed SESSION_ID' },
       { name: 'CTA clicks', where: 'SEGMENT.MARKETING_WEBSITE.CONVERSION_BUTTON_CLICKED', what: 'BUTTON_TYPE Self-serve | Contact Form; ELEMENT_LOCATION → zone; 1 minute before to 24 hours after' },
     ],
     queries: [

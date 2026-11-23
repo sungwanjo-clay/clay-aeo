@@ -236,9 +236,10 @@ export function buildDashboard(i: DashboardInputs) {
   // ── KPI: tier 1–2 share of HQ ──────────────────────────────────────────────
   const t12 = hqCur[0] + hqCur[1]
 
-  // ── KPI: Tier 1–3 HQ workspaces vs goal ───────────────────────────────────
-  const t13 = hqCur[0] + hqCur[1] + hqCur[2]
-  const t13Prev = hqPrev[0] + hqPrev[1] + hqPrev[2]
+  // ── KPI: Tier 1–3 workspaces (all quality) vs the quarter's Tier 1–3 goal, like the QTD tile ─────────────
+  const tier13 = (r: RangeSummary) => r.channels.filter(x => x.t === 'Tier 1' || x.t === 'Tier 2' || x.t === 'Tier 3').reduce((a, x) => a + x.n, 0)
+  const t13 = tier13(i.cur)
+  const t13Prev = tier13(i.prev)
   const t13Goal = goalForRange(i.quarters, i.start, i.end, qq => qq.tierQuarter['Tier 1'] + qq.tierQuarter['Tier 2'] + qq.tierQuarter['Tier 3'])
 
   // ── KPI: personal vs non-personal (high + low quality rolled up) ──────────

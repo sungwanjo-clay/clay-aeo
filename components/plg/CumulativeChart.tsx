@@ -15,12 +15,11 @@ import { Card, H2, T, fmtInt, fmtK, fmtPct } from './ui'
  * (e.g. visitor → HQ = HQ workspaces so far ÷ visits so far). HQ workspaces is the goal metric; the rest show the
  * period before instead. Visits are daily unique visitors summed over days (not unique over the range, like the tile).
  */
-type MetricId = 'hq' | 'ws' | 'vis' | 't13hq' | 't13' | 'np' | 'paid' | 'visHq' | 'trialPaid' | 'activation' | 'npShare'
+type MetricId = 'hq' | 'ws' | 'vis' | 't13' | 'np' | 'paid' | 'visHq' | 'trialPaid' | 'activation' | 'npShare'
 const METRICS: { id: MetricId; label: string; num: DailyMetric; den?: DailyMetric; rate?: boolean }[] = [
   { id: 'hq', label: 'HQ workspaces vs goal', num: 'hq' },
   { id: 'ws', label: 'New workspaces', num: 'ws' },
   { id: 'vis', label: 'Visits (daily unique visitors)', num: 'vis' },
-  { id: 't13hq', label: 'Tier 1–3 HQ workspaces', num: 't13hq' },
   { id: 't13', label: 'Tier 1–3 workspaces', num: 't13' },
   { id: 'np', label: 'Non-personal workspaces', num: 'np' },
   { id: 'paid', label: 'New paid workspaces', num: 'paid' },
