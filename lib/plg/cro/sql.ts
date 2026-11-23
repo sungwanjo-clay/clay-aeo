@@ -23,7 +23,8 @@
  *   ld    d = page type|device        (channel and device are the session's; 'No session' without one)
  *   lz    d = page type|zone          n clicks, a clickers (motion split only in cta)
  *   cta   d = zone|motion             n clicks, a clickers, all page types
- *   path  d = page type|path          like all, top 40 entry paths per range by new visitors (25 or more); paths on
+ *   path  d = page type|path          like all: per range, the 40 entry paths with the most new visitors plus each page
+ *                                     type's top 10 (any path with a new visitor), so a page-type filter shows its own pages; paths on
  *                                     sites other than clay.com are prefixed with the site (signup:/, university:/…)
  * croTrendSql rows (b = day): k = 'day', d = page type, same columns as all; the last 26 weeks to the data end.
  */
@@ -41,8 +42,10 @@ const t = (id: string) => `"connection"."${id}"`
 const d = (x: ISODate) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) throw new Error(`bad date ${x}`); return `DATE '${x}'` }
 
 export const CRO = {
-  /** Entry pages kept per date range (by new visitors), so the saved copy stays under Sigma's 10,000-row limit. */
+  /** Entry pages kept per date range (by new visitors), site-wide and per page type; sized so the saved copy stays
+   *  under Sigma's 10,000-row limit. */
   topPaths: 40,
+  topPathsPerType: 10,
   /** Days in the daily trend (to the data end). */
   trendDays: 182,
   /** Prior-workspace detection widened on this day, shrinking the new-visitor denominator. */
@@ -139,7 +142,8 @@ ${sessionCtes(from, dataEnd)},
 sf AS (SELECT rng."lbl" AS "b", sx.* FROM sx JOIN rng ON sx."day" BETWEEN rng."rs" AND rng."re"),
 ${unified},
 pa AS (SELECT "b", "lpt", "p", SUM("n") AS "n", SUM("a") AS "a", SUM("ws") AS "pp", SUM("x") AS "x", SUM("c") AS "c", SUM("y") AS "y", SUM("z") AS "z", SUM("cu") AS "q" FROM u GROUP BY "b", "lpt", "p"),
-pth AS (SELECT pa.*, ROW_NUMBER() OVER (PARTITION BY "b" ORDER BY "a" DESC, "p") AS "rk" FROM pa WHERE "a" >= 25)
+pth AS (SELECT pa.*, ROW_NUMBER() OVER (PARTITION BY "b" ORDER BY "a" DESC, "p") AS "rk",
+            ROW_NUMBER() OVER (PARTITION BY "b", "lpt" ORDER BY "a" DESC, "p") AS "rkt" FROM pa WHERE "a" >= 1)
 SELECT 'all' AS "k", "b", '' AS "d", SUM("n") AS "n", SUM("a") AS "a", SUM("ws") AS "p", SUM("x") AS "x", SUM("c") AS "c", SUM("y") AS "y", SUM("z") AS "z", SUM("cu") AS "q"
 FROM u GROUP BY "b"
 UNION ALL
@@ -147,7 +151,7 @@ SELECT 'lx', "b", "lpt" || '|' || "ch", ${M} FROM u GROUP BY "b", "lpt", "ch"
 UNION ALL
 SELECT 'ld', "b", "lpt" || '|' || "dev", ${M} FROM u GROUP BY "b", "lpt", "dev"
 UNION ALL
-SELECT 'path', "b", "lpt" || '|' || "p", "n", "a", "pp", "x", "c", "y", "z", "q" FROM pth WHERE "rk" <= ${CRO.topPaths}
+SELECT 'path', "b", "lpt" || '|' || "p", "n", "a", "pp", "x", "c", "y", "z", "q" FROM pth WHERE "rk" <= ${CRO.topPaths} OR "rkt" <= ${CRO.topPathsPerType}
 UNION ALL
 SELECT 'lz', rng."lbl", sx."lpt" || '|' || neclk."zone", COUNT(DISTINCT neclk."kid"), COUNT(DISTINCT neclk."sid"), 0, 0, 0, 0, 0, 0
 FROM neclk JOIN sx ON sx."sid" = neclk."sid" JOIN rng ON sx."day" BETWEEN rng."rs" AND rng."re"

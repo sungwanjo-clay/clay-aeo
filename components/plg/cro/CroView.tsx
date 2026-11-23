@@ -91,7 +91,7 @@ export default function CroView({ v, loading }: { v: CroData; loading?: boolean 
         <SegTable title="By device" sub={`Operating system of the first session · ${scope}.`} rows={c.devices} compact />
       </div>
 
-      <SegTable title="Top entry pages" sub={`The 40 entry pages with the most new visitors in each period (25 or more) · ${scope}. Use it to find pages that bring traffic but don’t convert.`} rows={c.paths} paths />
+      <SegTable title="Top entry pages" sub={`The 40 entry pages with the most new visitors in each period, plus each page type’s top 10 · ${scope}. Use it to find pages that bring traffic but don’t convert.`} rows={c.paths} paths />
 
       <CtaZones c={c} filtered={types.length > 0} scope={scope} />
     </div>
