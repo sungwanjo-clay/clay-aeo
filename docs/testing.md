@@ -30,11 +30,12 @@ The tab joins two sources:
 
 The weekly niche scan (docs/niche-scan.md) adds `youtube/scan` and `youtube/scan-thumbs-<i>`. On the tab:
 
-- **Make next** is a table of 15 ideas (theme × title format, lib/plg/creators/compute.ts `recommend`). A row opens a
-  side panel: the sources (our creators' videos with workspaces, then the niche copies with views), the brief (title,
-  use case, landing page, offer, CTA, copy, placement), why each decision, and a Markdown brief to download or copy for
-  an agent (lib/plg/creators/brief.ts). An idea has its own link, `#insights-idea=<theme:format>`.
-- **What we're learning** is the synthesis (`learn`): what converts, what's watched but doesn't, open lanes, title
-  formats, our winners vs losers, what's moving. The theme scorecard, factor table and formats table are folded under it.
-- **New this week** and **Videos** rows open the same panel with the video's metadata.
-- The e2e run opens an idea link and loads a scan without angles (scans before Nov 23) to check both still render.
+- **Make next** is a table of up to 15 ideas, one per topic (theme + subject, lib/plg/creators/compute.ts `recommend`):
+  niche hit rate against the niche's, median views vs channel, our signups where we've made it, trend, landing page. A
+  row opens a side panel: the sources (our creators' videos with workspaces, then the niche copies with views vs their
+  channel's median, labelled as having no Clay link), how the topic has been sold (formats, assistants), the brief, why
+  each decision, and a Markdown brief to download or copy for an agent (lib/plg/creators/brief.ts). An idea has its own
+  link, `#insights-idea=<theme:subject>`.
+- **New this week** (a table, signups only where the video is ours), **Videos**, **Themes** and **Winners vs losers**
+  (our factors, reach vs signups, the niche's traits by lift and title formats) follow. Rows open the same panel.
+- The e2e run opens an idea link and loads a scan without topics (scans before Nov 23) to check both still render.

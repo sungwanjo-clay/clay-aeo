@@ -6,7 +6,7 @@
  * The analysis is lib/plg/creators/scan.ts. --prev is last week's scan document (new videos, terms and the previous
  * recommendations are measured against it). --recs is this week's written recommendations ([{theme, title, angle,
  * thumbnail, structure, offer, notes}]): every theme must exist in the scan with copies that worked, or the run fails.
- * An idea also names its `format` (an angle of the theme) and can carry useCase, landing, cta, copy, placement and a
+ * An idea names its topic `subject` (lib/plg/creators/themes.ts SUBJECTS), the title `format` to sell it with, and can carry useCase, landing, cta, copy, placement and a
  * `why` per decision (lib/plg/creators/scan.ts ScanRec).
  * The document must stay under 240 KB (the db's per-document cap is 256 KiB).
  */
@@ -27,10 +27,10 @@ const prev = opt('--prev') && existsSync(opt('--prev')) ? JSON.parse(readFileSyn
 const doc = analyze(raw, prev)
 if (opt('--recs')) {
   const recs = JSON.parse(readFileSync(opt('--recs'), 'utf8'))
-  // Every idea must exist in this scan: its theme with copies that worked, and its format as one of the theme's angles.
-  const bad = recs.filter(r => { const t = doc.themes.find(x => x.id === r.theme); return !t || t.worked === 0 || (r.format && !(t.angles ?? []).some(a => a.f === r.format)) })
-  if (bad.length) { console.error(`recommendations with no evidence in this scan: ${bad.map(r => `${r.theme}:${r.format ?? ''}`).join(', ')}`); process.exit(3) }
-  const dup = recs.map(r => `${r.theme}:${r.format ?? ''}`).filter((k, i, a) => a.indexOf(k) !== i)
+  // Every idea must exist in this scan: its theme with copies that worked, its subject as one of the theme's topics.
+  const bad = recs.filter(r => { const t = doc.themes.find(x => x.id === r.theme); return !t || t.worked === 0 || (r.subject && r.subject !== 'general' && !(t.topics ?? []).some(a => a.s === r.subject)) })
+  if (bad.length) { console.error(`recommendations with no evidence in this scan: ${bad.map(r => `${r.theme}:${r.subject ?? 'general'}`).join(', ')}`); process.exit(3) }
+  const dup = recs.map(r => `${r.theme}:${r.subject ?? 'general'}`).filter((k, i, a) => a.indexOf(k) !== i)
   if (dup.length) { console.error(`duplicate recommendations: ${dup.join(', ')}`); process.exit(3) }
   doc.recs = recs
 }

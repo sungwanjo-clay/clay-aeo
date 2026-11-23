@@ -17,8 +17,8 @@
  * and stayed under RESULT.failedPerK. Only videos with a link of their own, long-form, live 14+ days are judged.
  * Everything is lifetime, since the program's first tracked week (Apr 6).
  */
-import { PLAYS, THEMES, clayFit, formatLabel, themeLabel, themeOf, type FormatId, type ThemeId } from './themes'
-import type { Angle, ScanDoc, ScanRec, SV, Sep, ThemeStat } from './scan'
+import { PLAYS, THEMES, assistantLabel, assistantOf, clayFit, formatLabel, subjectOf, themeLabel, themeOf, topicLabel, type FormatId, type SubjectId, type ThemeId } from './themes'
+import type { ScanDoc, ScanRec, SV, Sep, ThemeStat, Topic } from './scan'
 
 export type Placement = {
   creator: string | null; fit: string | null; status: string | null; agency: string | null; title: string | null; channelUrl: string | null
@@ -74,13 +74,22 @@ export type BriefKey = Exclude<keyof Brief, 'landingUrl'>
 /** Where a decision came from: the weekly review, the evidence alone, or the theme's default play (lib/plg/creators/themes.ts). */
 export type Reason = { k: BriefKey; label: string; why: string; src: 'review' | 'evidence' | 'default' }
 export type Rec = {
-  rank: number; key: string; theme: ThemeId; format: FormatId | null; label: string; angleLabel: string | null; status: 'new' | 'still' | 'first'
+  /** One topic (theme + subject); `format` is the title format the brief recommends for it, `formatLabel` its name. */
+  rank: number; key: string; theme: ThemeId; subject: SubjectId; format: FormatId | null; label: string; formatLabel: string | null; status: 'new' | 'still' | 'first'
   /** The weekly review wrote this idea's brief (ScanRec); otherwise it's drafted from the evidence and the theme's play. */
   written: boolean; title: string; angle: string; brief: Brief; reasons: Reason[]
-  stat: ThemeStat; anglePick: Angle | null; themeRow: ThemeRow | null; original: SV | null
-  /** Niche copies the idea is sourced from (worked), copies that failed, and our creators' videos on the theme. */
-  examples: SV[]; losers: SV[]; ours: VideoRow[]; seps: Sep[]
-  proof: { worked: number; failed: number; n: number; channels: number; rate: number; themeRate: number; nicheRate: number }
+  stat: ThemeStat; topic: Topic | null; themeRow: ThemeRow | null; original: SV | null
+  /** Niche copies the idea is sourced from (worked), copies that failed, and our creators' videos on the topic (or, when
+   * none name its subject, on the theme: oursScope). */
+  examples: SV[]; losers: SV[]; ours: VideoRow[]; oursScope: 'topic' | 'theme'; seps: Sep[]
+  /** Niche: copies judged, worked (2×+), failed (<0.7×), channels with a winner, median multiple. Ours: workspaces on
+   * the ours scope (each link once), best per 1K, videos judged and worked. */
+  proof: { worked: number; failed: number; n: number; channels: number; rate: number; med: number | null; top: number | null; themeRate: number; nicheRate: number
+    ws: number; bestPerK: number | null; judged: number; oursWorked: number }
+  /** Title formats tried on the topic (3+ copies), best first; for AI-assistant topics, each assistant too. */
+  formats: { f: FormatId; n: number; worked: number }[]; tools: { a: string; n: number; worked: number }[]
+  /** The AI assistant the title should name (AI-assistant topics). */
+  assistant: string | null
   why: string[]; measure: [string, string][]; score: number
 }
 /** One synthesis callout: a finding, its evidence and what to do about it. */
@@ -174,7 +183,7 @@ const momentum = (t: ThemeStat) => {
   return r == null || p == null ? 1 : Math.min(2, Math.max(0.5, (r + 0.02) / (p + 0.02)))
 }
 /** Signup proof multiplies watch demand: a theme our creators proved converts outranks an equally watched untested one. */
-export const REC = { minCopies: 8, minWinChannels: 3, count: 15, perTheme: 3, perFormat: 4, angleMinChannels: 2, signup: { converts: 1.5, mixed: 1.1, untested: 1, no: 0.6 } as Record<SignupState, number> }
+export const REC = { minCopies: 8, minWinChannels: 3, count: 15, perTheme: 3, perSubject: 2, topicMinCopies: 8, topicMinChannels: 3, topicMinEdge: 0.1, minFit: 0.4, signup: { converts: 1.5, mixed: 1.1, untested: 1, no: 0.6 } as Record<SignupState, number> }
 const pct = (x: number) => `${Math.round(x * 100)}%`
 /** A label mid-sentence: lower-case the first letter unless it starts with a name or acronym. */
 const midLabel = (x: string) => (/^(AI|GTM|LinkedIn|Clay|I\b|“I)/.test(x) ? x : x[0].toLowerCase() + x.slice(1))
@@ -191,66 +200,83 @@ function programFacts(w: VideoRow[], f: VideoRow[]): ProgramFacts {
 }
 
 /**
- * The ideas to make next: each theme sold through one title format (an angle), ranked by how often that angle's copies
- * beat their channel, on how many channels, how naturally Clay fits, whether the theme is rising and what our creators'
- * signups say. At most REC.perTheme per theme and REC.perFormat per format, so the list isn't one theme fifteen times.
- * Scans without angles (before Nov 23) give one idea per theme.
+ * The ideas to make next: one per topic (a theme narrowed to the tool or platform its titles name), ranked by how often
+ * the topic's copies beat their channel, on how many channels, how naturally Clay fits, whether the theme is rising and
+ * what our creators' signups say. A topic's title formats are ways to sell it, not separate ideas: the brief picks one.
+ * At most REC.perTheme per theme and REC.perSubject per subject; an idea whose lead copy, or half its copies, already
+ * source a picked idea is the same video and is skipped. Scans without topics (before Nov 23) give one idea per theme.
  */
 function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts): { recs: Rec[]; dropped: string[] } {
   if (!scan) return { recs: [], dropped: [] }
   const vid = new Map(scan.videos.map(v => [v.id, v]))
   const reviewed = scan.recs ?? []
   const base = scan.pool.baseRate
-  const themeOk = (t: ThemeStat, row: ThemeRow | null) => clayFit(t.id) > 0 && t.n > 0 && t.worked + t.failed >= REC.minCopies && t.winChannels >= REC.minWinChannels
-    && (t.hits / t.n >= base || row?.signup === 'converts')
-  type Cand = { stat: ThemeStat; row: ThemeRow | null; angle: Angle | null; score: number }
-  const angleOk = (stat: ThemeStat, a: Angle) => a.winChannels >= REC.angleMinChannels && a.ex.length > 0 && a.worked / a.n > Math.max(stat.worked / stat.n, scan.pool.workedRate)
+  type Cand = { stat: ThemeStat; row: ThemeRow | null; topic: Topic | null; score: number }
   const cands: Cand[] = []
   for (const stat of scan.themes) {
+    // Themes where Clay would be a detour (deliverability, cold calling: fit 0.3) don't make the list.
+    if (!(clayFit(stat.id) >= REC.minFit && stat.n > 0)) continue
     const row = themes.find(x => x.id === stat.id) ?? null
-    if (!themeOk(stat, row)) continue
     const k = clayFit(stat.id) * momentum(stat) * REC.signup[row?.signup ?? 'untested']
-    // An angle has to beat both its theme and the niche as a whole, or it's not a reason to pick it.
-    const angles = (stat.angles ?? []).filter(a => angleOk(stat, a))
-    if (angles.length) for (const a of angles) cands.push({ stat, row, angle: a, score: winRate(a) * Math.log2(1 + a.winChannels) * k })
-    else cands.push({ stat, row, angle: null, score: winRate(stat) * Math.log2(1 + stat.winChannels) * k })
+    if (stat.topics) {
+      for (const t of stat.topics) if (topicOk(t, scan.pool.workedRate)) cands.push({ stat, row, topic: t, score: winRate(t) * Math.log2(1 + t.winChannels) * k })
+    } else if (stat.worked + stat.failed >= REC.minCopies && stat.winChannels >= REC.minWinChannels && (stat.hits / stat.n >= base || row?.signup === 'converts'))
+      cands.push({ stat, row, topic: null, score: winRate(stat) * Math.log2(1 + stat.winChannels) * k })
   }
   cands.sort((a, b) => b.score - a.score)
-  const perTheme = new Map<string, number>(), perFormat = new Map<string, number>(), picked: Cand[] = []
-  // Two angles of one theme often share their best copies (a "2026 beginner's guide" is both): an idea whose lead copy,
-  // or half its copies, already source a picked idea is the same video and is skipped.
-  const usedEx = new Set<string>()
+  const perTheme = new Map<string, number>(), perSubject = new Map<string, number>(), usedEx = new Set<string>(), picked: Cand[] = []
   for (const c of cands) {
     if (picked.length >= REC.count) break
-    const t = perTheme.get(c.stat.id) ?? 0, f = c.angle ? perFormat.get(c.angle.f) ?? 0 : 0
-    if (t >= REC.perTheme || f >= REC.perFormat) continue
-    const ex = c.angle?.ex ?? c.stat.winners
+    const sj = c.topic?.s ?? 'general'
+    const t = perTheme.get(c.stat.id) ?? 0, j = sj === 'general' ? 0 : perSubject.get(sj) ?? 0
+    if (t >= REC.perTheme || j >= REC.perSubject) continue
+    const ex = c.topic?.ex ?? c.stat.winners
     if (ex.length && (usedEx.has(ex[0]) || ex.filter(x => usedEx.has(x)).length * 2 >= ex.length)) continue
     ex.forEach(x => usedEx.add(x))
-    perTheme.set(c.stat.id, t + 1); if (c.angle) perFormat.set(c.angle.f, f + 1)
+    perTheme.set(c.stat.id, t + 1); if (sj !== 'general') perSubject.set(sj, j + 1)
     picked.push(c)
   }
-  // Scans before Nov 23 recommended themes, not angles: compare those by theme.
-  const legacy = !scan.prevRecKeys?.some(k => !k.endsWith(':'))
+  // Scans before topics recommended themes (keys 'theme:' or 'theme:general'): compare those by theme.
   const prevKeys = new Set(scan.prevRecKeys ?? [])
+  const byTheme = !prevKeys.size || [...prevKeys].every(k => k.endsWith(':') || k.endsWith(':general'))
   const prevThemes = new Set<string>(scan.prevRecThemes ?? [])
   const ch = (v: SV | null) => (v ? scan.channels[v.c]?.t ?? 'a channel' : '')
-  const recs: Rec[] = picked.map(({ stat, row, angle, score }, i) => {
-    const fmt = angle?.f ?? null
-    const key = `${stat.id}:${fmt ?? ''}`
-    // The review's entry for this idea: same theme and format, or (older reviews) same theme without a format.
-    const w = reviewed.find(r => r.theme === stat.id && (r.format ?? null) === fmt) ?? (fmt ? undefined : reviewed.find(r => r.theme === stat.id && !r.format))
-    const examples = (angle?.ex ?? stat.winners).map(x => vid.get(x)).filter((x): x is SV => !!x)
-    const losers = (angle ? angle.bad : stat.losers).map(x => vid.get(x)).filter((x): x is SV => !!x)
+  const recs: Rec[] = picked.map(({ stat, row, topic, score }, i) => {
+    const subject: SubjectId = topic?.s ?? 'general'
+    const key = `${stat.id}:${subject}`
+    const w = reviewed.find(r => r.theme === stat.id && (r.subject ?? 'general') === subject)
+    const nTopic = topic?.n ?? stat.n
+    // Formats ranked by smoothed hit rate, so 10 of 12 beats 3 of 3; the brief's pick must beat the topic as a whole.
+    const formats = [...(topic?.formats ?? [])].sort((a, b) => winRate({ worked: b.worked, failed: b.n - b.worked }) - winRate({ worked: a.worked, failed: a.n - a.worked }) || b.n - a.n)
+    const tRate = (topic?.worked ?? stat.worked) / Math.max(1, nTopic)
+    const fmt: FormatId | null = w?.format ?? formats.find(f => f.n >= 4 && f.worked / f.n > tRate)?.f ?? null
+    const fStat = fmt ? formats.find(f => f.f === fmt) ?? null : null
+    // Assistants with 8+ copies only, so 2 of 3 Grok videos don't outrank 43 of 79 Claude ones.
+    const tools = [...(topic?.tools ?? [])].filter(a => a.n >= 8).sort((a, b) => winRate({ worked: b.worked, failed: b.n - b.worked }) - winRate({ worked: a.worked, failed: a.n - a.worked }))
+    // The review's title wins: if it names an assistant, that's the pick.
+    const named = w ? assistantOf(w.title) : null
+    const tool = (named ? { a: named, n: 0, worked: 0, ...tools.find(a => a.a === named) } : tools[0]) ?? null
+    const examples = (topic?.ex ?? stat.winners).map(x => vid.get(x)).filter((x): x is SV => !!x)
+    const losers = (topic ? topic.bad : stat.losers).map(x => vid.get(x)).filter((x): x is SV => !!x)
     const original = stat.original ? vid.get(stat.original) ?? null : null
-    const ours = (row?.videos ?? []).filter(v => v.attribution === 'direct' || v.attribution === 'shared').sort((a, b) => b.m.ws - a.m.ws).slice(0, 6)
-    const pr = angle ?? stat
-    const proof = { worked: pr.worked, failed: pr.failed, n: pr.n, channels: pr.winChannels, rate: pr.n ? pr.worked / pr.n : 0, themeRate: stat.n ? stat.worked / stat.n : 0, nicheRate: scan.pool.workedRate }
+    const linked = (v: VideoRow) => v.attribution === 'direct' || v.attribution === 'shared'
+    const onTopic = (row?.videos ?? []).filter(v => linked(v) && subjectOf(stat.id, v.title) === subject)
+    const oursScope: Rec['oursScope'] = onTopic.length ? 'topic' : 'theme'
+    const oursAll = onTopic.length ? onTopic : (row?.videos ?? []).filter(linked)
+    const ours = [...oursAll].sort((a, b) => b.m.ws - a.m.ws).slice(0, 6)
+    const toks = new Set<string>(); let ws = 0
+    for (const v of oursAll) if (!toks.has(v.token)) { toks.add(v.token); ws += v.m.ws }
+    const judgedOurs = oursAll.filter(v => v.result !== 'unjudged')
+    const bestPerK = judgedOurs.length ? Math.max(...judgedOurs.map(v => v.perK ?? 0)) : null
+    const proof: Rec['proof'] = { worked: topic?.worked ?? stat.worked, failed: topic?.failed ?? stat.failed, n: nTopic, channels: topic?.winChannels ?? stat.winChannels,
+      rate: tRate, med: topic?.med ?? null, top: examples[0]?.x ?? null, themeRate: stat.n ? stat.worked / stat.n : 0, nicheRate: scan.pool.workedRate,
+      ws, bestPerK, judged: judgedOurs.length, oursWorked: judgedOurs.filter(v => v.result === 'worked').length }
     const play = PLAYS[stat.id]
-    const angleLabel = fmt ? formatLabel(fmt) : null
+    const label = topicLabel(stat.id, subject)
+    const fmtLabel = fmt ? formatLabel(fmt) : null
     const top = examples[0] ?? original
     const brief: Brief = {
-      title: w?.title ?? (top ? top.t : themeLabel(stat.id)),
+      title: w?.title ?? (top ? top.t : label),
       useCase: w?.useCase ?? play?.useCase ?? themeLabel(stat.id),
       landing: w?.landing ?? play?.landing ?? 'clay.com homepage', landingUrl: w?.landingUrl ?? (w?.landing ? null : play?.landingUrl ?? null),
       offer: w?.offer ?? play?.offer ?? 'To define',
@@ -260,15 +286,15 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
       thumbnail: w?.thumbnail ?? null, structure: w?.structure ?? null,
     }
     const src = (k: keyof NonNullable<ScanRec['why']>, has: boolean): Reason['src'] => (w?.why?.[k] || (w && has) ? 'review' : 'evidence')
-    const words = stat.words.w.length ? ` Words that show up in winning titles on this theme: ${stat.words.w.slice(0, 4).join(', ')}.` : ''
+    const words = stat.words.w.length ? ` Words that show up in winning titles on the theme: ${stat.words.w.slice(0, 4).join(', ')}.` : ''
     const sepLine = stat.seps.slice(0, 2).map(x => `${x.label.toLowerCase()} (${pct(x.w / x.wn)} of winners, ${pct(x.f / x.fn)} of failures)`).join('; ')
-    const best = row?.best
+    const best = [...judgedOurs].sort((a, b) => (b.perK ?? 0) - (a.perK ?? 0))[0]
+    const fmtLine = (fStat ? ` Sold as “${midLabel(fmtLabel!)}”, ${fStat.worked} of ${fStat.n} worked (${pct(fStat.worked / fStat.n)}).` : '')
+      + (tools.length > 1 && tool ? ` By assistant: ${tools.map(a => `${assistantLabel(a.a)} ${a.worked} of ${a.n}`).join(', ')}; name ${assistantLabel(tool.a)} in the title.` : '')
     const reasons: Reason[] = [
-      { k: 'title', label: 'Title', src: src('title', true), why: w?.why?.title ?? (angle
-        ? `${angleLabel}: ${angle.worked} of ${angle.n} copies on this theme worked (2×+ their channel) on ${angle.winChannels} channels, ${pct(proof.rate)} against ${pct(proof.themeRate)} for the theme and ${pct(proof.nicheRate)} across the niche.${words}`
-        : `${stat.worked} of ${stat.n} copies worked on ${stat.winChannels} channels (${pct(proof.themeRate)} vs ${pct(proof.nicheRate)} across the niche).${words}`)
+      { k: 'title', label: 'Title', src: src('title', true), why: w?.why?.title ?? `${proof.worked} of ${proof.n} copies on this topic worked (2×+ their channel) on ${proof.channels} channels, ${pct(proof.rate)} against ${pct(proof.nicheRate)} across the niche.${fmtLine}${words}`
         + (w ? '' : ' Draft: the top copy’s title, to rewrite in the weekly review.') },
-      { k: 'useCase', label: 'Use case', src: w?.useCase ? 'review' : 'default', why: w?.why?.useCase ?? `Clay fit is ${FIT(clayFit(stat.id))} for ${themeLabel(stat.id).toLowerCase()}: the video can show ${play?.useCase ? play.useCase[0].toLowerCase() + play.useCase.slice(1) : 'Clay doing the work'} on screen.${best ? ` Our best video on the theme: ${best.creator}’s “${best.title}”, ${n(best.m.ws)} workspaces (${r1(best.perK)} per 1K views).` : ' None of our creators has a judged video on it yet.'}` },
+      { k: 'useCase', label: 'Use case', src: w?.useCase ? 'review' : 'default', why: w?.why?.useCase ?? `Clay fit is ${FIT(clayFit(stat.id))} for ${midLabel(themeLabel(stat.id))}: the video can show ${play?.useCase ? play.useCase[0].toLowerCase() + play.useCase.slice(1) : 'Clay doing the work'} on screen.${best ? ` Our best video on the ${oursScope}: ${best.creator}’s “${best.title}”, ${n(best.m.ws)} workspaces (${r1(best.perK)} per 1K views).` : ' None of our creators has a judged video on it yet.'}` },
       { k: 'landing', label: 'Landing page and offer', src: w?.landing ? 'review' : 'default', why: w?.why?.landing ?? `Program links land on the clay.com homepage today and nothing captures an email before signup. A page that matches the use case (${brief.landing}) keeps the video’s promise; ${brief.offer[0].toLowerCase() + brief.offer.slice(1)} is the reason to click.` },
       { k: 'cta', label: 'CTA and copy', src: w?.cta ? 'review' : 'evidence', why: w?.why?.cta ?? (facts.W
         ? `${facts.wLink3} of our ${facts.W} videos that worked had the Clay link in the first 3 lines of the description, against ${facts.fLink3} of ${facts.F} that failed. Say the offer next to the link, and once on screen when Clay first appears.`
@@ -277,22 +303,22 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
         ? `${facts.wDedicated} of ${facts.W} winners were dedicated videos; ${facts.fIntegration} of ${facts.F} failures were integrations. Its own link is the only way to measure it.`
         : 'A dedicated video with its own link is the only way to measure it.') },
       { k: 'structure', label: 'Length and structure', src: w?.structure ? 'review' : 'evidence', why: w?.why?.structure ?? (sepLine
-        ? `What separates copies that worked from ones that failed on this theme: ${sepLine}.${facts.wMins != null ? ` Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : ''}`
+        ? `What separates copies that worked from ones that failed on the theme: ${sepLine}.${facts.wMins != null ? ` Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : ''}`
         : facts.wMins != null ? `Our winners run a median ${Math.round(facts.wMins)} min, ${facts.wChapters} of ${facts.W} with chapters.` : 'No clear length or structure separator on this theme.') },
     ]
     const why: string[] = []
-    why.push(`${pr.worked} copies worked and ${pr.failed} failed${angle ? ` when sold as “${angleLabel!.toLowerCase()}”` : ''}, on ${pr.winChannels} channels with a winner${top ? `; the top one is ${ch(top)}’s “${top.t}” at ${r1(top.x)}× its channel` : ''}.`)
+    why.push(`${proof.worked} copies worked and ${proof.failed} failed on ${proof.channels} channels with a winner${proof.med != null ? `; the median copy got ${r1(proof.med)}× its channel’s usual views` : ''}${top ? `; the top one is ${ch(top)}’s “${top.t}” at ${r1(top.x)}×` : ''}.`)
     const mo = momentum(stat)
     if (mo >= 1.25) why.push(`Rising: ${stat.recentHits} of ${stat.recentN} videos on the theme in the last 90 days hit 3×+, against ${stat.priorHits} of ${stat.priorN} in the year before.`)
-    else if (mo <= 0.8) why.push(`Cooling: ${stat.recentHits} of ${stat.recentN} recent videos hit 3×+, against ${stat.priorHits} of ${stat.priorN} in the year before. Pick a fresh angle.`)
-    if (row?.signup === 'converts' || row?.signup === 'mixed') why.push(`Signup proof: ${row.worked} of ${row.judged} of our creators’ videos on the theme worked, ${n(row.ws)} workspaces in all.`)
-    else if (row?.signup === 'no') why.push(`Signup proof is weak so far: ${row.failed} of ${row.judged} of our videos on the theme failed. Make it dedicated, with its own landing page.`)
-    else why.push('None of our creators has a judged video on the theme: a measured test (dedicated, its own link) settles the signup question.')
+    else if (mo <= 0.8) why.push(`Cooling: ${stat.recentHits} of ${stat.recentN} recent videos on the theme hit 3×+, against ${stat.priorHits} of ${stat.priorN} in the year before. Pick a fresh angle.`)
+    if (proof.judged) why.push(`Signups: ${proof.oursWorked} of ${proof.judged} of our judged videos on the ${oursScope} worked, ${n(proof.ws)} workspaces in all.`)
+    else if (oursAll.length) why.push(`Signups: our ${oursAll.length} video${oursAll.length === 1 ? '' : 's'} on the ${oursScope} drove ${n(proof.ws)} workspaces, none judged yet.`)
+    else why.push('No signup data: none of our creators has made this, and the niche’s videos carry no Clay link. A measured test (dedicated, its own link) settles it.')
     return {
-      rank: i + 1, key, theme: stat.id, format: fmt, label: themeLabel(stat.id), angleLabel,
-      status: !scan.prevFetchedAt ? 'first' : (legacy ? prevThemes.has(stat.id) : prevKeys.has(key)) ? 'still' : 'new',
+      rank: i + 1, key, theme: stat.id, subject, format: fmt, label, formatLabel: fmtLabel,
+      status: !scan.prevFetchedAt ? 'first' : (byTheme ? prevThemes.has(stat.id) : prevKeys.has(key)) ? 'still' : 'new',
       written: !!w, title: brief.title, angle: w?.angle ?? (top ? `Model it on ${ch(top)}’s “${top.t}”.` : ''), brief, reasons,
-      stat, anglePick: angle, themeRow: row, original, examples, losers, ours, seps: stat.seps, proof, why, score,
+      stat, topic, themeRow: row, original, examples, losers, ours, oursScope, seps: stat.seps, proof, formats, tools, assistant: tool?.a ?? null, why, score,
       measure: [
         ['Link', 'Its own ?via= token, used by this video only (shared links can’t be measured)'],
         ['Landing page', brief.landing],
@@ -302,21 +328,22 @@ function recommend(scan: ScanDoc | null, themes: ThemeRow[], facts: ProgramFacts
     }
   })
   const now = new Set(recs.map(r => r.key))
-  const labelOf = (k: string) => { const [t, f] = k.split(':'); return `${themeLabel(t as ThemeId)}${f ? ` (${formatLabel(f as FormatId).toLowerCase()})` : ''}` }
+  const labelOf = (k: string) => { const [t, sj] = k.split(':'); return topicLabel(t as ThemeId, (sj || 'general') as SubjectId) }
   const themesNow = new Set<string>(recs.map(r => r.theme))
-  return { recs, dropped: legacy ? [...prevThemes].filter(t => !themesNow.has(t)).map(t => themeLabel(t as ThemeId)) : [...prevKeys].filter(k => !now.has(k)).map(labelOf) }
+  return { recs, dropped: byTheme ? [...prevThemes].filter(t => !themesNow.has(t)).map(t => themeLabel(t as ThemeId)) : [...prevKeys].filter(k => !now.has(k)).map(labelOf) }
 }
+/** A topic worth an idea: enough copies, on several channels, and a hit rate REC.topicMinEdge above the niche's. */
+const topicOk = (t: Topic, nicheWorked: number) => t.n >= REC.topicMinCopies && t.worked >= 4 && t.winChannels >= REC.topicMinChannels && t.ex.length > 0 && t.worked / t.n >= nicheWorked + REC.topicMinEdge
 
 /**
- * Videos any idea could show (sources and failures of every eligible angle, or of the theme when it has none), whatever
+ * Videos any idea could show (sources and failures of every eligible topic, or of the theme when it has none), whatever
  * our signups say: scripts/niche-thumbs.mjs downloads thumbnails for these. Mirrors recommend()'s filters.
  */
 export function ideaVideoIds(scan: ScanDoc): string[] {
   const ids = new Set<string>()
   for (const stat of scan.themes) {
-    if (!(clayFit(stat.id) > 0 && stat.n > 0 && stat.worked + stat.failed >= REC.minCopies && stat.winChannels >= REC.minWinChannels)) continue
-    const angles = (stat.angles ?? []).filter(a => a.winChannels >= REC.angleMinChannels && a.ex.length > 0 && a.worked / a.n > Math.max(stat.worked / stat.n, scan.pool.workedRate))
-    if (angles.length) for (const a of angles) [...a.ex, ...a.bad].forEach(x => ids.add(x))
+    if (!(clayFit(stat.id) >= REC.minFit && stat.n > 0)) continue
+    if (stat.topics) { for (const t of stat.topics) if (topicOk(t, scan.pool.workedRate)) [...t.ex, ...t.bad].forEach(x => ids.add(x)) }
     else [...stat.winners, ...stat.losers].forEach(x => ids.add(x))
   }
   return [...ids]

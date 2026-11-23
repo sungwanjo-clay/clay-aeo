@@ -12,7 +12,7 @@
  * new since the previous scan: videos first seen or published in the last 14 days (with an early multiple), channels
  * found this week, title terms rising against the past year, and themes gaining or losing hits.
  */
-import { FORMATS, THEMES, formatsOf, themeOf, type FormatId, type ThemeId } from './themes'
+import { FORMATS, THEMES, assistantOf, formatsOf, subjectOf, themeOf, type FormatId, type SubjectId, type ThemeId } from './themes'
 
 export const SCAN = { longSecs: 180, minChannelVideos: 15, minMedian: 100, excludeNewest: 5, minAgeDays: 21, outlier: 3, worked: 2, failed: 0.7, under: 0.5, neighbours: 31, minOutlierViews: 5000, newDays: 14, earlyMinDays: 2 }
 
@@ -27,30 +27,40 @@ export type Raw = {
 export type SV = { id: string; c: string; t: string; p: string; m: number; v: number; x: number | null; nb: number | null; ch: number; th: ThemeId; f: FormatId[]; early?: 1; isNew?: 1
   /** Likes and comments (public counts; absent in scans before Nov 23). */
   l?: number; cm?: number }
-/** One title format within a theme: the copies that sell the theme that way, judged like the theme. */
-export type Angle = { f: FormatId; n: number; worked: number; failed: number; hits: number; winChannels: number; ex: string[]; bad: string[] }
+/**
+ * One topic within a theme (the subject its titles name, lib/plg/creators/themes.ts SUBJECTS), judged like the theme:
+ * the copies, the median multiple, up to 4 that worked (one per channel), 2 that failed, and how each title format did
+ * on it (formats with 3+ copies).
+ */
+export type Topic = { s: SubjectId; n: number; worked: number; failed: number; hits: number; winChannels: number; med: number | null; ex: string[]; bad: string[]
+  formats: { f: FormatId; n: number; worked: number }[]
+  /** AI-assistant topics: how each assistant named in the title did (3+ copies). */
+  tools?: { a: string; n: number; worked: number }[] }
 export type Sep = { label: string; w: number; wn: number; f: number; fn: number }
 export type ThemeStat = {
   id: ThemeId; n: number; hits: number; worked: number; failed: number; winChannels: number; x10: number; below: number
   recentHits: number; recentN: number; priorHits: number; priorN: number
   original: string | null; winners: string[]; losers: string[]; seps: Sep[]; words: { w: string[]; f: string[] }; bestFormat: FormatId | null
-  /** Title formats with 5+ judged copies in the theme (absent in scans before Nov 23). */
-  angles?: Angle[]
+  /** Topics with 5+ judged copies (absent in scans before Nov 23). */
+  topics?: Topic[]
 }
 export type FormatStat = { id: FormatId; n: number; hits: number; below: number; best: string[]; worst: string[] }
 /**
- * A written recommendation (the weekly review, docs/niche-scan.md step 4). `format` picks the angle within the theme;
- * without it the entry covers the theme's top idea. Each decision carries its reason (`why`), grounded in the scan or
+ * A written recommendation (the weekly review, docs/niche-scan.md step 4): one topic (theme + subject), with the title
+ * format the brief recommends. Each decision carries its reason (`why`), grounded in the scan or
  * the program data.
  */
 export type ScanRec = {
-  theme: ThemeId; format?: FormatId | null; title: string; angle: string; thumbnail: string; structure: string; offer: string; notes?: string
+  /** The idea is the topic theme + subject; format is the title format the brief recommends for it. */
+  theme: ThemeId; subject?: SubjectId | null; format?: FormatId | null; title: string; angle: string; thumbnail: string; structure: string; offer: string; notes?: string
   useCase?: string; landing?: string; landingUrl?: string; cta?: string; copy?: string; placement?: string
   why?: Partial<Record<'title' | 'useCase' | 'landing' | 'cta' | 'copy' | 'placement' | 'thumbnail' | 'structure', string>>
 }
 export type ScanDoc = {
   version: 1; fetchedAt: string; analyzedAt: string; prevFetchedAt: string | null; partial: boolean
   pool: { channels: number; videos: number; scored: number; outliers: number; outliers10x: number; under: number; baseRate: number; workedRate: number }
+  /** Niche-wide: each trait's share of the copies that worked vs the ones that failed (every trait, not just separators). */
+  traits?: Sep[]
   channels: Record<string, { t: string; subs: number | null; median: number | null; program?: 1; isNew?: 1 }>
   videos: SV[]
   themes: ThemeStat[]
@@ -60,7 +70,7 @@ export type ScanDoc = {
   recs?: ScanRec[]
   /** Themes recommended in the previous scan, to mark what's new. */
   prevRecThemes?: ThemeId[]
-  /** Ideas recommended in the previous scan (theme:format keys), to mark what's new. */
+  /** Ideas recommended in the previous scan (theme:subject keys), to mark what's new. */
   prevRecKeys?: string[]
   seen: string[]
   /** Parts of youtube/scan-thumbs-<i> (scripts/niche-thumbs.mjs): 160×90 thumbnails of new and source videos. */
@@ -117,16 +127,20 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
     const lo = [...cw.entries()].filter(([, [a, b]]) => a + b >= 3).map(([w, [a, b]]) => [w, Math.log((a + 0.5) / (W.length + 1)) - Math.log((b + 0.5) / (F.length + 1))] as const)
     const fmt = FORMATS.map(f => { const xs = vs.filter(r => r.f.includes(f.id)); return { id: f.id, n: xs.length, rate: xs.length ? xs.filter(r => r.x! >= SCAN.worked).length / xs.length : 0 } })
       .filter(f => f.n >= 5).sort((a, b) => b.rate - a.rate)[0]
-    // Angles: the theme sold through each title format, with up to 4 winning examples (one per channel) and 2 failures.
-    const angles: Angle[] = FORMATS.map(f => {
-      const xs = vs.filter(r => r.f.includes(f.id)), w = xs.filter(r => r.x! >= SCAN.worked)
-      return { f: f.id, n: xs.length, worked: w.length, failed: xs.filter(r => r.x! < SCAN.failed).length, hits: xs.filter(r => r.x! >= SCAN.outlier).length,
-        winChannels: new Set(w.map(r => r.raw.ch)).size, xs, w }
-    }).filter(a => a.n >= 5 && a.worked >= 2).map(({ xs, w, ...a }) => ({ ...a,
-      ex: pick(perChannel(w.filter(r => r.raw.v >= SCAN.minOutlierViews).sort((p, q) => q.x! - p.x!), 4).map(r => r.raw.id)),
-      bad: pick(perChannel(xs.filter(r => r.x! < SCAN.failed).sort((p, q) => p.x! - q.x!), 2).map(r => r.raw.id)) }))
+    // Topics: the theme narrowed to the subject its titles name.
+    const subj = new Map<SubjectId, typeof vs>()
+    for (const r of vs) { const k = subjectOf(t.id, r.raw.t); (subj.get(k) ?? subj.set(k, []).get(k)!).push(r) }
+    const topics: Topic[] = [...subj.entries()].filter(([, xs]) => xs.length >= 5).map(([k, xs]) => {
+      const w = xs.filter(r => r.x! >= SCAN.worked)
+      return { s: k, n: xs.length, worked: w.length, failed: xs.filter(r => r.x! < SCAN.failed).length, hits: xs.filter(r => r.x! >= SCAN.outlier).length,
+        winChannels: new Set(w.map(r => r.raw.ch)).size, med: median(xs.map(r => r.x!)) == null ? null : +median(xs.map(r => r.x!))!.toFixed(2),
+        ex: pick(perChannel(w.filter(r => r.raw.v >= SCAN.minOutlierViews).sort((p, q) => q.x! - p.x!), 4).map(r => r.raw.id)),
+        bad: pick(perChannel(xs.filter(r => r.x! < SCAN.failed).sort((p, q) => p.x! - q.x!), 2).map(r => r.raw.id)),
+        formats: FORMATS.map(f => { const fx = xs.filter(r => r.f.includes(f.id)); return { f: f.id, n: fx.length, worked: fx.filter(r => r.x! >= SCAN.worked).length } }).filter(f => f.n >= 3),
+        ...(k === 'ai-assistant' ? { tools: ['claude', 'chatgpt', 'grok', 'gemini'].map(a => { const ax = xs.filter(r => assistantOf(r.raw.t) === a); return { a, n: ax.length, worked: ax.filter(r => r.x! >= SCAN.worked).length } }).filter(a => a.n >= 3) } : {}) }
+    }).filter(x => x.worked >= 2)
     return {
-      id: t.id, n: vs.length, hits: hits.length, angles, worked: W.length, failed: F.length, winChannels: new Set(W.map(r => r.raw.ch)).size,
+      id: t.id, n: vs.length, hits: hits.length, topics, worked: W.length, failed: F.length, winChannels: new Set(W.map(r => r.raw.ch)).size,
       x10: vs.filter(r => r.x! >= 10).length, below: vs.filter(r => r.x! < SCAN.under).length,
       recentHits: recent.filter(r => r.x! >= SCAN.outlier).length, recentN: recent.length, priorHits: prior.filter(r => r.x! >= SCAN.outlier).length, priorN: prior.length,
       original: pick(winnersAll.slice(0, 1).map(r => r.raw.id))[0] ?? null,
@@ -178,17 +192,18 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
     pool: { channels: Object.keys(raw.channels).length, videos: raw.videos.length, scored, outliers: judged.filter(r => r.x! >= SCAN.outlier).length,
       outliers10x: judged.filter(r => r.x! >= 10).length, under: judged.filter(r => r.x! < SCAN.under).length,
       baseRate: scored ? judged.filter(r => r.x! >= SCAN.outlier).length / scored : 0, workedRate: scored ? judged.filter(r => r.x! >= SCAN.worked).length / scored : 0 },
+    traits: separators(judged.filter(r => r.x! >= SCAN.worked), judged.filter(r => r.x! < SCAN.failed), true),
     channels, videos, themes, formats,
     pulse: { newTotal: fresh.length, earlyHits: fresh.filter(r => r.x! >= 1.5).length, newVideos, newChannels: raw.newChannels, terms },
     prevRecThemes: prev?.recs?.map(r => r.theme) ?? prev?.prevRecThemes ?? [],
-    prevRecKeys: prev?.recs?.map(r => `${r.theme}:${r.format ?? ''}`) ?? prev?.prevRecKeys ?? [],
+    prevRecKeys: prev?.recs?.map(r => `${r.theme}:${r.subject ?? (r.format ? '' : 'general')}`) ?? prev?.prevRecKeys ?? [],
     seen: [...new Set([...seen, ...raw.videos.map(v => v.id)])],
     tracked: Object.keys(raw.channels),
   }
 }
 
 
-function separators(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number | null }[], F: typeof W): Sep[] {
+function separators(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number | null }[], F: typeof W, all = false): Sep[] {
   if (W.length < 3 || F.length < 3) return []
   const feats: [string, (r: (typeof W)[number]) => boolean][] = [
     ['20 minutes or longer', r => r.raw.s >= 1200],
@@ -197,7 +212,9 @@ function separators(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number |
     ['Small channel (median under 1,000 views)', r => (r.md ?? 0) < 1000],
     ...FORMATS.map(f => [f.label, (r: (typeof W)[number]) => r.f.includes(f.id)] as [string, (r: (typeof W)[number]) => boolean]),
   ]
-  return feats.map(([label, p]) => ({ label, w: W.filter(p).length, wn: W.length, f: F.filter(p).length, fn: F.length }))
+  const rows = feats.map(([label, p]) => ({ label, w: W.filter(p).length, wn: W.length, f: F.filter(p).length, fn: F.length }))
+  if (all) return rows.filter(s => s.w + s.f >= 20).sort((a, b) => (b.w / b.wn - b.f / b.fn) - (a.w / a.wn - a.f / a.fn))
+  return rows
     .filter(s => s.w + s.f >= 3)
     .map(s => ({ s, d: s.w / s.wn - s.f / s.fn }))
     .filter(x => Math.abs(x.d) >= 0.12)

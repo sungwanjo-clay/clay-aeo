@@ -79,3 +79,39 @@ export const PLAYS: Partial<Record<ThemeId, Play>> = {
   'ai-use-cases': { useCase: 'An AI assistant using Clay’s data through the MCP', landing: 'Clay MCP', landingUrl: 'https://www.clay.com/mcp', offer: 'Connect Clay to your AI assistant', cta: 'Connect Clay to Claude or ChatGPT free' },
   'agency-growth': { useCase: 'Outbound for clients: find, enrich and personalize in one table', landing: 'Outbound use case', landingUrl: 'https://www.clay.com/use-cases/outbound', offer: 'The outbound table from the video as a template', cta: 'Start free and run your first client campaign' },
 }
+
+/**
+ * What a video is about inside its theme: the tool or platform its title names. A topic (theme + subject) is one video
+ * idea; "Clay for beginners" and "the full Clay course" are the same topic sold two ways (title formats). Checked in
+ * order, first match wins; Clay is implicit in the Clay themes.
+ */
+export type SubjectId = 'ai-assistant' | 'n8n' | 'zapier-make' | 'apollo' | 'google-maps' | 'linkedin' | 'email-tools' | 'hormozi' | 'clay' | 'general'
+export const SUBJECTS: { id: SubjectId; label: string; rule?: RegExp }[] = [
+  // One subject for every AI assistant: "leads with Claude" and "leads with ChatGPT" are the same video. Which assistant
+  // to name is a choice inside the brief (ASSISTANTS), like the title format.
+  { id: 'ai-assistant', label: 'AI assistants', rule: /claude|chatgpt|\bgpt|openai|\bgrok|gemini/i },
+  { id: 'n8n', label: 'n8n', rule: /\bn8n\b/i },
+  { id: 'zapier-make', label: 'Zapier or Make', rule: /zapier|make\.com/i },
+  { id: 'apollo', label: 'Apollo', rule: /apollo/i },
+  { id: 'google-maps', label: 'Google Maps', rule: /google maps/i },
+  { id: 'linkedin', label: 'LinkedIn and Sales Navigator', rule: /linkedin|sales nav/i },
+  { id: 'email-tools', label: 'Instantly, Smartlead or Lemlist', rule: /instantly|smartlead|lemlist/i },
+  { id: 'hormozi', label: 'Hormozi', rule: /hormozi/i },
+  { id: 'clay', label: 'Clay', rule: /\bclay\b/i },
+  { id: 'general', label: 'General' },
+]
+export function subjectOf(theme: ThemeId, title: string): SubjectId {
+  const s = SUBJECTS.find(x => x.rule?.test(title))?.id ?? 'general'
+  // Clay is the topic itself in the Clay themes; LinkedIn is the theme itself in the LinkedIn theme.
+  if ((s === 'clay' && (theme === 'clay-course' || theme === 'clay-narrow')) || (s === 'linkedin' && theme === 'linkedin')) return 'general'
+  return s
+}
+export const ASSISTANTS: { id: string; label: string; rule: RegExp }[] = [
+  { id: 'claude', label: 'Claude', rule: /claude/i }, { id: 'chatgpt', label: 'ChatGPT', rule: /chatgpt|\bgpt|openai/i },
+  { id: 'grok', label: 'Grok', rule: /\bgrok/i }, { id: 'gemini', label: 'Gemini', rule: /gemini/i },
+]
+export const assistantOf = (title: string) => ASSISTANTS.find(a => a.rule.test(title))?.id ?? null
+export const assistantLabel = (id: string) => ASSISTANTS.find(a => a.id === id)?.label ?? id
+export const subjectLabel = (id: SubjectId) => SUBJECTS.find(s => s.id === id)?.label ?? id
+/** A topic's name: the theme, narrowed by its subject ("AI tool + lead gen build: Claude"). */
+export const topicLabel = (theme: ThemeId, s: SubjectId) => (s === 'general' ? themeLabel(theme) : `${themeLabel(theme)}: ${subjectLabel(s)}`)

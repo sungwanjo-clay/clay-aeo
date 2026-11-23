@@ -1,5 +1,5 @@
 /**
- * Weekly niche scan, review step: print the ideas (theme × title format) the Content insights tab will recommend, with the evidence to
+ * Weekly niche scan, review step: print the ideas (one per topic: theme + subject) the Content insights tab will recommend, with the evidence to
  * write their titles and packages from (docs/niche-scan.md, step 4). Prints no credentials and no warehouse rows, only
  * per-theme summaries.
  *
@@ -27,8 +27,9 @@ console.log(`Rising terms: ${scan.pulse.terms.map(t => `${t.term} (${t.now} vs $
 console.log(`Off the list since last week: ${d.dropped.join(', ') || 'none'}`)
 for (const r of d.recs) {
   const s = r.stat, p = r.proof
-  console.log(`\n#${r.rank} ${r.key} (${r.status}) score ${r.score.toFixed(2)} · signups ${r.themeRow?.signup ?? 'untested'} · angle copies ${p.worked} worked / ${p.failed} failed of ${p.n} on ${p.channels} channels (${(p.rate * 100).toFixed(0)}% vs theme ${(p.themeRate * 100).toFixed(0)}%, niche ${(p.nicheRate * 100).toFixed(0)}%) · theme recent ${s.recentHits}/${s.recentN} vs prior ${s.priorHits}/${s.priorN}`)
+  console.log(`\n#${r.rank} ${r.key} (${r.status}) score ${r.score.toFixed(2)} · signups ${r.themeRow?.signup ?? 'untested'} · topic copies ${p.worked} worked / ${p.failed} failed of ${p.n} on ${p.channels} channels (${(p.rate * 100).toFixed(0)}% vs theme ${(p.themeRate * 100).toFixed(0)}%, niche ${(p.nicheRate * 100).toFixed(0)}%), median ${p.med}× · format ${r.format ?? '–'} · ours (${r.oursScope}) ${p.ws} ws, ${p.oursWorked}/${p.judged} worked · theme recent ${s.recentHits}/${s.recentN} vs prior ${s.priorHits}/${s.priorN}`)
   console.log(`  play    ${r.brief.useCase} → ${r.brief.landing}`)
+  console.log(`  formats ${r.formats.map(f => `${f.f} ${f.worked}/${f.n}`).join(', ') || '–'}`)
   for (const v of r.examples) console.log(`  worked  ${v.x}×  ${v.v} views  ${v.m}m  ch${v.ch}  “${v.t}” [${ch(v)}]`)
   for (const v of r.losers) console.log(`  failed  ${v.x}×  ${v.m}m  ch${v.ch}  “${v.t}” [${ch(v)}]`)
   for (const x of r.seps) console.log(`  trait   ${x.label}: worked ${x.w}/${x.wn}, failed ${x.f}/${x.fn}`)

@@ -1,10 +1,11 @@
 'use client'
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { ATTRIBUTION, REC, RESULT, r1, type CreatorsData, type Rec, type Result, type ThemeRow, type VideoRow } from '@/lib/plg/creators/compute'
+import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
+import { ATTRIBUTION, REC, RESULT, r1, type CreatorsData, type Rec, type Result, type VideoRow } from '@/lib/plg/creators/compute'
 import { briefMarkdown } from '@/lib/plg/creators/brief'
 import { SCAN, type SV, type ScanDoc } from '@/lib/plg/creators/scan'
-import { clayFit, formatLabel, themeLabel, type FormatId, type ThemeId } from '@/lib/plg/creators/themes'
+import { assistantLabel, clayFit, formatLabel, themeLabel, type FormatId, type ThemeId } from '@/lib/plg/creators/themes'
 import SectionBar, { Chip } from '../SectionBar'
 import { Card, Def, Eyebrow, H2, InfoTip, T, fmtInt, fmtPct } from '../ui'
 
@@ -18,8 +19,8 @@ const ytUrl = (id: string) => `https://www.youtube.com/watch?v=${id}`
 const ageDays = (p: string, now: string) => Math.max(0, Math.round((Date.parse(now) - Date.parse(p)) / 864e5))
 
 const SECTIONS = [
-  { id: 'ci-next', label: 'Make next' }, { id: 'ci-learn', label: 'What we’re learning' }, { id: 'ci-week', label: 'This week' },
-  { id: 'ci-top', label: 'Videos' }, { id: 'ci-data', label: 'Program data' },
+  { id: 'ci-next', label: 'Make next' }, { id: 'ci-week', label: 'This week' }, { id: 'ci-top', label: 'Videos' }, { id: 'ci-themes', label: 'Themes' },
+  { id: 'ci-vs', label: 'Winners vs losers' }, { id: 'ci-data', label: 'Program data' },
 ]
 /** What the side panel shows: an idea, a niche video or one of our videos. */
 type Sel = { k: 'idea'; key: string } | { k: 'niche'; id: string } | { k: 'ours'; key: string } | null
@@ -32,8 +33,6 @@ function Badge({ tone, children }: { tone: { bg: string; fg: string }; children:
 }
 const resultTone = (r: Result) => (r === 'worked' ? GOOD : r === 'failed' ? BAD : MID)
 const RESULT_LABEL: Record<Result, string> = { worked: 'Worked', failed: 'Failed', neutral: 'In between', unjudged: 'Not judged' }
-const signupTone = (t: ThemeRow | null) => (!t ? MID : t.signup === 'converts' ? GOOD : t.signup === 'no' ? BAD : MID)
-const SIGNUP_LABEL = { converts: 'Converts', mixed: 'Mixed', no: 'Doesn’t convert', untested: 'Untested' } as const
 const svResult = (v: SV): Result => (v.early || v.x == null ? 'unjudged' : v.x >= SCAN.worked ? 'worked' : v.x < SCAN.failed ? 'failed' : 'neutral')
 
 function Section({ id, eyebrow, title, sub, children }: { id: string; eyebrow: string; title: string; sub?: React.ReactNode; children: React.ReactNode }) {
@@ -82,10 +81,11 @@ export default function InsightsView({ d, thumbs, loading, onDownload }: { d: Cr
         </span>
       </SectionBar>
 
-      <MakeNext d={d} thumbs={thumbs} open={open} />
-      <Learnings d={d} />
-      {s && <ThisWeek s={s} d={d} thumbs={thumbs} open={open} />}
+      <MakeNext d={d} open={open} />
+      {s && <ThisWeek s={s} d={d} open={open} />}
       <Explorer d={d} thumbs={thumbs} open={open} />
+      <Themes d={d} thumbs={thumbs} open={open} />
+      <WinnersLosers d={d} />
       <ProgramData d={d} />
 
       <Drawer open={!!(rec || niche || ours)} onClose={() => open(null)}
@@ -130,23 +130,30 @@ function Drawer({ open, onClose, title, nav, children }: { open: boolean; onClos
   )
 }
 
-/** Niche videos as a table: title, channel, views, median, multiple, minutes, chapters, result. */
-function NicheTable({ rows, s, showTheme, showAge, open }: { rows: SV[]; s: ScanDoc; showTheme?: boolean; showAge?: boolean; open: Open }) {
+/**
+ * Niche videos as a table, led by how far each beat its own channel. Signups only exist for our creators' videos (the
+ * rest carry no Clay link): those show their workspaces, the others say so.
+ */
+function NicheTable({ rows, s, d, showTheme, showAge, open }: { rows: SV[]; s: ScanDoc; d: CreatorsData; showTheme?: boolean; showAge?: boolean; open: Open }) {
+  const ours = new Map(d.videos.filter(v => v.vid).map(v => [v.vid!, v]))
   return (
-    <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 760 }}>
+    <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 860 }}>
       <thead><tr style={head}>
-        <th className={`${th} text-left pl-0`}>Video</th><th className={`${th} text-right`}>Views</th><th className={`${th} text-right`}>Channel median</th>
-        <th className={`${th} text-right`}>Multiple</th><th className={`${th} text-right`}>{showAge ? 'Age (days)' : 'Minutes'}</th><th className={`${th} text-right`}>Chapters</th><th className={`${th} text-left`}>Result</th>
+        <th className={`${th} text-left pl-0`}>Video</th><th className={`${th} text-right`}>× channel median</th><th className={`${th} text-right`}>Views</th>
+        <th className={`${th} text-right`}>{showAge ? 'Age (days)' : 'Minutes'}</th><th className={`${th} text-right`}>Chapters</th>
+        <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Signups<InfoTip label="About signups"><Def d="New workspaces from the video’s own Clay link. Only our creators’ videos have one; for everyone else’s there’s nothing to measure." /></InfoTip></span></th>
+        <th className={`${th} text-left`}>Result</th>
       </tr></thead>
       <tbody>{rows.map(v => {
-        const c = s.channels[v.c], r = svResult(v)
+        const c = s.channels[v.c], r = svResult(v), o = ours.get(v.id)
         return (
           <tr key={v.id} onClick={() => open({ k: 'niche', id: v.id })} className="cursor-pointer hover:bg-[#F6F5F1]" style={{ borderBottom: `1px solid ${T.border}` }}>
             <td className="py-2 pr-3"><span className="font-medium">{v.t}</span>
               <span className="block text-[13px]" style={{ color: T.muted }}>{c?.t ?? '—'}{c?.subs ? ` · ${compact(c.subs)} subs` : ''}{showTheme ? ` · ${themeLabel(v.th)}` : ''} · {v.p}</span></td>
-            <td className={num} style={mono}>{fmtInt(v.v)}</td><td className={num} style={mono}>{fmtInt(c?.median)}</td>
-            <td className={num} style={{ ...mono, fontWeight: 600 }}>{v.x == null ? '–' : `${r1(v.x)}×`}{v.early ? <span style={{ color: T.faint, fontWeight: 400 }}> early</span> : null}</td>
+            <td className={num} style={{ ...mono, fontWeight: 600, color: (v.x ?? 0) >= 2 ? GOOD.fg : (v.x ?? 1) < 0.7 ? T.neg : T.ink }}>{v.x == null ? '–' : `${r1(v.x)}×`}{v.early ? <span style={{ color: T.faint, fontWeight: 400 }}> early</span> : null}</td>
+            <td className={num} style={mono}>{fmtInt(v.v)}<span className="block text-[12px]" style={{ color: T.muted }}>median {fmtInt(c?.median)}</span></td>
             <td className={num} style={mono}>{showAge ? ageDays(v.p, s.fetchedAt) : v.m}</td><td className={num} style={mono}>{v.ch || '–'}</td>
+            <td className={num}>{o ? <b style={mono}>{fmtInt(o.m.ws)} ws</b> : <span className="text-[12px]" style={{ color: T.faint }}>no Clay link</span>}</td>
             <td className="px-3 py-2">{v.early ? <Badge tone={NEW}>Too new</Badge> : <Badge tone={resultTone(r)}>{RESULT_LABEL[r]}</Badge>}</td>
           </tr>)
       })}</tbody>
@@ -155,55 +162,80 @@ function NicheTable({ rows, s, showTheme, showAge, open }: { rows: SV[]; s: Scan
 }
 
 // ── 1. Make these next ─────────────────────────────────────────────────────────
-function MakeNext({ d, thumbs, open }: { d: CreatorsData; thumbs: Record<string, string>; open: Open }) {
+function Trend({ stat }: { stat: Rec['stat'] }) {
+  const r = stat.recentN >= 5 ? stat.recentHits / stat.recentN : null, p = stat.priorN >= 5 ? stat.priorHits / stat.priorN : null
+  if (r == null || p == null) return <span style={{ color: T.faint }}>–</span>
+  const d = r - p
+  const [label, color] = d > 0.05 ? ['▲ Rising', GOOD.fg] : d < -0.05 ? ['▼ Cooling', T.neg] : ['Steady', T.muted]
+  return <span className="flex flex-col items-start whitespace-nowrap"><span style={{ color, fontWeight: 600 }}>{label}</span><span className="text-[12px]" style={{ ...mono, color: T.muted }}>{fmtPct(p, 0)} → {fmtPct(r, 0)}</span></span>
+}
+/** Hit rate with the niche's rate marked, so "52%" reads against "29% for everyone". */
+function RateBar({ rate, base }: { rate: number; base: number }) {
+  return (
+    <span className="relative block h-1.5 w-28 rounded-full" style={{ background: T.barTrack }} aria-hidden>
+      <span className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${Math.min(100, rate * 100)}%`, background: GOOD.fg }} />
+      <span className="absolute -top-1 h-3.5 w-px" style={{ left: `${Math.min(100, base * 100)}%`, background: T.ink }} />
+    </span>
+  )
+}
+
+// ── 1. Make these next ─────────────────────────────────────────────────────────
+function MakeNext({ d, open }: { d: CreatorsData; open: Open }) {
   if (!d.recs.length) return (
     <Section id="ci-next" eyebrow="Make these next" title="No niche scan yet">
       <p className="text-[15px]" style={{ color: T.muted }}>Recommendations come from the weekly niche scan (scripts/niche-scan.mjs, then niche-analyze.mjs → youtube/scan).</p>
     </Section>
   )
+  const s = d.scan!
   const fresh = d.recs.filter(r => r.status === 'new').length
   return (
-    <Section id="ci-next" eyebrow={`Make these next · scan of ${d.scan!.fetchedAt.slice(0, 10)}`} title={`${d.recs.length} videos to make next`}
-      sub={<>Each idea is a theme sold through one title format, worked back from the niche’s copies that beat their channel and the ones that didn’t, then weighted by <b style={{ color: T.ink }}>signup proof</b> from our creators, how naturally Clay fits and whether the theme is rising. Click one for its sources, the brief and why.</>}>
+    <Section id="ci-next" eyebrow={`Make these next · scan of ${s.fetchedAt.slice(0, 10)}`} title={`${d.recs.length} videos to make next`}
+      sub={<>One idea per topic: a theme narrowed to the tool it’s about. How to sell it (title format, which AI assistant to name) is part of the brief, not a separate idea. Ranked on how often the niche’s copies beat their channel, then <b style={{ color: T.ink }}>signups</b> where our creators have made it. Click one for its sources, the brief and why.</>}>
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 980 }}>
+        <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 1080 }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left pl-5 sm:pl-8 w-10`}>#</th><th className={`${th} text-left`}>Video to make</th>
-            <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Watch proof<InfoTip label="About watch proof"><Def d="Niche copies on this theme and title format: how many beat their own channel’s median 2×+ (worked) or stayed under 0.7× (failed), and on how many channels." /></InfoTip></span></th>
-            <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Signup proof<InfoTip label="About signup proof"><Def d="Our creators’ videos on the theme: new workspaces they drove (first touch on the video’s link) and whether they converted." /></InfoTip></span></th>
-            <th className={`${th} text-left`}>Lands on</th><th className={`${th} text-left pr-5 sm:pr-8`}> </th>
+            <th className={`${th} text-left pl-5 sm:pl-8 w-10`}>#</th>
+            <th className={`${th} text-left`}>Topic · working title</th>
+            <th className={`${th} text-left`}><span className="inline-flex items-center gap-1">Niche hit rate<InfoTip label="About niche hit rate"><Def d="Share of the niche’s videos on this topic that got 2×+ their channel’s median views. The tick is the niche’s rate across every topic." note="Views only: other creators’ videos carry no Clay link, so their signups can’t be seen." /></InfoTip></span></th>
+            <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Views vs median<InfoTip label="About views vs median"><Def d="The median copy’s views against its channel’s median long-form video, and the top copy’s." /></InfoTip></span></th>
+            <th className={`${th} text-right`}><span className="inline-flex items-center gap-1">Our signups<InfoTip label="About our signups"><Def d="New workspaces from our creators’ videos on this topic (first touch on the video’s own link), and how many of the judged ones worked. When none name the topic’s tool, the theme’s." src="FCT_PLG_WORKSPACE_BLENDED_ATTRIBUTION × MARKETING_WEBSITE_SESSIONS" /></InfoTip></span></th>
+            <th className={`${th} text-left`}>Trend</th>
+            <th className={`${th} text-left`}>Lands on</th><th className={`${th} pr-5 sm:pr-8`} />
           </tr></thead>
           <tbody>{d.recs.map(r => {
-            const t = r.themeRow
+            const p = r.proof
             return (
               <tr key={r.key} onClick={() => open({ k: 'idea', key: r.key })} className="cursor-pointer hover:bg-[#F6F5F1]" style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td className="py-3 pl-5 sm:pl-8 align-top text-[18px]" style={{ ...mono, color: T.faint }}>{r.rank}</td>
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-3 min-w-[340px]">
-                    <Thumb vid={r.examples[0]?.id ?? null} thumbs={thumbs} w={80} />
-                    <span className="flex flex-col gap-1 min-w-0">
-                      <button type="button" className="text-left font-semibold leading-snug hover:underline line-clamp-2" onClick={e => { e.stopPropagation(); open({ k: 'idea', key: r.key }) }}>{r.title}</button>
-                      <span className="flex flex-wrap items-center gap-1.5 text-[12px]" style={{ color: T.muted }}>
-                        <span>{r.label}{r.angleLabel ? ` · ${r.angleLabel}` : ''}</span>
-                        {r.status === 'new' && <Badge tone={NEW}>New this week</Badge>}
-                        {!r.written && <Badge tone={MID}>Draft</Badge>}
-                      </span>
+                <td className="py-3.5 pl-5 sm:pl-8 align-top text-[18px]" style={{ ...mono, color: T.faint }}>{r.rank}</td>
+                <td className="px-3 py-3.5 align-top">
+                  <span className="flex flex-col gap-1 min-w-[300px] max-w-[440px]">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <button type="button" className="text-left font-semibold leading-snug hover:underline" onClick={e => { e.stopPropagation(); open({ k: 'idea', key: r.key }) }}>{r.label}</button>
+                      {r.status === 'new' && <Badge tone={NEW}>New</Badge>}{!r.written && <Badge tone={MID}>Draft</Badge>}
                     </span>
-                  </div>
+                    <span className="text-[13px] leading-snug line-clamp-1" style={{ color: T.muted }}>“{r.title}”</span>
+                    {(r.formatLabel || r.assistant) && <span className="text-[12px]" style={{ color: T.muted }}>Sell it as: {[r.formatLabel, r.assistant ? `name ${assistantLabel(r.assistant)}` : null].filter(Boolean).join(' · ')}</span>}
+                  </span>
                 </td>
-                <td className={num}><span className="flex flex-col items-end"><span style={mono}><b style={{ color: GOOD.fg }}>{r.proof.worked}</b> · <span style={{ color: T.neg }}>{r.proof.failed}</span></span>
-                  <span className="text-[12px]" style={{ color: T.muted }}>{fmtPct(r.proof.rate, 0)} worked · {r.proof.channels} ch.</span></span></td>
-                <td className={num}><span className="flex flex-col items-end gap-1"><span style={mono}>{t?.ws ? `${fmtInt(t.ws)} ws` : '–'}</span><Badge tone={signupTone(t)}>{SIGNUP_LABEL[t?.signup ?? 'untested']}</Badge></span></td>
-                <td className="px-3 py-3 text-[13px]" style={{ color: T.muted }}>{r.brief.landing}</td>
-                <td className="px-3 py-3 pr-5 sm:pr-8 text-right" style={{ color: T.faint }}>→</td>
+                <td className="px-3 py-3.5 align-top"><span className="flex flex-col gap-1.5">
+                  <span style={mono}><b>{fmtPct(p.rate, 0)}</b> <span className="text-[12px]" style={{ color: T.muted }}>of {fmtInt(p.n)} copies</span></span>
+                  <RateBar rate={p.rate} base={p.nicheRate} />
+                  <span className="text-[12px]" style={{ color: T.muted }}>niche {fmtPct(p.nicheRate, 0)} · {p.channels} channels</span></span></td>
+                <td className={`${num} align-top`}><span className="flex flex-col items-end"><b style={mono}>{p.med == null ? '–' : `${r1(p.med)}×`}</b><span className="text-[12px]" style={{ ...mono, color: T.muted }}>top {p.top == null ? '–' : `${r1(p.top)}×`}</span></span></td>
+                <td className={`${num} align-top`}>{r.ours.length
+                  ? <span className="flex flex-col items-end"><b style={mono}>{fmtInt(p.ws)} ws</b><span className="text-[12px]" style={{ color: T.muted }}>{p.judged ? `${p.oursWorked} of ${p.judged} worked` : 'none judged yet'}{r.oursScope === 'theme' ? ' · theme' : ''}</span></span>
+                  : <span className="flex flex-col items-end"><span style={{ color: T.muted }}>No data</span><span className="text-[12px]" style={{ color: T.faint }}>not made by us yet</span></span>}</td>
+                <td className="px-3 py-3.5 align-top"><Trend stat={r.stat} /></td>
+                <td className="px-3 py-3.5 align-top text-[13px]" style={{ color: T.muted }}>{r.brief.landing}</td>
+                <td className="px-3 py-3.5 pr-5 sm:pr-8 text-right align-top" style={{ color: T.faint }}>→</td>
               </tr>
             )
           })}</tbody>
         </table></div>
       </Card>
       <p className="text-[13px] px-1" style={{ color: T.muted }}>
-        {d.scan!.prevFetchedAt ? `${fresh} new since the scan of ${d.scan!.prevFetchedAt.slice(0, 10)}. ` : ''}
-        {d.dropped.length > 0 ? `Off the list since then: ${d.dropped.join(', ')}. ` : ''}At most {REC.perTheme} ideas per theme and {REC.perFormat} per title format.
+        {s.prevFetchedAt ? `${fresh} new since the scan of ${s.prevFetchedAt.slice(0, 10)}. ` : ''}
+        {d.dropped.length > 0 ? `Off the list since then: ${d.dropped.join(', ')}. ` : ''}A topic makes the list with {REC.topicMinCopies}+ copies on {REC.topicMinChannels}+ channels and a hit rate {Math.round(REC.topicMinEdge * 100)}+ points above the niche’s; at most {REC.perTheme} per theme.
       </p>
     </Section>
   )
@@ -211,7 +243,6 @@ function MakeNext({ d, thumbs, open }: { d: CreatorsData; thumbs: Record<string,
 
 function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsData; thumbs: Record<string, string>; open: Open; onDownload?: (f: string, t: string) => Promise<void> }) {
   const s = d.scan!
-  const t = r.themeRow
   const [copied, setCopied] = useState<string | null>(null)
   const md = () => briefMarkdown(r, d)
   const file = `video-brief-${r.rank}-${r.key.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '')}.md`
@@ -225,7 +256,7 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
   ]
   return <>
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2"><Eyebrow>{r.label}{r.angleLabel ? ` · ${r.angleLabel}` : ''}</Eyebrow>
+      <div className="flex flex-wrap items-center gap-2"><Eyebrow>{r.label}</Eyebrow>
         {r.status === 'new' && <Badge tone={NEW}>New this week</Badge>}{r.status === 'still' && <Badge tone={MID}>Still on the list</Badge>}
         {!r.written && <Badge tone={MID}>Draft from the evidence</Badge>}</div>
       <p className="text-[24px] sm:text-[28px] font-bold leading-tight" style={{ letterSpacing: '-0.02em' }}>{r.title}</p>
@@ -236,13 +267,14 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
     <div className="flex flex-col gap-3">
       <H2>Sourced from</H2>
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
-        {[[`${r.proof.worked} of ${r.proof.n}`, 'niche copies worked', `${fmtPct(r.proof.rate, 0)} vs ${fmtPct(r.proof.nicheRate, 0)} niche-wide`], [String(r.proof.channels), 'channels with a winner', 'not one creator’s series'],
-          [t?.ws ? fmtInt(t.ws) : '–', 'workspaces from our videos on the theme', t?.judged ? `${t.worked} of ${t.judged} judged worked` : 'not tested by us yet']].map(([v, l, x]) => (
+        {[[r.proof.med == null ? '–' : `${r1(r.proof.med)}×`, 'views vs channel median', `median copy; ${fmtPct(r.proof.rate, 0)} of ${fmtInt(r.proof.n)} got 2×+ (niche ${fmtPct(r.proof.nicheRate, 0)})`],
+          [String(r.proof.channels), 'channels with a winner', 'not one creator’s series'],
+          [r.ours.length ? fmtInt(r.proof.ws) : 'No data', `workspaces from our videos on the ${r.oursScope}`, r.ours.length ? (r.proof.judged ? `${r.proof.oursWorked} of ${r.proof.judged} judged worked` : 'none judged yet') : 'we haven’t made it; the niche’s videos have no Clay link']].map(([v, l, x]) => (
           <div key={l} className="rounded-2xl p-4 flex flex-col gap-0.5" style={{ background: T.tile }}>
             <span className="text-[24px] leading-none" style={mono}>{v}</span><span className="text-[13px] font-medium">{l}</span><span className="text-[12px]" style={{ color: T.muted }}>{x}</span>
           </div>))}
       </div>
-      <Eyebrow>Our creators on this theme · signups</Eyebrow>
+      <Eyebrow>Our creators on this {r.oursScope} · signups</Eyebrow>
       {r.ours.length ? <div className="flex flex-col gap-2">{r.ours.map(v => (
         <button type="button" key={v.key} onClick={() => open({ k: 'ours', key: v.key })} className="flex items-center gap-3 text-[14px] text-left rounded-xl p-2 -mx-2 hover:bg-[#F1F0EC]">
           <span className="hidden sm:block"><Thumb vid={v.vid} thumbs={thumbs} w={72} /></span>
@@ -251,8 +283,15 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
           <Badge tone={resultTone(v.result)}>{RESULT_LABEL[v.result]}</Badge>
         </button>))}</div>
         : <p className="text-[14px]" style={{ color: T.muted }}>None of our creators has made this yet, so there’s no signup data: this video doubles as the test.</p>}
-      <Eyebrow>Niche copies it’s modeled on · views only, the scan can’t see signups</Eyebrow>
+      <Eyebrow>Niche copies it’s modeled on · views vs their channel’s median</Eyebrow>
+      <p className="text-[13px] -mt-1" style={{ color: T.muted }}>Other creators’ videos carry no Clay link, so there are no signups to show for them: the evidence is how far they beat their own channel.</p>
       <div className="flex flex-col gap-2">{r.examples.map(v => <NicheRow key={v.id} v={v} s={s} thumbs={thumbs} open={open} />)}</div>
+      {(r.formats.length > 0 || r.tools.length > 1) && <>
+        <Eyebrow>How it’s been sold · copies that worked (2×+) of those tried</Eyebrow>
+        <div className="flex flex-wrap gap-2">{[...r.tools.length > 1 ? r.tools.map(a => ({ k: `a-${a.a}`, l: assistantLabel(a.a), n: a.n, w: a.worked, on: a.a === r.assistant })) : [],
+          ...r.formats.map(f => ({ k: f.f, l: formatLabel(f.f), n: f.n, w: f.worked, on: f.f === r.format }))].map(x => (
+          <span key={x.k} className="rounded-full px-3 py-1 text-[13px]" style={{ background: x.on ? GOOD.bg : T.tile, color: x.on ? GOOD.fg : T.ink }}>{x.l} <span style={mono}>{x.w}/{x.n}</span></span>))}</div>
+      </>}
     </div>
 
     {/* 2. The brief */}
@@ -305,7 +344,7 @@ function NicheRow({ v, s, thumbs, open }: { v: SV; s: ScanDoc; thumbs: Record<st
     <button type="button" onClick={() => open({ k: 'niche', id: v.id })} className="flex items-center gap-3 text-[14px] text-left rounded-xl p-2 -mx-2 hover:bg-[#F1F0EC]">
       <span className="hidden sm:block"><Thumb vid={v.id} thumbs={thumbs} w={72} /></span>
       <span className="flex-1 min-w-0"><span className="line-clamp-2 sm:line-clamp-1 font-medium">{v.t}</span><span className="text-[13px]" style={{ color: T.muted }}>{c?.t ?? '—'}{c?.subs ? ` · ${compact(c.subs)} subs` : ''} · {v.p}</span></span>
-      <span className="text-right whitespace-nowrap" style={mono}>{compact(v.v)} views<span className="block text-[12px]" style={{ color: T.muted }}>{v.x == null ? '–' : `${r1(v.x)}× channel`}</span></span>
+      <span className="text-right whitespace-nowrap" style={mono}><b>{v.x == null ? '–' : `${r1(v.x)}×`}</b> <span className="text-[12px]" style={{ color: T.muted }}>median</span><span className="block text-[12px]" style={{ color: T.muted }}>{compact(v.v)} views</span></span>
       {v.early ? <Badge tone={NEW}>Too new</Badge> : <Badge tone={resultTone(r)}>{RESULT_LABEL[r]}</Badge>}
     </button>
   )
@@ -388,65 +427,8 @@ function OursDetail({ v, thumbs }: { v: VideoRow; thumbs: Record<string, string>
   </>
 }
 
-// ── 2. What we're learning ─────────────────────────────────────────────────────
-function Learnings({ d }: { d: CreatorsData }) {
-  const s = d.scan
-  const base = s?.pool.baseRate ?? 0
-  const rows = [...d.themes].sort((a, b) => (b.worked - b.failed) - (a.worked - a.failed) || (b.demand ? b.demand.hits / b.demand.n : 0) - (a.demand ? a.demand.hits / a.demand.n : 0))
-  const fmts = s ? [...s.formats].filter(f => f.n >= 10).sort((a, b) => b.hits / b.n - a.hits / a.n) : []
-  const vid = new Map((s?.videos ?? []).map(v => [v.id, v]))
-  return (
-    <Section id="ci-learn" eyebrow="Synthesis" title="What we’re learning"
-      sub="Themes, title formats and our own winners and losers, boiled down to what they say and what to do. The tables behind each are folded underneath.">
-      <Card className="p-5 sm:p-8 flex flex-col gap-6">
-        <div className="grid gap-x-10 gap-y-7 grid-cols-1 lg:grid-cols-2">
-          {d.learnings.map((l, i) => (
-            <div key={i} className="flex flex-col gap-2 min-w-0">
-              <p className="text-[17px] font-semibold flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: l.tone === 'pos' ? GOOD.fg : l.tone === 'neg' ? T.neg : T.faint }} />{l.head}</p>
-              <ul className="flex flex-col gap-1 text-[14px] leading-snug">{l.bullets.map((b, j) => <li key={j} className="flex gap-2"><span style={{ color: T.faint }}>•</span><span className="min-w-0">{b}</span></li>)}</ul>
-              <p className="text-[14px] rounded-xl px-3 py-2" style={{ background: T.tile }}><b>So:</b> {l.so}</p>
-            </div>))}
-        </div>
-        <div className="flex flex-col gap-2 pt-2" style={{ borderTop: `1px solid ${T.border}` }}>
-          <details>
-            <summary className="cursor-pointer select-none text-[14px] font-medium py-2">Theme scorecard: our signups and niche demand, every theme</summary>
-            <div className="overflow-x-auto"><table className="w-full text-[14px] mt-2" style={{ minWidth: 900 }}>
-              <thead><tr style={head}><th className={`${th} text-left pl-0`}>Theme</th><th className={`${th} text-left`}>Verdict</th><th className={`${th} text-right`}>Ours: worked · failed</th><th className={`${th} text-right`}>Workspaces</th><th className={`${th} text-right`}>Median per 1K</th><th className={`${th} text-right`}>Niche hit rate</th><th className={`${th} text-right`}>Clay fit</th></tr></thead>
-              <tbody>{rows.map(t => {
-                const rate = t.demand ? t.demand.hits / t.demand.n : null
-                return <tr key={t.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td className="py-2 pr-3"><span className="font-medium">{t.label}</span><span className="block text-[12px]" style={{ color: T.muted }}>{t.videos.length} of ours</span></td>
-                  <td className="px-3 py-2"><Badge tone={t.tone === 'pos' ? GOOD : t.tone === 'neg' ? BAD : MID}>{t.verdict}</Badge></td>
-                  <td className={num} style={mono}><span style={{ color: t.worked ? GOOD.fg : T.faint }}>{t.worked}</span> · <span style={{ color: t.failed ? T.neg : T.faint }}>{t.failed}</span></td>
-                  <td className={num} style={mono}>{fmtInt(t.ws)}</td><td className={num} style={mono}>{r1(t.median)}</td>
-                  <td className={num} style={{ ...mono, color: rate != null && rate < base ? T.neg : T.ink }}>{rate == null ? '–' : `${fmtPct(rate, 0)} of ${fmtInt(t.demand!.n)}`}</td>
-                  <td className={num} style={mono}>{clayFit(t.id) >= 1 ? 'High' : clayFit(t.id) >= 0.6 ? 'Medium' : 'Low'}</td></tr>
-              })}</tbody></table></div>
-          </details>
-          {d.factors.length > 0 && <details>
-            <summary className="cursor-pointer select-none text-[14px] font-medium py-2">Our winners vs losers, factor by factor ({d.worked.length} worked, {d.failed.length} failed)</summary>
-            <table className="w-full text-[14px] mt-2"><tbody>{d.factors.map(f => (
-              <tr key={f.factor} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3 font-medium align-top">{f.factor}</td>
-                <td className="px-3 py-2 align-top" style={{ color: GOOD.fg }}>{f.worked}</td><td className="px-3 py-2 align-top" style={{ color: T.neg }}>{f.failed}</td></tr>))}</tbody></table>
-          </details>}
-          {fmts.length > 0 && <details>
-            <summary className="cursor-pointer select-none text-[14px] font-medium py-2">Title formats in the niche</summary>
-            <div className="overflow-x-auto"><table className="w-full text-[14px] mt-2" style={{ minWidth: 760 }}>
-              <thead><tr style={head}><th className={`${th} text-left pl-0`}>Format</th><th className={`${th} text-right`}>Hit rate</th><th className={`${th} text-right`}>Below 0.5×</th><th className={`${th} text-left`}>Best example</th></tr></thead>
-              <tbody>{fmts.map(f => { const b = vid.get(f.best[0]); return (
-                <tr key={f.id} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3 font-medium">{formatLabel(f.id as FormatId)}</td>
-                  <td className={num} style={{ ...mono, color: f.hits / f.n >= base ? GOOD.fg : T.neg }}>{fmtPct(f.hits / f.n, 0)} <span style={{ color: T.faint }}>of {fmtInt(f.n)}</span></td>
-                  <td className={num} style={mono}>{fmtPct(f.below / f.n, 0)}</td>
-                  <td className="px-3 py-2">{b ? <>{b.t} <span style={{ ...mono, color: T.muted }}>{r1(b.x)}×</span></> : '–'}</td></tr>) })}</tbody></table></div>
-          </details>}
-        </div>
-      </Card>
-    </Section>
-  )
-}
-
 // ── 3. This week ───────────────────────────────────────────────────────────────
-function ThisWeek({ s, d, thumbs, open }: { s: ScanDoc; d: CreatorsData; thumbs: Record<string, string>; open: Open }) {
+function ThisWeek({ s, d, open }: { s: ScanDoc; d: CreatorsData; open: Open }) {
   const vid = new Map(s.videos.map(v => [v.id, v]))
   const fresh = s.pulse.newVideos.map(i => vid.get(i)).filter((v): v is SV => !!v)
   const hot = fresh.filter(v => (v.x ?? 0) >= 1.5)
@@ -456,30 +438,21 @@ function ThisWeek({ s, d, thumbs, open }: { s: ScanDoc; d: CreatorsData; thumbs:
   const [more, setMore] = useState(false)
   return (
     <Section id="ci-week" eyebrow="Pulse" title="New this week"
-      sub={`Videos first seen ${since} on the ${s.pool.channels} tracked channels, title terms rising against the past year, and themes gaining or losing hits. Early multiples are views so far against the channel’s median, so they can only go up. Click a video for its details.`}>
+      sub={`Videos first seen ${since} on the ${s.pool.channels} tracked channels, title terms rising against the past year, and themes gaining or losing hits. Early multiples are views so far against the channel’s median, so they can only go up. Signups show only for our creators’ videos; the rest carry no Clay link. Click a video for its details.`}>
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
         {[[s.pulse.newTotal ?? fresh.length, 'new videos', `${s.pulse.earlyHits ?? hot.length} already at 1.5×+ their channel`], [s.pulse.newChannels.length, 'new channels', 'found by this week’s searches'], [s.pulse.terms.length, 'rising terms', 'at least 2× their share of last year’s titles']].map(([v, l, sub]) => (
           <div key={String(l)} className="rounded-[22px] p-5 flex flex-col gap-1" style={{ background: T.tile }}>
             <span className="text-[34px] leading-none" style={mono}>{fmtInt(Number(v))}</span><span className="text-[15px] font-medium">{l}</span><span className="text-[13px]" style={{ color: T.muted }}>{sub}</span>
           </div>))}
       </div>
-      <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="flex flex-col gap-6">
         <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
           <H2>Breaking out early</H2>
           <p className="text-[14px]" style={{ color: T.muted }}>New videos ranked by their early multiple. Next week they’re judged like the rest.</p>
-          {fresh.length ? <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">{fresh.slice(0, more ? 30 : 9).map(v => {
-            const c = s.channels[v.c]
-            return (
-              <button key={v.id} type="button" onClick={() => open({ k: 'niche', id: v.id })} className="flex flex-col gap-1.5 text-left rounded-xl p-2 -m-2 hover:bg-[#F1F0EC] min-w-0">
-                <span className="relative"><Thumb vid={v.id} thumbs={thumbs} w={240} fluid />
-                  <span className="absolute right-1.5 bottom-1.5 rounded px-1.5 py-0.5 text-[12px] font-semibold" style={{ ...mono, background: (v.x ?? 0) >= 1.5 ? '#1F6B3E' : 'rgba(0,0,0,0.7)', color: '#fff' }}>{v.x == null ? '–' : `${r1(v.x)}×`}</span></span>
-                <span className="text-[14px] font-medium leading-snug line-clamp-2">{v.t}</span>
-                <span className="text-[12px]" style={{ color: T.muted }}>{c?.t ?? '—'} · {compact(v.v)} views · {ageDays(v.p, s.fetchedAt)}d</span>
-              </button>)
-          })}</div> : <p className="text-[14px]" style={{ color: T.muted }}>No new videos in this scan.</p>}
-          {fresh.length > 9 && <button type="button" onClick={() => setMore(x => !x)} className="self-start text-[14px] underline">{more ? 'Show fewer' : `Show ${Math.min(30, fresh.length) - 9} more`}</button>}
+          {fresh.length ? <NicheTable rows={fresh.slice(0, more ? 40 : 15)} s={s} d={d} showTheme showAge open={open} /> : <p className="text-[14px]" style={{ color: T.muted }}>No new videos in this scan.</p>}
+          {fresh.length > 15 && <button type="button" onClick={() => setMore(x => !x)} className="self-start text-[14px] underline">{more ? 'Show top 15' : `Show ${Math.min(40, fresh.length) - 15} more`}</button>}
         </Card>
-        <div className="flex flex-col gap-6 min-w-0">
+        <div className="grid gap-6 grid-cols-1 lg:grid-cols-3 min-w-0">
           <Card className="p-5 sm:p-8 flex flex-col gap-3">
             <H2>Rising terms</H2>
             {s.pulse.terms.length ? <ul className="flex flex-col gap-3">{s.pulse.terms.slice(0, 8).map(t => (
@@ -569,7 +542,7 @@ function Explorer({ d, thumbs, open }: { d: CreatorsData; thumbs: Record<string,
           <option value="x">Sort: multiple</option><option value="v">Sort: views</option><option value="p">Sort: newest</option></select>}
       </div>
       {src === 'niche' && s ? <Card className="p-5 sm:p-8">
-        {niche.length ? <NicheTable rows={niche.slice(0, all ? 200 : 20)} s={s} showTheme open={open} /> : <p className="text-[14px]" style={{ color: T.muted }}>No scan videos for this slice.</p>}
+        {niche.length ? <NicheTable rows={niche.slice(0, all ? 200 : 20)} s={s} d={d} showTheme open={open} /> : <p className="text-[14px]" style={{ color: T.muted }}>No scan videos for this slice.</p>}
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
           <p className="text-[13px]" style={{ color: T.muted }}>The scan keeps outliers (3×+ the channel and its neighbours, 5,000+ views, two per channel), each theme’s winners and failures, and every new video. Views only: the scan can’t see signups.</p>
           {niche.length > 20 && <button type="button" onClick={() => setAll(x => !x)} className="text-[14px] underline">{all ? 'Show top 20' : `Show all ${Math.min(200, niche.length)}`}</button>}
@@ -622,6 +595,146 @@ function Explorer({ d, thumbs, open }: { d: CreatorsData; thumbs: Record<string,
           <button type="button" onClick={() => setAll(x => !x)} className="text-[14px] underline" style={{ color: T.ink }}>{all ? 'Show top 10' : `Show all ${ours.length}, including excluded`}</button>
         </div>
       </Card>}
+    </Section>
+  )
+}
+
+// ── 5. Themes ──────────────────────────────────────────────────────────────────
+function Themes({ d, thumbs, open }: { d: CreatorsData; thumbs: Record<string, string>; open: Open }) {
+  const [sel, setSel] = useState<ThemeId | 'all'>('all')
+  const base = d.scan?.pool.baseRate ?? 0
+  const pool = sel === 'all' ? d.videos : d.themes.find(t => t.id === sel)?.videos ?? []
+  const w = pool.filter(v => v.result === 'worked').sort((a, b) => (b.perK ?? 0) - (a.perK ?? 0))
+  const f = pool.filter(v => v.result === 'failed').sort((a, b) => (b.views ?? 0) - (a.views ?? 0))
+  const rows = [...d.themes].sort((a, b) => (b.worked - b.failed) - (a.worked - a.failed) || (b.demand ? b.demand.hits / b.demand.n : 0) - (a.demand ? a.demand.hits / a.demand.n : 0))
+  return (
+    <Section id="ci-themes" eyebrow="Themes" title="What worked and what didn’t, by theme"
+      sub={<>Two columns of proof side by side: our creators’ videos judged on workspaces, and the niche scan’s copies judged on views (share at 3×+ their channel; scan base rate {fmtPct(base, 0)}). Click a theme to see our videos on it.</>}>
+      <Card className="p-5 sm:p-8">
+        <div className="overflow-x-auto -mx-5 sm:-mx-8">
+          <table className="w-full text-[14px]" style={{ color: T.ink, minWidth: 1000 }}>
+            <thead><tr style={head}>
+              <th className={`${th} text-left pl-5 sm:pl-8`}>Theme</th><th className={`${th} text-left`}>Verdict</th>
+              <th className={`${th} text-right`}>Ours: worked · failed</th><th className={`${th} text-right`}>Workspaces</th><th className={`${th} text-right`}>Median per 1K</th>
+              <th className={`${th} text-right`}>Niche: hit rate</th><th className={`${th} text-right`}>Copies worked · failed</th><th className={`${th} text-right pr-5 sm:pr-8`}>Clay fit</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(t => {
+                const on = sel === t.id, rate = t.demand ? t.demand.hits / t.demand.n : null
+                return (
+                  <tr key={t.id} onClick={() => setSel(on ? 'all' : t.id)} className="cursor-pointer" aria-selected={on} style={{ borderBottom: `1px solid ${T.border}`, background: on ? T.tile : undefined }}>
+                    <td className="px-3 py-3 pl-5 sm:pl-8"><span className="flex flex-col min-w-[260px]"><span className="font-medium">{t.label}</span><span className="text-[13px]" style={{ color: T.muted }}>{t.desc} · {t.videos.length} of ours</span></span></td>
+                    <td className="px-3 py-3"><Badge tone={t.tone === 'pos' ? GOOD : t.tone === 'neg' ? BAD : MID}>{t.verdict}</Badge></td>
+                    <td className={num} style={mono}><span style={{ color: t.worked ? GOOD.fg : T.faint }}>{t.worked}</span> · <span style={{ color: t.failed ? T.neg : T.faint }}>{t.failed}</span></td>
+                    <td className={num} style={mono}>{fmtInt(t.ws)}</td>
+                    <td className={num} style={{ ...mono, fontWeight: 600 }}>{r1(t.median)}</td>
+                    <td className={num}>{rate == null ? <span style={{ color: T.faint }}>–</span> : <span style={{ ...mono, color: rate >= base ? T.ink : T.neg }}>{fmtPct(rate, 0)} <span style={{ color: T.faint }}>of {fmtInt(t.demand!.n)}</span></span>}</td>
+                    <td className={num} style={mono}>{t.demand ? `${t.demand.worked} · ${t.demand.failed}` : '–'}</td>
+                    <td className={`${num} pr-5 sm:pr-8`} style={mono}>{clayFit(t.id) >= 1 ? 'High' : clayFit(t.id) >= 0.6 ? 'Medium' : 'Low'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <Card className="p-5 sm:p-8 flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <H2>{sel === 'all' ? 'All themes' : themeLabel(sel)}: our videos that worked (top) and failed (bottom)</H2>
+          {sel !== 'all' && <button type="button" className="text-[14px] underline" onClick={() => setSel('all')}>Show all themes</button>}
+        </div>
+        {w.length + f.length === 0 ? <p className="text-[15px]" style={{ color: T.muted }}>None of our videos on this theme has enough views and workspaces to judge yet.</p> :
+          <div className="overflow-x-auto -mx-5 sm:-mx-8"><table className="w-full text-[14px]" style={{ minWidth: 880 }}>
+            <thead><tr style={head}>
+              <th className={`${th} text-left pl-5 sm:pl-8`}>Video</th><th className={`${th} text-left`}>Placement</th><th className={`${th} text-right`}>Views</th>
+              <th className={`${th} text-right`}>× median</th><th className={`${th} text-right`}>Minutes</th><th className={`${th} text-right`}>Chapters</th>
+              <th className={`${th} text-right`}>Workspaces</th><th className={`${th} text-right`}>Per 1K</th><th className={`${th} text-left pr-5 sm:pr-8`}>Result</th>
+            </tr></thead>
+            <tbody>{[...w, ...f].map(v => (
+              <tr key={v.key} onClick={() => open({ k: 'ours', key: v.key })} className="cursor-pointer hover:bg-[#F6F5F1]" style={{ borderBottom: `1px solid ${T.border}` }}>
+                <td className="px-3 py-2 pl-5 sm:pl-8"><span className="flex items-center gap-3"><Thumb vid={v.vid} thumbs={thumbs} w={64} /><span className="flex flex-col min-w-0"><span className="line-clamp-1 font-medium">{v.title}</span><span className="text-[13px]" style={{ color: T.muted }}>{v.creator}{sel === 'all' ? ` · ${themeLabel(v.theme)}` : ''}</span></span></span></td>
+                <td className="px-3 py-2">{v.placement}</td>
+                <td className={num} style={mono}>{fmtInt(v.views)}</td><td className={num} style={mono}>{v.multiple == null ? '–' : `${r1(v.multiple)}×`}</td>
+                <td className={num} style={mono}>{v.mins == null ? '–' : Math.round(v.mins)}</td><td className={num} style={mono}>{v.chapters || '–'}</td>
+                <td className={num} style={{ ...mono, fontWeight: 600 }}>{fmtInt(v.m.ws)}</td><td className={num} style={{ ...mono, fontWeight: 600 }}>{r1(v.perK)}</td>
+                <td className="px-3 py-2 pr-5 sm:pr-8"><Badge tone={resultTone(v.result)}>{RESULT_LABEL[v.result]}</Badge></td>
+              </tr>))}</tbody>
+          </table></div>}
+      </Card>
+    </Section>
+  )
+}
+
+// ── 6. Winners vs losers ───────────────────────────────────────────────────────
+function WinnersLosers({ d }: { d: CreatorsData }) {
+  const s = d.scan
+  // By lift (share of winners over share of losers), the clearest read of what a trait is worth.
+  const traits = [...(s?.traits ?? [])].sort((a, b) => (b.w / b.wn) / Math.max(1e-9, b.f / b.fn) - (a.w / a.wn) / Math.max(1e-9, a.f / a.fn))
+  const fmts = s ? [...s.formats].filter(f => f.n >= 20).sort((a, b) => b.hits / b.n - a.hits / a.n) : []
+  const vid = new Map((s?.videos ?? []).map(v => [v.id, v]))
+  const pts = d.videos.filter(v => v.result !== 'unjudged' && v.views).map(v => ({ x: v.views!, y: Math.max(0.01, v.perK ?? 0), name: `${v.creator}: ${v.title}`, ws: v.m.ws, r: v.result }))
+  const series: [Result, string][] = [['worked', GOOD.fg], ['neutral', 'rgba(26,25,21,0.35)'], ['failed', T.neg]]
+  return (
+    <Section id="ci-vs" eyebrow="Why they work" title="Winners vs losers, side by side"
+      sub={`Our creators’ ${d.worked.length} videos that worked on signups against the ${d.failed.length} that failed. Same rules as above; small groups, so read as direction.`}>
+      {d.takeaway && <div className="rounded-2xl px-5 py-4 text-[16px] leading-relaxed" style={{ background: T.ink, color: '#fff' }}>{d.takeaway}</div>}
+      <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <Card className="p-5 sm:p-8">
+          <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 560 }}>
+            <thead><tr style={head}><th className={`${th} text-left pl-0`}>Factor</th><th className={`${th} text-left`}>Worked ({d.worked.length})</th><th className={`${th} text-left`}>Failed ({d.failed.length})</th></tr></thead>
+            <tbody>{d.factors.map(f => (
+              <tr key={f.factor} style={{ borderBottom: `1px solid ${T.border}` }}>
+                <td className="py-3 pr-3 font-medium align-top">{f.factor}</td>
+                <td className="px-3 py-3 align-top" style={{ color: GOOD.fg }}>{f.worked}</td>
+                <td className="px-3 py-3 align-top" style={{ color: T.neg }}>{f.failed}</td>
+              </tr>))}</tbody>
+          </table></div>
+        </Card>
+        <Card className="p-5 sm:p-8 flex flex-col gap-3">
+          <H2>Reach vs signups</H2>
+          <p className="text-[14px]" style={{ color: T.muted }}>Each dot is a video. Right = more views, up = more workspaces per 1K views (both log scale).</p>
+          <div style={{ height: 320 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 8, right: 8, bottom: 8, left: -8 }}>
+                <CartesianGrid stroke={T.barTrack} />
+                <XAxis type="number" dataKey="x" scale="log" domain={['auto', 'auto']} tickFormatter={compact} tick={{ fontSize: 12, fill: T.muted }} name="Views" />
+                <YAxis type="number" dataKey="y" scale="log" domain={[0.01, 'auto']} tickFormatter={(x: number) => r1(x)} tick={{ fontSize: 12, fill: T.muted }} name="Per 1K" />
+                <ZAxis range={[60, 60]} />
+                <Tooltip cursor={false} content={({ payload }) => {
+                  const p = payload?.[0]?.payload as (typeof pts)[number] | undefined
+                  return p ? <div className="rounded-lg px-3 py-2 text-[12px] max-w-[260px]" style={{ background: T.ink, color: '#fff' }}><b>{p.name}</b><br />{fmtInt(p.x)} views · {fmtInt(p.ws)} workspaces · {r1(p.y)} per 1K</div> : null
+                }} />
+                {series.map(([r, c]) => <Scatter key={r} data={pts.filter(p => p.r === r)} fill={c} name={RESULT_LABEL[r]} />)}
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex gap-4 text-[13px]" style={{ color: T.muted }}>{series.map(([r, c]) => <span key={r} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: c }} />{RESULT_LABEL[r]}</span>)}</div>
+        </Card>
+      </div>
+      {s && (traits.length > 0 || fmts.length > 0) && <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
+        {traits.length > 0 && <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
+          <H2>In the niche: what winners have that losers don’t</H2>
+          <p className="text-[14px]" style={{ color: T.muted }}>Every scored video: {fmtInt(traits[0].wn)} that got 2×+ their channel’s median views against {fmtInt(traits[0].fn)} under 0.7×. Views only (no Clay links). Sorted by lift: how much more often winners have the trait.</p>
+          <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 460 }}>
+            <thead><tr style={head}><th className={`${th} text-left pl-0`}>Trait</th><th className={`${th} text-right`}>Of winners</th><th className={`${th} text-right`}>Of losers</th><th className={`${th} text-right`}>Lift</th></tr></thead>
+            <tbody>{traits.map(x => { const w = x.w / x.wn, f = x.f / x.fn, lift = f ? w / f : null; return (
+              <tr key={x.label} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3">{x.label}</td>
+                <td className={num} style={{ ...mono, color: w > f ? GOOD.fg : T.ink }}>{fmtPct(w, 0)}</td><td className={num} style={{ ...mono, color: f > w ? T.neg : T.ink }}>{fmtPct(f, 0)}</td>
+                <td className={num} style={{ ...mono, fontWeight: 600, color: lift == null ? T.faint : lift >= 1.2 ? GOOD.fg : lift <= 0.8 ? T.neg : T.ink }}>{lift == null ? '–' : `${r1(lift)}×`}</td></tr>) })}</tbody>
+          </table></div>
+        </Card>}
+        {fmts.length > 0 && <Card className="p-5 sm:p-8 flex flex-col gap-3 min-w-0">
+          <H2>Title formats</H2>
+          <p className="text-[14px]" style={{ color: T.muted }}>Share of each format’s videos at 3×+ their channel (base rate {fmtPct(s.pool.baseRate, 0)}), with its best copy.</p>
+          <div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 520 }}>
+            <thead><tr style={head}><th className={`${th} text-left pl-0`}>Format</th><th className={`${th} text-right`}>Hit rate</th><th className={`${th} text-left`}>Best copy</th></tr></thead>
+            <tbody>{fmts.map(f => { const b = vid.get(f.best[0]); return (
+              <tr key={f.id} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3 font-medium">{formatLabel(f.id as FormatId)}</td>
+                <td className={num} style={{ ...mono, color: f.hits / f.n >= s.pool.baseRate ? GOOD.fg : T.neg }}>{fmtPct(f.hits / f.n, 0)} <span style={{ color: T.faint }}>of {fmtInt(f.n)}</span></td>
+                <td className="px-3 py-2 text-[13px]">{b ? <>{b.t} <span style={{ ...mono, color: T.muted }}>{r1(b.x)}×</span></> : '–'}</td></tr>) })}</tbody>
+          </table></div>
+        </Card>}
+      </div>}
     </Section>
   )
 }
