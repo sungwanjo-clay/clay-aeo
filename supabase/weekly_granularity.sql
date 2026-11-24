@@ -102,21 +102,17 @@ AS $$
 BEGIN
   IF p_branded_filter = 'all' AND p_tags = 'all' THEN
     RETURN QUERY
-    WITH buckets AS (
-      SELECT run_day,
-             CASE WHEN p_granularity = 'weekly'
-                  THEN date_trunc('week', run_day)::date
-                  ELSE run_day END AS bucket
-      FROM generate_series(p_start_day, p_end_day, '1 day'::interval) AS g(run_day)
-    ),
-    totals AS (
-      SELECT b.bucket, SUM(c.total_responses) AS n
-      FROM aeo_cache_daily c
-      JOIN buckets b USING (run_day)
-      WHERE c.run_day BETWEEN p_start_day AND p_end_day
-        AND (array_length(p_platforms,1) IS NULL OR c.platform = ANY(p_platforms))
-        AND (p_prompt_type = 'all' OR c.prompt_type ILIKE p_prompt_type)
-      GROUP BY b.bucket
+    WITH totals AS (
+      SELECT
+        CASE WHEN p_granularity = 'weekly'
+             THEN date_trunc('week', run_day)::date
+             ELSE run_day END AS bucket,
+        SUM(total_responses) AS n
+      FROM aeo_cache_daily
+      WHERE run_day BETWEEN p_start_day AND p_end_day
+        AND (array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+        AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+      GROUP BY bucket
     ),
     top_comp AS (
       SELECT competitor_name
@@ -129,14 +125,18 @@ BEGIN
       LIMIT 20
     ),
     comp_daily AS (
-      SELECT b.bucket, c.competitor_name, SUM(c.mention_count) AS cnt
-      FROM aeo_cache_competitors c
-      JOIN buckets b USING (run_day)
-      WHERE c.run_day BETWEEN p_start_day AND p_end_day
-        AND (array_length(p_platforms,1) IS NULL OR c.platform = ANY(p_platforms))
-        AND (p_prompt_type = 'all' OR c.prompt_type ILIKE p_prompt_type)
-        AND c.competitor_name IN (SELECT competitor_name FROM top_comp)
-      GROUP BY b.bucket, c.competitor_name
+      SELECT
+        CASE WHEN p_granularity = 'weekly'
+             THEN date_trunc('week', run_day)::date
+             ELSE run_day END AS bucket,
+        competitor_name,
+        SUM(mention_count) AS cnt
+      FROM aeo_cache_competitors
+      WHERE run_day BETWEEN p_start_day AND p_end_day
+        AND (array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+        AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+        AND competitor_name IN (SELECT competitor_name FROM top_comp)
+      GROUP BY bucket, competitor_name
     )
     SELECT cd.bucket, cd.competitor_name, cd.cnt::float / t.n * 100
     FROM comp_daily cd
@@ -278,68 +278,69 @@ BEGIN
     WITH daily_totals AS (
       SELECT
         CASE WHEN p_granularity = 'weekly'
-             THEN date_trunc('week', run_day)::date
-             ELSE run_day END AS bucket,
-        SUM(response_count) AS total_cited
-      FROM aeo_cache_domains
-      WHERE run_day BETWEEN p_start_day AND p_end_day
-        AND (array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
-        AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
+             THEN date_trunc('week', d.run_day)::date
+             ELSE d.run_day END AS bucket,
+        SUM(d.response_count) AS total_cited
+      FROM aeo_cache_domains d
+      WHERE d.run_day BETWEEN p_start_day AND p_end_day
+        AND (array_length(p_platforms,1) IS NULL OR d.platform = ANY(p_platforms))
+        AND (p_prompt_type = 'all' OR d.prompt_type ILIKE p_prompt_type)
       GROUP BY bucket
     ),
     top_competitors AS (
-      SELECT domain
-      FROM aeo_cache_domains
-      WHERE run_day BETWEEN p_start_day AND p_end_day
-        AND (array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
-        AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
-        AND citation_type = 'Competition'
-        AND domain NOT LIKE '%clay%'
-      GROUP BY domain
-      ORDER BY SUM(response_count) DESC
+      SELECT d.domain AS dom
+      FROM aeo_cache_domains d
+      WHERE d.run_day BETWEEN p_start_day AND p_end_day
+        AND (array_length(p_platforms,1) IS NULL OR d.platform = ANY(p_platforms))
+        AND (p_prompt_type = 'all' OR d.prompt_type ILIKE p_prompt_type)
+        AND d.citation_type = 'Competition'
+        AND d.domain NOT LIKE '%clay%'
+      GROUP BY d.domain
+      ORDER BY SUM(d.response_count) DESC
       LIMIT p_top_n
     ),
     relevant AS (
-      SELECT domain FROM top_competitors
-      UNION SELECT 'clay.com'
+      SELECT dom FROM top_competitors
+      UNION SELECT 'clay.com' AS dom
     ),
     domain_day AS (
       SELECT
         CASE WHEN p_granularity = 'weekly'
-             THEN date_trunc('week', run_day)::date
-             ELSE run_day END AS bucket,
-        domain, SUM(response_count) AS cnt
-      FROM aeo_cache_domains
-      WHERE run_day BETWEEN p_start_day AND p_end_day
-        AND (array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
-        AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
-        AND domain IN (SELECT domain FROM relevant)
-      GROUP BY bucket, domain
+             THEN date_trunc('week', d.run_day)::date
+             ELSE d.run_day END AS bucket,
+        d.domain AS dom,
+        SUM(d.response_count) AS cnt
+      FROM aeo_cache_domains d
+      WHERE d.run_day BETWEEN p_start_day AND p_end_day
+        AND (array_length(p_platforms,1) IS NULL OR d.platform = ANY(p_platforms))
+        AND (p_prompt_type = 'all' OR d.prompt_type ILIKE p_prompt_type)
+        AND d.domain IN (SELECT dom FROM relevant)
+      GROUP BY bucket, d.domain
     )
-    SELECT dd.bucket, dd.domain,
+    SELECT dd.bucket, dd.dom,
       CASE WHEN dt.total_cited > 0 THEN dd.cnt::float / dt.total_cited * 100 ELSE 0 END
     FROM domain_day dd
     JOIN daily_totals dt USING (bucket)
-    ORDER BY dd.bucket, dd.domain;
+    ORDER BY dd.bucket, dd.dom;
   ELSE
     RETURN QUERY
     WITH filtered AS MATERIALIZED (
-      SELECT id,
+      SELECT r.id,
              CASE WHEN p_granularity = 'weekly'
-                  THEN date_trunc('week', run_day)::date
-                  ELSE run_day END AS bucket
-      FROM responses
-      WHERE run_day BETWEEN p_start_day AND p_end_day
-        AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
-        AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+                  THEN date_trunc('week', r.run_day)::date
+                  ELSE r.run_day END AS bucket
+      FROM responses r
+      WHERE r.run_day BETWEEN p_start_day AND p_end_day
+        AND (p_prompt_type = 'all' OR r.prompt_type ILIKE p_prompt_type)
+        AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR r.platform = ANY(p_platforms))
         AND (p_branded_filter = 'all'
-             OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
-             OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
-        AND (p_tags = 'all' OR tags = p_tags)
+             OR (p_branded_filter = 'branded'     AND r.branded_or_non_branded ILIKE 'branded')
+             OR (p_branded_filter = 'non-branded' AND r.branded_or_non_branded NOT ILIKE 'branded'))
+        AND (p_tags = 'all' OR r.tags = p_tags)
     ),
-    totals AS (SELECT bucket, COUNT(*) AS n FROM filtered GROUP BY bucket),
+    totals AS (SELECT f.bucket, COUNT(*) AS n FROM filtered f GROUP BY f.bucket),
     top_domains AS (
-      SELECT cd.domain
+      SELECT cd.domain AS dom
       FROM citation_domains cd
       JOIN filtered f ON f.id = cd.response_id
       WHERE (cd.citation_type = 'Competition' AND cd.domain NOT LIKE '%clay%')
@@ -348,20 +349,20 @@ BEGIN
       LIMIT p_top_n
     ),
     relevant AS (
-      SELECT domain FROM top_domains UNION SELECT 'clay.com'
+      SELECT dom FROM top_domains UNION SELECT 'clay.com' AS dom
     ),
     domain_counts AS (
-      SELECT f.bucket, cd.domain, COUNT(cd.response_id) AS cnt
+      SELECT f.bucket, cd.domain AS dom, COUNT(cd.response_id) AS cnt
       FROM citation_domains cd
       JOIN filtered f ON f.id = cd.response_id
-      WHERE cd.domain IN (SELECT domain FROM relevant)
+      WHERE cd.domain IN (SELECT dom FROM relevant)
       GROUP BY f.bucket, cd.domain
     )
-    SELECT dc.bucket, dc.domain,
+    SELECT dc.bucket, dc.dom,
       CASE WHEN t.n > 0 THEN dc.cnt::float / t.n * 100 ELSE 0 END
     FROM domain_counts dc
     JOIN totals t USING (bucket)
-    ORDER BY dc.bucket, dc.domain;
+    ORDER BY dc.bucket, dc.dom;
   END IF;
 END;
 $$;
@@ -451,7 +452,7 @@ BEGIN
       CASE WHEN p_granularity = 'weekly'
            THEN date_trunc('week', run_day)::date
            ELSE run_day END AS bucket,
-      SUM(claygent_mentioned)
+      SUM(claygent_mentioned)::bigint
     FROM aeo_cache_daily
     WHERE run_day BETWEEN p_start_day AND p_end_day
       AND (array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
@@ -464,7 +465,7 @@ BEGIN
       CASE WHEN p_granularity = 'weekly'
            THEN date_trunc('week', run_day)::date
            ELSE run_day END AS bucket,
-      COUNT(*) FILTER (WHERE claygent_or_mcp_mentioned ILIKE 'yes')
+      (COUNT(*) FILTER (WHERE claygent_or_mcp_mentioned ILIKE 'yes'))::bigint
     FROM responses
     WHERE run_day BETWEEN p_start_day AND p_end_day
       AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
@@ -504,7 +505,7 @@ BEGIN
       CASE WHEN p_granularity = 'weekly'
            THEN date_trunc('week', run_day)::date
            ELSE run_day END AS bucket,
-      d.platform, SUM(claygent_mentioned)
+      d.platform, SUM(claygent_mentioned)::bigint
     FROM aeo_cache_daily d
     WHERE run_day BETWEEN p_start_day AND p_end_day
       AND (array_length(p_platforms,1) IS NULL OR d.platform = ANY(p_platforms))
@@ -515,18 +516,18 @@ BEGIN
     RETURN QUERY
     SELECT
       CASE WHEN p_granularity = 'weekly'
-           THEN date_trunc('week', run_day)::date
-           ELSE run_day END AS bucket,
+           THEN date_trunc('week', r.run_day)::date
+           ELSE r.run_day END AS bucket,
       r.platform,
-      COUNT(*) FILTER (WHERE claygent_or_mcp_mentioned ILIKE 'yes')
+      (COUNT(*) FILTER (WHERE r.claygent_or_mcp_mentioned ILIKE 'yes'))::bigint
     FROM responses r
-    WHERE run_day BETWEEN p_start_day AND p_end_day
-      AND (p_prompt_type = 'all' OR prompt_type ILIKE p_prompt_type)
-      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR platform = ANY(p_platforms))
+    WHERE r.run_day BETWEEN p_start_day AND p_end_day
+      AND (p_prompt_type = 'all' OR r.prompt_type ILIKE p_prompt_type)
+      AND (p_platforms IS NULL OR array_length(p_platforms,1) IS NULL OR r.platform = ANY(p_platforms))
       AND (p_branded_filter = 'all'
-           OR (p_branded_filter = 'branded'     AND branded_or_non_branded ILIKE 'branded')
-           OR (p_branded_filter = 'non-branded' AND branded_or_non_branded NOT ILIKE 'branded'))
-      AND (p_tags = 'all' OR tags = p_tags)
+           OR (p_branded_filter = 'branded'     AND r.branded_or_non_branded ILIKE 'branded')
+           OR (p_branded_filter = 'non-branded' AND r.branded_or_non_branded NOT ILIKE 'branded'))
+      AND (p_tags = 'all' OR r.tags = p_tags)
     GROUP BY bucket, r.platform
     ORDER BY bucket, r.platform;
   END IF;
