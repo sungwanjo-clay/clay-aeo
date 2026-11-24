@@ -17,7 +17,21 @@
 --
 -- Default remains 'daily' so any caller that doesn't pass the arg keeps
 -- today's behavior.
+--
+-- Postgres treats a new default-arg as a different function signature,
+-- so without dropping the previous 6-arg version both live side-by-side
+-- and PostgREST errors with PGRST203 ("Could not choose the best
+-- candidate function"). Explicit DROPs below remove the old overloads.
 -- ============================================================
+
+DROP FUNCTION IF EXISTS get_visibility_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
+DROP FUNCTION IF EXISTS get_competitor_visibility_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
+DROP FUNCTION IF EXISTS get_citation_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
+DROP FUNCTION IF EXISTS get_competitor_citation_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT,INT);
+DROP FUNCTION IF EXISTS get_sentiment_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
+DROP FUNCTION IF EXISTS get_claygent_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
+DROP FUNCTION IF EXISTS get_claygent_platform_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
+DROP FUNCTION IF EXISTS get_followup_timeseries_rpc(DATE,DATE,TEXT,TEXT[],TEXT,TEXT);
 
 
 -- ── RPC 1: Clay visibility timeseries ───────────────────────────────
