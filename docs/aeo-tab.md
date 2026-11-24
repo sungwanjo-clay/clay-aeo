@@ -9,7 +9,7 @@ recommended-as-follow-up, sentiment, and visibility by PMM use case and by topic
 
 - Source: the AEO Supabase project (prompt runs in `responses`; daily aggregates in the `aeo_cache_*` tables). Each
   prompt runs once per platform every Monday.
-- `scripts/sync-aeo.mjs` (to build once the project key is available) sums the cache tables into weeks and writes the
+- `scripts/sync-aeo.mjs` sums the cache tables into weeks and writes the
   artifact db collection `aeo`: `aeo/meta` (weeks, domain types, Clay-owned domains, slice list) and one
   `aeo/slice-<platform>-<type>` per platform (all, chatgpt, claude) × prompt type (benchmark, branded, all). Shape:
   `lib/plg/aeo/data.ts`. Each document must stay under 256 KB: keep the top 40 competitors, 40 domains and 60 topics.
@@ -37,3 +37,20 @@ data, so filters never repaint a line.
 
 Competitive gaps by topic, full citations explorer (URLs), sentiment themes, MCP by platform, and AI bot hits once the
 CDN request logs land in Snowflake (data team request).
+
+## Daily sync (scheduled)
+
+A Monday batch takes until about Friday to finish writing (the Nov 16 batch landed Nov 20–21), so the sync runs daily
+and picks each batch up when it lands. It reads only the `aeo_cache_*` tables, which the AEO project's
+`refresh_dashboard_cache()` rebuilds daily: keep that job running (pg_cron or the old app's cron) before the Vercel app
+is retired.
+
+1. `git fetch origin claude/affectionate-noether-v0n9id && git checkout FETCH_HEAD`.
+2. `NODE_USE_ENV_PROXY=1 node scripts/sync-aeo.mjs W/aeo.json` (env `AEO_SUPABASE_URL`, `AEO_SUPABASE_KEY`; never print
+   them). Exit 3 (a count above its denominator) or 2 (missing key, document too large): stop, write nothing, report.
+3. Split its `docs` into one JSON file per document. With `ArtifactData` on
+   https://claude.ai/artifact/R2pMQF57g3idB4EvtazAeC: `list` collection `aeo` for current versions, then one `batch` that
+   `set`s every `aeo/slice-*` (pinned with `if_version` when the document exists), then `set` `aeo/meta` last, pinned
+   the same way.
+4. Report one line: weeks covered, latest week, its Benchmark visibility and responses, and any warning the script
+   printed.

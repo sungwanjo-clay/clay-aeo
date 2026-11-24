@@ -139,6 +139,19 @@ else {
   }
 }
 
+// 3. AI visibility: synced in the last 8 days, and the latest batch is no older than the Monday before last.
+const aeo = read('aeo', 'meta')
+if (!aeo) add('aeo_sync', 'alert', false, 'AI visibility data has never been synced')
+else {
+  add('aeo_sync', 'alert', days(aeo.syncedAt) <= 8, `AI visibility last synced ${days(aeo.syncedAt).toFixed(1)} days ago`)
+  const lastWeek = aeo.weeks?.[aeo.weeks.length - 1]
+  const due = new Date(mondayOf(now) + 'T00:00:00Z'); due.setUTCDate(due.getUTCDate() - 7)
+  add('aeo_week', 'warn', !!lastWeek && lastWeek >= due.toISOString().slice(0, 10), lastWeek ? `Latest AI visibility batch is the week of ${lastWeek}` : 'No AI visibility batch')
+  const s = read('aeo', 'slice-all-all')
+  const w = s?.w ?? [], a = w[w.length - 1]?.[0] ?? 0, b = w[w.length - 2]?.[0] ?? 0
+  if (b) add('aeo_batch', 'warn', a >= b * 0.8, `AI visibility responses ${b} → ${a} in the latest batch`)
+}
+
 const alerts = checks.filter(c => !c.ok && c.level === 'alert'), warns = checks.filter(c => !c.ok && c.level === 'warn')
 const health = {
   version: 1, checkedAt: now.toISOString(),

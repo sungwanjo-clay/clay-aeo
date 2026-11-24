@@ -401,7 +401,7 @@ export default function AeoView({ data }: { data: AeoData | null | undefined }) 
 
       <p className="text-[13px]" style={{ color: T.muted }}>
         {meta.sample ? 'Sample data. ' : `Synced ${new Date(meta.syncedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}. `}
-        Each prompt runs once per platform every Monday; weeks are summed, not averaged. The Event Campaigns use case is hidden.
+        Each prompt runs once per platform every Monday. Until Oct 30 prompts ran daily, so those weeks are averaged per run day to equal one run. Rates add up the counts over the selected weeks, never average weekly rates. The Event Campaigns use case is hidden.
       </p>
     </div>
   )
