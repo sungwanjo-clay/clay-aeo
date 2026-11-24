@@ -4,7 +4,7 @@
  */
 import { addDays, daysBetween, type ISODate } from '../dates'
 import { STARTUP } from './sql'
-import { code, driverPara, headlineLine, ratePara, type Block, type Insight, type Item, type Para } from '../insights'
+import { code, driverPara, headlineLine, pct, ratePara, volumeVsRate, type Block, type Insight, type Item, type Para } from '../insights'
 
 type Row = { k: string; b: string; d: string; n: number; a: number; p: number; x: number; c: number }
 
@@ -37,6 +37,8 @@ function period(rows: Row[], b: 'cur' | 'prev') {
     newWsT13: sum(tiers.map(t => t.newWs)),
     /** New workspaces outside Tier 1–3, by reason. */
     reasons: NOT_QUALIFIED.map(r => ({ reason: r, people: cls(r).p })).filter(r => r.people > 0).sort((a, b) => b.people - a.people),
+    /** By the channel of the visitor's first page view in the period (sql.ts CHANNELS); empty in copies saved before Nov 24. */
+    channels: rs.filter(r => r.k === 'chn').map(r => ({ ch: r.d, visits: r.n, mqal: r.a, newWs: r.p, activated: r.x, paid: r.c })),
     campaigns: rs.filter(r => r.k === 'cmp').map(r => {
       const [platform, ...rest] = r.d.split('|')
       return { platform, campaign: rest.join('|'), visits: r.n, mqal: r.a, newWs: r.p }
@@ -131,13 +133,13 @@ export function buildStartup(o: { cur: [ISODate, ISODate]; prev: [ISODate, ISODa
 export type StartupViewModel = ReturnType<typeof buildStartup>
 
 /**
- * What moved on the startup program (lib/plg/insights.ts rules, same as Media properties):
- *  - Visits, driven by paid campaign, with unpaid traffic as one residual item.
- *  - New workspaces, driven by who the visitor is (Tier 1–3 / Tier 4 / no Salesforce account / personal / academic).
- *  - MQALs by tier.
- *  - Rate paragraphs (visit → workspace, activation, paid) saying whether the numerator or the denominator moved.
- *  - Emerging: a campaign with 20+ visits that grew 5× or is new. Anomalies: one campaign that wasn't there before
- *    bringing 80%+ of visits (often bot or misfiring ad traffic). Both omitted when nothing qualifies.
+ * What moved on the startup program, output first and explained by channel (lib/plg/insights.ts rules):
+ *  - New workspaces: how much came from more or fewer visits and how much from conversion (volumeVsRate), then the
+ *    channels that moved them (the channel of each visitor's first page view: sql.ts CHANNELS).
+ *  - Tier 1–3 signup domains (the program's quality output), by channel and by tier.
+ *  - Visits by channel, the input. Copies saved before Nov 24 have no channels: visits then split by paid campaign.
+ *  - Activation and paid rate, saying whether the numerator or the denominator moved.
+ *  - A low-volume note when a period has under 20 new workspaces. Emerging and anomalies as before (paid campaigns).
  */
 function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
   if (T.visits < 1 && P.visits < 1) return { headline: [], drivers: [], emerging: [], anomalies: [], goals: [], empty: 'No startup-page visits in either period.' }
@@ -150,6 +152,13 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
     headlineLine('Activation rate', r(T.activated, T.newWs), r(P.activated, P.newWs), { kind: 'rate' }),
     headlineLine('Paid rate', r(T.paid, T.newWs), r(P.paid, P.newWs), { kind: 'rate' }),
   ]
+  const hasCh = T.channels.length > 0 || P.channels.length > 0
+  const byCh = (f: (x: StartupPeriod['channels'][number]) => number): Item[] => {
+    const m = new Map<string, Item>()
+    for (const x of T.channels) m.set(x.ch, { label: x.ch, cur: f(x), prev: 0 })
+    for (const x of P.channels) { const it = m.get(x.ch) ?? { label: x.ch, cur: 0, prev: 0 }; it.prev = f(x); m.set(x.ch, it) }
+    return [...m.values()]
+  }
   const camp = (x: StartupPeriod['campaigns'][number]) => `${x.platform}${x.campaign && x.campaign !== '(no campaign)' ? ` · ${x.campaign}` : ' · no campaign'}`
   const byCampaign = (f: (x: StartupPeriod['campaigns'][number]) => number, total: { cur: number; prev: number }, rest: string) => {
     const m = new Map<string, Item>()
@@ -160,16 +169,28 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
     if (total.cur - pc || total.prev - pp) items.push({ label: rest, cur: total.cur - pc, prev: total.prev - pp })
     return items
   }
-  // Who the new workspaces are: Tier 1–3 by tier, then the reasons a workspace isn't Tier 1–3.
+  // Who the new workspaces are (fallback for copies without channels): Tier 1–3 by tier, then why the rest aren't.
   const who = (x: StartupPeriod) => new Map([...x.tiers.map(t => [t.tier, t.newWs] as const), ...x.reasons.map(rr => [rr.reason, rr.people] as const)])
   const wc = who(T), wp = who(P)
   const whoItems: Item[] = [...new Set([...wc.keys(), ...wp.keys()])].map(k => ({ label: k, cur: wc.get(k) ?? 0, prev: wp.get(k) ?? 0 }))
-  const mqalItems: Item[] = T.tiers.map((t, i) => ({ label: t.tier, cur: t.mqal, prev: P.tiers[i]?.mqal ?? 0 }))
+  const mqalTiers: Item[] = T.tiers.map((t, i) => ({ label: t.tier, cur: t.mqal, prev: P.tiers[i]?.mqal ?? 0 }))
+
+  const ws = driverPara('New workspaces', 'workspaces', { cur: T.newWs, prev: P.newWs }, hasCh ? byCh(x => x.newWs) : whoItems)
+  if (ws) ws.note = volumeVsRate({ cur: T.newWs, prev: P.newWs, noun: 'workspaces' }, { cur: T.visits, prev: P.visits, noun: 'visits' }, 'visit → workspace')
+  const mq = T.mqal || P.mqal ? driverPara('Tier 1–3 signup domains', 'domains', { cur: T.mqal, prev: P.mqal }, hasCh ? byCh(x => x.mqal) : mqalTiers) : null
+  if (mq && hasCh) {
+    const tiers = mqalTiers.filter(t => t.cur || t.prev).map(t => `${t.label} ${t.prev} → ${t.cur}`)
+    if (tiers.length) mq.note = [`By tier: ${tiers.join(', ')}.`]
+  }
+  const visits = driverPara('Visits', 'visits', { cur: T.visits, prev: P.visits },
+    hasCh ? byCh(x => x.visits) : byCampaign(x => x.visits, { cur: T.visits, prev: P.visits }, 'Unpaid traffic (organic, direct, referral)'), { minVolume: 3 })
+  // Which channel converts: visit → workspace by channel, the best and the biggest, this period.
+  if (visits && hasCh) {
+    const conv = T.channels.filter(x => x.visits >= 20).map(x => ({ ch: x.ch, rate: x.newWs / x.visits, n: x.visits })).sort((a, b) => b.rate - a.rate)
+    if (conv.length >= 2) visits.note = [`Visit → workspace by channel: `, ...conv.slice(0, 3).flatMap((x, i) => [i ? ', ' : '', code(x.ch), ` ${pct(x.rate)}`]), ` (channels with 20+ visits).`]
+  }
   const drivers = [
-    driverPara('Visits', 'visits', { cur: T.visits, prev: P.visits }, byCampaign(x => x.visits, { cur: T.visits, prev: P.visits }, 'Unpaid traffic (organic, direct, referral)'), { minVolume: 3, noun: 'traffic sources' }),
-    driverPara('New workspaces', 'workspaces', { cur: T.newWs, prev: P.newWs }, whoItems, { noun: 'visitor types' }),
-    T.mqal || P.mqal ? driverPara('Tier 1–3 signup domains', 'domains', { cur: T.mqal, prev: P.mqal }, mqalItems, { noun: 'tiers' }) : null,
-    ratePara('Visit → workspace', { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }, { cur: T.visits, prev: P.visits, noun: 'visits' }),
+    ws, mq, visits,
     ratePara('Activation rate', { cur: T.activated, prev: P.activated, noun: 'activated workspaces' }, { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }),
     T.paid || P.paid ? ratePara('Paid rate', { cur: T.paid, prev: P.paid, noun: 'paying workspaces' }, { cur: T.newWs, prev: P.newWs, noun: 'new workspaces' }) : null,
   ].filter((p): p is Para | Block => !!p)
@@ -182,5 +203,7 @@ function startupInsight(T: StartupPeriod, P: StartupPeriod): Insight {
     if (before === 0 && T.visits >= 50 && x.visits >= T.visits * 0.8)
       anomalies.push([code(camp(x)), ` brought ${Math.round(x.visits / T.visits * 100)}% of this period’s visits (${x.visits.toLocaleString('en-US')}) and had none the period before, with ${x.newWs} new workspaces. Traffic this concentrated from one new source is often bot or misfiring ad traffic.`])
   }
-  return { headline, drivers, emerging, anomalies, goals: [] }
+  const low = Math.max(T.newWs, P.newWs) < 20
+  return { headline, drivers, emerging, anomalies, goals: [],
+    note: low ? `Small numbers: ${T.newWs} new workspaces this period and ${P.newWs} the period before, so one or two workspaces move every share and rate. A longer date range reads more reliably.` : null }
 }

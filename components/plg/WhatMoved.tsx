@@ -40,11 +40,16 @@ export default function WhatMoved({ insight: x }: { insight: Insight | null }) {
     <Card className="p-5 sm:p-8 flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <H2>{x.title ?? 'What moved'}</H2>
+        {x.note && <p className="text-[14px]" style={{ color: T.muted }}>{x.note}</p>}
       </div>
       {x.empty ? <p className="text-[15px]" style={{ color: T.muted }}>{x.empty}</p> : <>
-        {x.drivers.length > 0 && <section className="grid gap-x-8 gap-y-5 grid-cols-1 lg:grid-cols-2">
-          {x.drivers.map((d, i) => <DriverView key={i} d={d} />)}
-        </section>}
+        {/* Two independent columns (1st, 3rd… left; 2nd, 4th… right) so a short block never leaves a hole beside a tall one. */}
+        {x.drivers.length > 0 && <>
+          <section className="hidden lg:grid gap-x-8 grid-cols-2 items-start">
+            {[0, 1].map(c => <div key={c} className="flex flex-col gap-5 min-w-0">{x.drivers.map((d, i) => (i % 2 === c ? <DriverView key={i} d={d} /> : null))}</div>)}
+          </section>
+          <section className="flex lg:hidden flex-col gap-5">{x.drivers.map((d, i) => <DriverView key={i} d={d} />)}</section>
+        </>}
         {x.emerging.length > 0 && <section className="flex flex-col gap-2 pt-1" style={{ borderTop: `1px solid ${T.border}` }}>
           <Eyebrow>Emerging signals</Eyebrow>
           <ul className="flex flex-col gap-1.5 text-[15px]">{x.emerging.map((p, i) => <li key={i} className="flex gap-2"><span style={{ color: T.faint }}>•</span><span><P p={p} /></span></li>)}</ul>

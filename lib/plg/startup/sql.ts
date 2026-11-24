@@ -21,6 +21,8 @@
  *         partner backing changes the offer tier, not eligibility. Source: the workflow's weekly snapshot, not in Snowflake yet)
  *   mqn   MQALs: distinct Tier 1–3 domains among NEW workspaces (d = tier), n domains, a workspaces
  *   cmp   paid campaigns (d = platform|campaign): n visitors, a MQALs (Tier 1–3 domains), p new workspaces
+ *   chn   visitors by the channel of their first page view in the period (d = CHANNELS label): n visitors,
+ *         a MQALs (Tier 1–3 domains), p new workspaces, x activated ≤7d, c paid
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS } from '../social/config'
@@ -54,6 +56,27 @@ export const STARTUP = {
   launch: '2026-07-01' as ISODate,
 } as const
 
+/**
+ * Where a startup-page visitor came from, checked in order. Paid first (click ids, paid utm_medium), then perk and VC
+ * deal platforms (the program's partner channel), email, AI assistants, search, social, the rest of clay.com (internal
+ * links), other sites, and direct (no referrer, no utm). REFERRER is the warehouse's referrer category, REFERRER_RAW the URL.
+ */
+export const CHANNELS = ['Paid ads', 'Perk & VC platforms', 'Email', 'AI assistants', 'Search', 'Social', 'Clay site (internal links)', 'Other sites', 'Direct'] as const
+export const PERK_SITES = ['perkbook', 'startupperks', 'getproven', 'supabird', 'joinsecret', 'perks', 'ycombinator', 'bookface', 'founderpass']
+function channelSql(a: string): string {
+  const ref = `LOWER(COALESCE(${a}."REFERRER", ''))`, raw = `LOWER(COALESCE(${a}."REFERRER_RAW", ''))`, src = `LOWER(COALESCE(${a}."UTM_SOURCE", ''))`, med = `LOWER(COALESCE(${a}."UTM_MEDIUM", ''))`
+  const any = (col: string, xs: string[]) => xs.map(x => `${col} LIKE '%${x}%'`).join(' OR ')
+  return `CASE WHEN ${a}."GCLID" IS NOT NULL OR ${a}."FBCLID" IS NOT NULL OR ${a}."LI_CLICK_ID" IS NOT NULL OR ${med} IN ('cpc', 'ppc', 'paid', 'paid_social', 'paidsocial', 'display', 'paid-social') OR ${med} LIKE '%paid%' OR ${ref} LIKE '%ads%' THEN 'Paid ads'
+    WHEN ${any(src, PERK_SITES)} OR ${any(raw, PERK_SITES)} THEN 'Perk & VC platforms'
+    WHEN ${med} LIKE '%email%' OR ${med} IN ('lifecycle', 'newsletter') THEN 'Email'
+    WHEN ${any(ref, ['chatgpt', 'perplexity', 'claude', 'gemini', 'copilot'])} OR ${any(src, ['chatgpt', 'perplexity', 'claude', 'gemini', 'copilot'])} THEN 'AI assistants'
+    WHEN ${ref} IN ('google', 'bing', 'duckduckgo', 'search.yahoo', 'yahoo', 'ecosia', 'brave') THEN 'Search'
+    WHEN ${ref} IN ('twitter', 'linkedin', 'facebook', 'youtube', 'reddit', 'instagram') OR ${any(raw, ['t.co/', 'linkedin.', 'youtube.', 'reddit.'])} THEN 'Social'
+    WHEN ${raw} LIKE '%clay.com%' THEN 'Clay site (internal links)'
+    WHEN ${ref} = 'other' OR ${raw} <> '' OR ${src} <> '' THEN 'Other sites'
+    ELSE 'Direct' END`
+}
+
 /** ranges: saved-copy mode (lib/plg/offline.ts): every row per range, bucket = "<start>~<end>"; cur/prev ignored. */
 export function startupSql(q: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate]; ranges?: [ISODate, ISODate][] }): string {
   const multi = q.ranges?.length ? q.ranges : null
@@ -66,7 +89,7 @@ export function startupSql(q: { cur: [ISODate, ISODate]; prev: [ISODate, ISODate
     `CASE WHEN ${col} BETWEEN ${d(q.cur[0])} AND ${d(q.cur[1])} THEN 'cur' WHEN ${col} BETWEEN ${d(q.prev[0])} AND ${d(q.prev[1])} THEN 'prev' END`
   const paths = STARTUP.pagePaths.map(p => `'${p}'`).join(', ')
   return `WITH pv AS (
-  SELECT p."ANONYMOUS_ID" AS "aid", CAST(p."TIMESTAMP_UTC" AS date) AS "day",
+  SELECT p."ANONYMOUS_ID" AS "aid", CAST(p."TIMESTAMP_UTC" AS date) AS "day", p."TIMESTAMP_UTC" AS "ts", ${channelSql('p')} AS "ch",
          CASE WHEN p."GCLID" IS NOT NULL THEN 'Google' WHEN p."FBCLID" IS NOT NULL THEN 'Meta' WHEN p."LI_CLICK_ID" IS NOT NULL THEN 'LinkedIn'
               WHEN LOWER(COALESCE(p."UTM_MEDIUM", '')) IN ('cpc', 'ppc', 'paid', 'paid_social', 'paidsocial', 'display', 'paid-social') OR LOWER(COALESCE(p."UTM_MEDIUM", '')) LIKE '%paid%'
                 THEN CASE WHEN LOWER(p."UTM_SOURCE") LIKE '%google%' THEN 'Google' WHEN LOWER(p."UTM_SOURCE") LIKE '%linkedin%' THEN 'LinkedIn'
@@ -113,6 +136,8 @@ lw AS (
   LEFT JOIN ${t(T.blended)} b ON b."WORKSPACE_ID" = cu."wid" AND b."ATTRIBUTION_WINDOW" = '90_days' AND b."ATTRIBUTION_TYPE" = 'first_touch'
 ),
 mq AS (SELECT DISTINCT "aid", "b", "dom" FROM lw WHERE "is_new" = 1 AND "cls" IN ('Tier 1', 'Tier 2', 'Tier 3')),
+fc AS (SELECT "aid", "b", "ch" FROM (SELECT pv."aid", ${bucket('pv."day"')} AS "b", pv."ch", ROW_NUMBER() OVER (PARTITION BY pv."aid", ${bucket('pv."day"')} ORDER BY pv."ts") AS "rn"
+  FROM ${src} pv WHERE ${bucket('pv."day"')} IS NOT NULL) x WHERE "rn" = 1),
 pc AS (SELECT DISTINCT pv."aid", ${bucket('pv."day"')} AS "b", pv."platform", pv."camp" FROM ${src} pv WHERE pv."platform" IS NOT NULL AND ${bucket('pv."day"')} IS NOT NULL)
 SELECT 'vis' AS "k", fv."b", '' AS "d", COUNT(DISTINCT fv."aid") AS "n", COUNT(DISTINCT lw."aid") AS "a", 0 AS "p", 0 AS "x", 0 AS "c"
 FROM fv LEFT JOIN lw ON lw."aid" = fv."aid" AND lw."b" = fv."b" GROUP BY fv."b"
@@ -130,6 +155,11 @@ UNION ALL
 SELECT 'cmp', pc."b", pc."platform" || '|' || pc."camp", COUNT(DISTINCT pc."aid"), COUNT(DISTINCT mq."dom"), COUNT(DISTINCT CASE WHEN lw."is_new" = 1 THEN lw."wid" END), 0, 0
 FROM pc LEFT JOIN mq ON mq."aid" = pc."aid" AND mq."b" = pc."b" LEFT JOIN lw ON lw."aid" = pc."aid" AND lw."b" = pc."b"
 GROUP BY pc."b", pc."platform", pc."camp"
+UNION ALL
+SELECT 'chn', fc."b", fc."ch", COUNT(DISTINCT fc."aid"), COUNT(DISTINCT mq."dom"), COUNT(DISTINCT CASE WHEN lw."is_new" = 1 THEN lw."wid" END),
+       COUNT(DISTINCT CASE WHEN lw."is_new" = 1 AND lw."act" = 1 THEN lw."wid" END), COUNT(DISTINCT CASE WHEN lw."is_new" = 1 AND lw."paid" = 1 THEN lw."wid" END)
+FROM fc LEFT JOIN mq ON mq."aid" = fc."aid" AND mq."b" = fc."b" LEFT JOIN lw ON lw."aid" = fc."aid" AND lw."b" = fc."b"
+GROUP BY fc."b", fc."ch"
 UNION ALL
 SELECT 'dv', ${bucket('pv."day"')}, CAST(pv."day" AS string), COUNT(DISTINCT pv."aid"), 0, 0, 0, 0
 FROM ${src} pv WHERE ${bucket('pv."day"')} IS NOT NULL GROUP BY ${bucket('pv."day"')}, CAST(pv."day" AS string)

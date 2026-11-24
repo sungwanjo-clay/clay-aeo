@@ -80,10 +80,17 @@ export function driverPara(metric: string, unit: string, total: { cur: number; p
   const amt = (n: number) => (o.usd ? usd(Math.abs(n)) : int(Math.abs(n)))
   const fmt = (n: number) => (o.usd ? `${n > 0 ? '+' : '−'}${usd(Math.abs(n))}` : `${n > 0 ? '+' : '−'}${int(Math.abs(n))} ${Math.abs(n) === 1 ? unit.replace(/s$/, '') : unit}`)
   if (!total.cur && !total.prev) return null
-  if (net === 0) return { lead: [b(metric), ` flat at ${o.usd ? usd(total.cur) : int(total.cur)} vs the period before`], bullets: [] }
-  const dir = Math.sign(net)
-  const lead: Para = [b(metric), ' ', chg(rel(total.cur, total.prev), 'pct', o.goodUp ?? true), ` · ${dir > 0 ? 'up' : 'down'} ${amt(net)} vs the period before`]
   const min = o.minVolume ?? 0
+  if (net === 0) {
+    // Flat overall can still hide a shift between items: name the biggest move each way.
+    const moved = items.filter(i => Math.max(i.cur, i.prev) >= min && i.cur !== i.prev).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
+    const up = moved.find(i => i.cur > i.prev), down = moved.find(i => i.cur < i.prev)
+    return { lead: [b(metric), ` flat at ${o.usd ? usd(total.cur) : int(total.cur)} vs the period before${up && down ? ', with a shift between them' : ''}`],
+      bullets: up && down ? [[code(up.label), ` ${fmt(up.cur - up.prev)}`], [code(down.label), ` ${fmt(down.cur - down.prev)}`]] : [] }
+  }
+  const dir = Math.sign(net)
+  const lead: Para = total.prev === 0 ? [b(metric), ` · up ${amt(net)} from none in the period before`]
+    : [b(metric), ' ', chg(rel(total.cur, total.prev), 'pct', o.goodUp ?? true), ` · ${dir > 0 ? 'up' : 'down'} ${amt(net)} vs the period before`]
   const eligible = items.filter(i => Math.max(i.cur, i.prev) >= min && i.cur !== i.prev)
   const same = eligible.filter(i => Math.sign(i.cur - i.prev) === dir).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
   const opp = eligible.filter(i => Math.sign(i.cur - i.prev) === -dir).sort((a, c) => Math.abs(c.cur - c.prev) - Math.abs(a.cur - a.prev))
@@ -112,6 +119,23 @@ export function goalLine(label: string, cur: number | null, prev: number | null,
   if (gap && cur < goal) para.push(`. Biggest gap: ${gap}`)
   para.push('.')
   return { tone, para }
+}
+
+/**
+ * How much of an output's change came from its input's volume and how much from the conversion rate, the standard
+ * split: volume = Δinput × previous rate, rate = current input × Δrate (they add up to the change).
+ * "Why: fewer visits (215 → 180) account for −3 workspaces and the visit → workspace rate fell from 8% to 3% for −9: mostly conversion."
+ */
+export function volumeVsRate(out: { cur: number; prev: number; noun: string }, inp: { cur: number; prev: number; noun: string }, rateName: string): Para | null {
+  if (!inp.prev || !inp.cur || out.cur === out.prev) return null
+  const pr = out.prev / inp.prev, cr = out.cur / inp.cur
+  const vol = (inp.cur - inp.prev) * pr, rt = inp.cur * (cr - pr)
+  const sgn = (x: number) => `${x >= 0 ? '+' : '−'}${int(Math.abs(x))}`
+  const rateMove = `${rateName} ${cr > pr ? 'rose' : 'fell'} from ${pct(pr)} to ${pct(cr)}`
+  if (inp.cur === inp.prev) return [`Why: ${inp.noun} held at ${int(inp.cur)}, so all of it is conversion: ${rateMove}.`]
+  if (Math.abs(cr - pr) < 0.0005) return [`Why: conversion held at ${pct(cr)}, so all of it is volume: ${inp.noun} went from ${int(inp.prev)} to ${int(inp.cur)}.`]
+  const main = Math.abs(vol) >= Math.abs(rt) ? 'mostly volume' : 'mostly conversion'
+  return [`Why: ${inp.cur > inp.prev ? 'more' : 'fewer'} ${inp.noun} (${int(inp.prev)} → ${int(inp.cur)}) account for ${sgn(vol)} ${out.noun} and the ${rateMove} for ${sgn(rt)}: ${main}.`]
 }
 
 /**
