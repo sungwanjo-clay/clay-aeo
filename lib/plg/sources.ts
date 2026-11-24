@@ -159,3 +159,14 @@ export function creatorsSources(sql: string | null): TabSources {
     ],
   }
 }
+
+export function aeoSources(sample: boolean): TabSources {
+  return {
+    sources: [
+      { name: 'Prompt runs', where: 'AEO Supabase project · public.responses (one row per prompt × platform × Monday batch), public.prompts', what: 'About 2,500 GTM buyer prompts run on ChatGPT and Claude every Monday; each answer scored for Clay mention, position, sentiment, citations, competitors, Claygent/MCP and follow-up' },
+      { name: 'Weekly aggregates', where: 'AEO Supabase · aeo_cache_daily, aeo_cache_competitors, aeo_cache_domains, aeo_cache_pmm, aeo_cache_topics', what: 'Rebuilt daily by refresh_dashboard_cache(); summed into weeks by scripts/sync-aeo.mjs and stored in this page’s aeo collection as counts per platform × prompt type' },
+    ],
+    queries: [{ label: 'Weekly visibility (AEO Supabase SQL editor)', sql: `select date_trunc('week', run_day)::date as week, platform, prompt_type,\n  sum(clay_mentioned)::float / nullif(sum(total_responses), 0) as visibility,\n  sum(clay_cited_responses)::float / nullif(sum(total_with_citations), 0) as citation_rate\nfrom aeo_cache_daily group by 1, 2, 3 order by 1 desc;` }],
+    notes: [sample ? 'Showing generated sample data until the first AEO sync runs.' : 'Rates are summed over weeks (numerators and denominators), never averaged. Event Campaigns use case hidden.'],
+  }
+}

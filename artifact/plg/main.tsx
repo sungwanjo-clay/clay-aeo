@@ -21,6 +21,9 @@ import StartupView from '@/components/plg/startup/StartupView'
 import PortfolioView from '@/components/plg/portfolio/PortfolioView'
 import type { CompanyRow, PortfolioData, PortfolioMeta, SourcesDoc } from '@/lib/plg/portfolio/data'
 import { expandSources } from '@/lib/plg/portfolio/data'
+import { checkAeo, type AeoData, type AeoMeta } from '@/lib/plg/aeo/data'
+import { sampleAeo } from '@/lib/plg/aeo/sample'
+import AeoView from '@/components/plg/aeo/AeoView'
 import { buildStartup, parseStartupRows } from '@/lib/plg/startup/compute'
 import { startupSql } from '@/lib/plg/startup/sql'
 import type { FilterState } from '@/components/plg/FilterCard'
@@ -42,7 +45,7 @@ function guard<T>(name: ContractName, payload: T, keys: string[] = []): T {
   return payload
 }
 import SourcesPanel from '@/components/plg/SourcesPanel'
-import { creatorsSources, croSources, portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
+import { aeoSources, creatorsSources, croSources, portfolioSources, socialSources, startupSources, tier4Sources, workspacesSources } from '@/lib/plg/sources'
 import Tier4View from '@/components/plg/slg/Tier4View'
 import { buildTier4, enrichTier4 } from '@/lib/plg/slg/compute'
 import { tier4ListSql, tier4Sql } from '@/lib/plg/slg/tier4sql'
@@ -188,7 +191,7 @@ function App() {
   const readHash = (): { tab: DashboardTab; channel: SocialChannel } => {
     const h = typeof location !== 'undefined' ? location.hash.slice(1) : ''
     return h === 'social-peter' ? { tab: 'social', channel: 'peter' } : h === 'social-payton' ? { tab: 'social', channel: 'payton' } : h === 'social-eric' ? { tab: 'social', channel: 'eric' }
-      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'insights' || h.startsWith('insights-idea=') ? { tab: 'insights', channel: 'all' } : h === 'tier4' ? { tab: 'workspaces', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
+      : h === 'social' ? { tab: 'social', channel: 'all' } : h === 'startup' ? { tab: 'startup', channel: 'all' } : h === 'portfolio' ? { tab: 'portfolio', channel: 'all' } : h === 'insights' || h.startsWith('insights-idea=') ? { tab: 'insights', channel: 'all' } : h === 'aeo' ? { tab: 'aeo', channel: 'all' } : h === 'tier4' ? { tab: 'workspaces', channel: 'all' } : { tab: 'workspaces', channel: 'all' }
   }
   const [route, setRoute] = useState(readHash)
   const [yt, setYt] = useState<YtChannelDoc[] | null>(null)
@@ -196,6 +199,8 @@ function App() {
   const [thumbs, setThumbs] = useState<Record<string, Record<string, string>>>({})
   // Portfolio tab: synced from the Supabase reporting views into db `portfolio/*` (undefined = loading, null = not synced).
   const [portfolio, setPortfolio] = useState<PortfolioData | null | undefined>(undefined)
+  // AI visibility: synced from the AEO Supabase project into db `aeo/*` (scripts/sync-aeo.mjs); sample data until then.
+  const [aeo, setAeo] = useState<AeoData | null | undefined>(undefined)
   const [downloads, setDownloads] = useState<any>(null)
   // Content insights: the program's placement list + YouTube metadata (youtube/creators, written by scripts/sync-creators.mjs).
   const [creatorsDoc, setCreatorsDoc] = useState<CreatorsDoc | null | undefined>(undefined)
@@ -215,7 +220,15 @@ function App() {
     window.claude.use('mcp').then(m => setMcp(m ?? null)).catch(() => setMcp(null))
     window.claude.use('downloads').then(x => setDownloads(x ?? null)).catch(() => setDownloads(null))
     window.claude.use('db').then(async d => {
-      if (!d) { setPortfolio(null); setSaved(noSaved()); return }
+      if (!d) { setPortfolio(null); setAeo(sampleAeo()); setSaved(noSaved()); return }
+      // AI visibility: the synced snapshot, or generated sample data (labelled) until the first sync.
+      d.doc('aeo/meta').get().then(async (snap: any) => {
+        if (!snap?.exists) { setAeo(sampleAeo()); return }
+        const meta = snap.data() as AeoMeta
+        const parts = await Promise.all(meta.slices.map(id => d.doc(`aeo/slice-${id}`).get().then((x: any) => [id, x?.exists ? x.data() : null] as const).catch(() => [id, null] as const)))
+        const out: AeoData = { meta, slices: Object.fromEntries(parts.filter(([, v]) => v)) as AeoData['slices'] }
+        setAeo(checkAeo(out) ? null : out)
+      }).catch(() => setAeo(sampleAeo()))
       d.doc('portfolio/meta').get().then(async (snap: any) => {
         if (!snap?.exists) { setPortfolio(null); return }
         const raw = snap.data() as PortfolioMeta
@@ -397,7 +410,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const go = useCallback((tab: DashboardTab, channel: SocialChannel) => {
-    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : tab === 'portfolio' ? '#portfolio' : tab === 'insights' ? '#insights' : ''
+    const hash = tab === 'social' ? (channel === 'all' ? '#social' : `#social-${channel}`) : tab === 'startup' ? '#startup' : tab === 'portfolio' ? '#portfolio' : tab === 'insights' ? '#insights' : tab === 'aeo' ? '#aeo' : ''
     try { history.replaceState(null, '', hash || location.pathname + location.search) } catch { /* sandboxed */ }
     setRoute({ tab, channel })
   }, [])
@@ -596,6 +609,7 @@ function App() {
   // "Sources and SQL": the exact SQL for the current filters, built the same way whether or not this viewer has Sigma.
   const sourcesFor = useMemo(() => {
     if (route.tab === 'portfolio') return portfolioSources()
+    if (route.tab === 'aeo') return aeoSources(!!aeo?.meta.sample)
     if (route.tab === 'insights') return creatorsSources(effEnd ? creatorsSql(effEnd) : null)
     const sr = plan ? { cur: plan.summaries.cur, prev: plan.summaries.prev } : null
     if (route.tab === 'social') return socialSources(sr && effEnd && yt ? socialSql({ ...sr, tagged: taggedVideos(yt, effEnd), fallbacks: channelFallbacks(yt, effEnd) }) : null)
@@ -604,7 +618,7 @@ function App() {
     const t4 = tier4Sources(sr ? tier4Sql([sr.cur, sr.prev]) : null, effEnd ? tier4ListSql(effEnd) : null)
     const cr = croSources(sr && effEnd ? croSql([sr.cur, sr.prev], effEnd) : null, effEnd ? croTrendSql(effEnd) : null)
     return { sources: [...ws.sources, ...cr.sources, ...t4.sources], queries: [...ws.queries, ...cr.queries, ...t4.queries], notes: [...(ws.notes ?? []), ...(cr.notes ?? []), ...(t4.notes ?? [])] }
-  }, [route.tab, plan, effEnd, yt, sql])
+  }, [route.tab, plan, effEnd, yt, sql, aeo])
 
   const v = view && 'v' in view ? view.v : null
   if (!v) {
@@ -672,6 +686,7 @@ function App() {
       cro={croPane}
       health={health}
       tab={route.tab}
+      aeo={route.tab === 'aeo' ? <AeoView data={aeo} /> : null}
       startup={startupPane}
       portfolio={route.tab === 'portfolio' ? <PortfolioView data={portfolio}
         onExport={downloads ? async (filename, csv) => { await downloads.save({ filename, data: new Blob([csv], { type: 'text/csv' }) }) } : undefined} /> : null}

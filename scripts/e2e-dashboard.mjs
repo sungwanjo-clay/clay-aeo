@@ -24,7 +24,7 @@ const quick = flags.includes('--quick')
 const un = j => (j && typeof j === 'object' && 'data' in j && Object.keys(j).length <= 3 ? j.data : j)
 function loadDb(dir) {
   const docs = {}
-  for (const col of ['cache', 'youtube', 'portfolio', 'config']) {
+  for (const col of ['cache', 'youtube', 'portfolio', 'config', 'aeo']) {
     const d = join(dir, col)
     if (!existsSync(d)) continue
     for (const f of readdirSync(d).filter(f => f.endsWith('.json'))) docs[`${col}/${f.slice(0, -5)}`] = un(JSON.parse(readFileSync(join(d, f), 'utf8')))
@@ -37,6 +37,7 @@ const TABS = {
   social: { hash: '#social', must: ['What moved'] },
   startup: { hash: '#startup', must: ['What moved', 'Funnel'] },
   portfolio: { hash: '#portfolio', must: [] },
+  aeo: { hash: '#aeo', must: ['Visibility by week', 'Most-mentioned brands', 'Citations by week', 'Most-cited domains', 'Claygent & MCP mentions', 'How answers describe Clay', 'By PMM use case', 'By topic'] },
   insights: { hash: '#insights', must: ['videos to make next', 'New this week', 'Videos', 'What worked and what didn’t, by theme', 'Winners vs losers, side by side'] },
 }
 const PRESETS = quick ? ['last7', 'last28'] : ['last7', 'last28', 'last90', 'qtd', 'ytd']
@@ -73,7 +74,7 @@ console.log(`db: ${Object.keys(docs).length} documents`)
 // 1. Every tab × preset × comparison.
 for (const [tab, t] of Object.entries(TABS)) {
   // Portfolio and Content insights ignore the dashboard's dates: one load each.
-  const ownDates = tab === 'portfolio' || tab === 'insights'
+  const ownDates = tab === 'portfolio' || tab === 'insights' || tab === 'aeo'
   for (const preset of ownDates ? ['last7'] : PRESETS) {
     for (const compare of ownDates ? ['previous_period'] : COMPARES) {
       const qs = new URLSearchParams({ preset, ...(compare !== 'previous_period' ? { compare } : {}) }).toString()
@@ -104,6 +105,9 @@ const scenarios = [
     if (h) { const p = JSON.parse(Array.from({ length: h.parts }, (_, i) => d[`cache/creators-${i}`].s).join('')); p.rows = p.rows.filter(r => r[0] !== 'w'); d['cache/creators-0'] = { s: JSON.stringify(p) }; d['cache/creators'] = { ...h, parts: 1 } }
     return d
   })(), /Data check failed/, '#insights'],
+  // AI visibility: sample data (labelled) until synced; a synced copy that fails its shape check says so.
+  ['AEO not synced shows labelled sample', (() => { const d = clone(); for (const k of Object.keys(d)) if (k.startsWith('aeo/')) delete d[k]; return d })(), /Sample data[\s\S]*Visibility by week/i, '#aeo'],
+  ['AEO snapshot missing a slice', (() => { const d = clone(); d['aeo/meta'] = { version: 1, syncedAt: '2026-11-24T00:00:00Z', weeks: ['2026-11-16'], domType: {}, clayDomains: ['clay.com'], slices: ['all-all'] }; return d })(), /AI visibility data isn’t synced/, '#aeo'],
   ['creator list not synced', (() => { const d = clone(); delete d['youtube/creators']; return d })(), /creator program list isn’t synced/, '#insights'],
   ['no niche scan yet', (() => { const d = clone(); delete d['youtube/scan']; return d })(), /No niche scan yet/, '#insights'],
   // An idea's own link opens its side panel: sources, the brief, the reasons.
