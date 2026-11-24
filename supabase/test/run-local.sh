@@ -2,7 +2,7 @@
 # Applies 001, runs its test, applies 002 on top of that data and runs its test, on a throwaway local Postgres and runs the test. Usage: supabase/test/run-local.sh <workdir>
 set -euo pipefail
 W=${1:?workdir}; B=$(ls -d /usr/lib/postgresql/*/bin | tail -1); R=$(cd "$(dirname "$0")/.." && pwd)
-rm -rf "$W/pgdata"; mkdir -p "$W"; cp "$R"/migrations/*.sql "$R"/test/*.sql "$W/"; chmod -R a+rwX "$W"
+rm -rf "$W/pgdata"; mkdir -p "$W"; cp "$R"/migrations/*.sql "$R"/test/*.sql "$R"/test/*.sh "$W/"; chmod -R a+rwX "$W"
 su postgres -c "$B/initdb -D $W/pgdata -A trust >/dev/null && $B/pg_ctl -D $W/pgdata -o '-k $W -p 55432 -c listen_addresses=' -l $W/pg.log start >/dev/null"
 trap 'su postgres -c "$B/pg_ctl -D $W/pgdata stop -m fast >/dev/null"' EXIT
 sleep 1
@@ -28,3 +28,8 @@ sed -i "/alter role anon/d; /notify pgrst/d" "$W/007_ingest_timeout.sql"; $P -v 
 $P -v ON_ERROR_STOP=1 -f "$W/008_churned_arr.sql" && echo "008 applied"
 $P -f "$W/008_test.sql" 2>&1
 $P -v ON_ERROR_STOP=1 -f "$W/009_sales_tier.sql" && echo "009 applied"
+$P -v ON_ERROR_STOP=1 -f "$W/010_firm_list_sync.sql" >/dev/null && echo "010 applied"
+# 011 test runs before and after the migration: before must fail (reproduces the duplicate key), after must pass.
+if bash "$W/011_test.sh" "$P" >/dev/null 2>&1; then echo "011 pre-check: race did NOT reproduce on 008"; else echo "011 pre-check: race reproduced on 008 (expected)"; fi
+$P -v ON_ERROR_STOP=1 -f "$W/011_lookup_upsert.sql" && echo "011 applied"
+bash "$W/011_test.sh" "$P"
