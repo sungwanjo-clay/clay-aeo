@@ -79,7 +79,8 @@ export type PortfolioMeta = {
   previous: string | null           // snapshot_date of the complete week before latest, for deltas
   snapshots: { snapshot_date: string; completed_at: string }[]
   totals: TotalsRow[]               // latest + previous
-  firmRows: FirmRow[]               // latest + previous
+  firmRows: FirmRow[]               // latest + previous (filled from `portfolio/firmrows-<i>` when firmRowChunks is set)
+  firmRowChunks?: number            // firm rows live in db `portfolio/firmrows-0..n-1` (header stays under the 256 KB cap)
   firms: Firm[]                     // every firm in the list, with or without a roster
   eligibilityConnected: boolean     // any eligibility row in the latest snapshot
   arrConnected?: boolean            // paying ARR written for the latest snapshot

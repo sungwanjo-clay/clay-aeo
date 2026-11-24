@@ -219,9 +219,14 @@ function App() {
       d.doc('portfolio/meta').get().then(async (snap: any) => {
         if (!snap?.exists) { setPortfolio(null); return }
         const raw = snap.data() as PortfolioMeta
-        const meta = raw.sourcesDoc
+        const withSources = raw.sourcesDoc
           ? expandSources(raw, await d.doc('portfolio/sources').get().then((x: any) => (x?.exists ? (x.data() as SourcesDoc) : null)).catch(() => null))
           : raw
+        // Firm rows live in their own documents once the header would outgrow the document cap (sync-portfolio.mjs).
+        const meta = withSources.firmRowChunks
+          ? { ...withSources, firmRows: (await Promise.all(Array.from({ length: withSources.firmRowChunks }, (_, i) =>
+              d.doc(`portfolio/firmrows-${i}`).get().then((x: any) => (x?.exists ? (x.data()?.rows as PortfolioMeta['firmRows']) : [])).catch(() => [])))).flat() }
+          : withSources
         const parts = await Promise.all(Array.from({ length: meta.companyChunks ?? 0 }, (_, i) =>
           d.doc(`portfolio/companies-${i}`).get().then((x: any) => (x?.exists ? (x.data()?.rows as CompanyRow[]) : [])).catch(() => [])))
         setPortfolio({ meta, companies: parts.flat() })

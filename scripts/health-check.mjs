@@ -122,7 +122,11 @@ else {
   const t = d => meta.totals?.find(r => r.snapshot_date === d && r.cut === 'all')
   const cur = t(latest), prev = meta.previous ? t(meta.previous) : null
   if (cur && prev) add('portfolio_drop', 'warn', cur.portfolio >= prev.portfolio * 0.9, `Verified companies ${prev.portfolio} → ${cur.portfolio} week over week`)
-  const firms = d => new Set((meta.firmRows ?? []).filter(r => r.snapshot_date === d).map(r => r.firm_id)).size
+  const firmRows = meta.firmRowChunks
+    ? Array.from({ length: meta.firmRowChunks }, (_, i) => read('portfolio', `firmrows-${i}`)?.rows ?? []).flat()
+    : meta.firmRows ?? []
+  if (meta.firmRowChunks) add('portfolio_firmrows', 'alert', firmRows.length > 0, `Firm rows: ${firmRows.length} across ${meta.firmRowChunks} documents`)
+  const firms = d => new Set(firmRows.filter(r => r.snapshot_date === d).map(r => r.firm_id)).size
   if (latest && meta.previous) add('portfolio_firms', 'warn', firms(latest) >= firms(meta.previous) * 0.9, `Firms with a roster ${firms(meta.previous)} → ${firms(latest)}`)
   if (cur) add('portfolio_unknown', 'warn', (cur.workspace_unknown ?? 0) <= cur.portfolio * 0.05,
     `${cur.workspace_unknown ?? 0} companies with an unknown Clay lookup (${((cur.workspace_unknown ?? 0) / Math.max(1, cur.portfolio) * 100).toFixed(1)}%)`)

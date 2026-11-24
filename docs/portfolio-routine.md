@@ -39,7 +39,8 @@ Work in a scratch folder `W`. Never print keys. Secrets come from the environmen
 6. **Publish.** `python3 -I scripts/portfolio-run.py publish <this Monday, YYYY-MM-DD> W/publish.jsonl`.
 7. **Sync.** `NODE_USE_ENV_PROXY=1 node scripts/sync-portfolio.mjs W/sync.json`, then write its documents with
    `ArtifactData` to https://claude.ai/artifact/R2pMQF57g3idB4EvtazAeC, collection `portfolio`: `companies-<i>` parts
-   first, `sources`, then `meta` last, each pinned with `if_version` from a fresh `list`.
+   first, then `sources` and `firmrows-<i>`, then `meta` last (readers follow its counts), each pinned with `if_version`
+   from a fresh `list`, in batches under 1 MB. Every document must stay under 256 KB; the sync exits 2 if one doesn't.
 8. **Report** one line each: sheet (new, removed, back), discovery (complete, failed), refresh (complete, failed),
    published week and its totals (companies, with a workspace, paying, ARR), credits used and left.
 

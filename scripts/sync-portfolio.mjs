@@ -169,6 +169,16 @@ const sourcesDoc = {
   totals: meta.sourceTotals,
 }
 delete meta.sources; delete meta.sourceRuns; delete meta.sourceTotals; meta.sourcesDoc = true
-const docs = [{ path: 'portfolio/meta', data: meta }, { path: 'portfolio/sources', data: sourcesDoc }, ...(META_ONLY ? [] : chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } })))]
+// Firm rows (latest + previous week) go in their own documents too: at ~250 firms × 2 weeks they pass the 256 KB cap
+// together with the firm list. The page and the health check read them back into meta.firmRows.
+const FIRM_CHUNK = 300
+const firmChunks = []
+for (let i = 0; i < meta.firmRows.length; i += FIRM_CHUNK) firmChunks.push(meta.firmRows.slice(i, i + FIRM_CHUNK))
+meta.firmRowChunks = firmChunks.length; meta.firmRows = []
+const docs = [{ path: 'portfolio/meta', data: meta }, { path: 'portfolio/sources', data: sourcesDoc },
+  ...firmChunks.map((c, i) => ({ path: `portfolio/firmrows-${i}`, data: { rows: c } })),
+  ...(META_ONLY ? [] : chunks.map((c, i) => ({ path: `portfolio/companies-${i}`, data: { rows: c } })))]
+// Every document must fit the artifact db cap; fail here rather than at the write.
+for (const x of docs) { const n = Buffer.byteLength(JSON.stringify(x.data)); if (n > 250_000) { console.error(`${x.path} is ${n} bytes (cap 262144)`); process.exit(2) } }
 writeFileSync(out, JSON.stringify({ docs }))
 console.log(`latest complete snapshot: ${latest?.snapshot_date ?? 'none'} · firms ${firms.length} · companies ${rows.length} (${rows.filter(r => r.inDenominator).length} in denominator) · ${docs.length} docs → ${out}`)
