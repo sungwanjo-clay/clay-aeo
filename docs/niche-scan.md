@@ -29,6 +29,9 @@ Work in a scratch folder `W`. Never print credentials. Keep raw results in files
      data: counts of copies that worked and failed, the separators, the rising terms, our creators' workspaces; quote
      the numbers the review printed and don't describe a video you haven't seen in it. `format` is the title format to
      sell it with (the review's best by hit rate, or say why not); an AI-assistant topic's title names one assistant;
+     `structure` (length, chapters) must agree with the idea's winning attributes (the review's `attr` lines: share of
+     copies that worked with each attribute against without it): use what helps, never what hurts, and cite those
+     numbers in `why.structure`;
      check each claim against the examples (if a comparison worked, don't say comparisons fail). Don't reuse last week's
      wording for an idea that's still on the list unless the evidence is unchanged; say what moved.
    - Rerun step 3 with `--recs W/now/recs.json` (it fails if an idea's theme has no copies that worked, its subject isn't

@@ -4,7 +4,7 @@
  * Content insights tab.
  */
 import type { CreatorsData, Rec } from './compute'
-import { r1 } from './compute'
+import { attrEffect, attrVerdict, r1 } from './compute'
 import { formatLabel, themeLabel } from './themes'
 import { utmName, utmQuery } from './utm'
 
@@ -33,9 +33,9 @@ export function briefMarkdown(r: Rec, d: CreatorsData): string {
   L.push('', '## Why each decision', '')
   for (const x of r.reasons) L.push(`- **${x.label}** (${x.src === 'review' ? 'weekly review' : x.src === 'default' ? 'theme default' : 'from the data'}): ${x.why}`)
   L.push('', '## Evidence summary', '', ...r.why.map(w => `- ${w}`))
-  if (r.seps.length) {
-    L.push('', '## What separates copies that worked from ones that failed on this theme', '', '| Trait | Worked | Failed |', '|---|---|---|')
-    for (const x of r.seps) L.push(`| ${x.label} | ${Math.round((100 * x.w) / x.wn)}% (${x.w}) | ${Math.round((100 * x.f) / x.fn)}% (${x.f}) |`)
+  if (r.attrs.length) {
+    L.push('', '## Winning attributes', '', `Of the topic's ${r.proof.n} copies, the share that got 2×+ their channel's median views with and without each attribute.`, '', '| Attribute | Copies with it | Worked with it | Worked without it | Read |', '|---|---|---|---|---|')
+    for (const a of r.attrs) { const v = attrVerdict(a); L.push(`| ${a.label} | ${a.n} | ${Math.round((100 * a.worked) / a.n)}% | ${Math.round((100 * a.restWorked) / a.restN)}% | ${v === 'helps' ? 'Helps' : v === 'hurts' ? 'Hurts' : v === 'few' ? 'Too few copies to tell' : 'No clear difference'}${v === 'few' ? '' : ` (${attrEffect(a) >= 0 ? '+' : ''}${Math.round(100 * attrEffect(a))} pts)`} |`) }
   }
   L.push('', '## Measure it', '', ...r.measure.map(([k, v]) => `- **${k}:** ${v}`))
   if (r.formats.length) { L.push('', '## Title formats tried on this topic', '', '| Format | Copies | Worked |', '|---|---|---|'); for (const f of r.formats) L.push(`| ${formatLabel(f.f)} | ${f.n} | ${f.worked} (${Math.round((100 * f.worked) / f.n)}%) |`) }

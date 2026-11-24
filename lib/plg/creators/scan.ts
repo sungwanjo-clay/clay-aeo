@@ -36,9 +36,11 @@ export type Topic = { s: SubjectId; n: number; worked: number; failed: number; h
   formats: { f: FormatId; n: number; worked: number }[]
   /** AI-assistant topics: how each assistant named in the title did (3+ copies). */
   tools?: { a: string; n: number; worked: number }[]
-  /** What the topic's copies that worked have that the ones that failed don't: length, chapters, title formats, the
-   * assistant named (3+ copies with the trait, up to 8, biggest difference first). */
-  traits?: Sep[] }
+  /** Winning attributes: for each attribute (length, chapters, title format, the assistant named), how many of the
+   * topic's copies have it and how many of those worked (2×+ their channel), against the copies without it. 3+ copies
+   * on each side; biggest lift first. (Scans of Nov 24 had `traits` instead, winners vs failures.) */
+  attrs?: Attr[] }
+export type Attr = { label: string; n: number; worked: number; restN: number; restWorked: number }
 export type Sep = { label: string; w: number; wn: number; f: number; fn: number }
 export type ThemeStat = {
   id: ThemeId; n: number; hits: number; worked: number; failed: number; winChannels: number; x10: number; below: number
@@ -140,7 +142,7 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
         ex: pick(perChannel(w.filter(r => r.raw.v >= SCAN.minOutlierViews).sort((p, q) => q.x! - p.x!), 4).map(r => r.raw.id)),
         bad: pick(perChannel(xs.filter(r => r.x! < SCAN.failed).sort((p, q) => p.x! - q.x!), 2).map(r => r.raw.id)),
         formats: FORMATS.map(f => { const fx = xs.filter(r => r.f.includes(f.id)); return { f: f.id, n: fx.length, worked: fx.filter(r => r.x! >= SCAN.worked).length } }).filter(f => f.n >= 3),
-        traits: topicTraits(w, xs.filter(r => r.x! < SCAN.failed), k === 'ai-assistant'),
+        attrs: topicAttrs(xs, k === 'ai-assistant'),
         ...(k === 'ai-assistant' ? { tools: ['claude', 'chatgpt', 'grok', 'gemini'].map(a => { const ax = xs.filter(r => assistantOf(r.raw.t) === a); return { a, n: ax.length, worked: ax.filter(r => r.x! >= SCAN.worked).length } }).filter(a => a.n >= 3) } : {}) }
     }).filter(x => x.worked >= 2)
     return {
@@ -207,17 +209,20 @@ export function analyze(raw: Raw, prev: ScanDoc | null, now = raw.fetchedAt): Sc
 }
 
 
-function topicTraits(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number | null }[], F: typeof W, ai: boolean): Sep[] {
-  if (W.length < 2 || F.length < 2) return []
-  const feats: [string, (r: (typeof W)[number]) => boolean][] = [
-    ['20 minutes or longer', r => r.raw.s >= 1200], ['Under 10 minutes', r => r.raw.s < 600], ['Has chapters', r => (r.raw.chapters ?? 0) >= 3],
-    ...FORMATS.map(f => [f.label, (r: (typeof W)[number]) => r.f.includes(f.id)] as [string, (r: (typeof W)[number]) => boolean]),
-    ...(ai ? [['Names Claude', (r: (typeof W)[number]) => assistantOf(r.raw.t) === 'claude'], ['Names ChatGPT', (r: (typeof W)[number]) => assistantOf(r.raw.t) === 'chatgpt'],
-      ['Names Grok', (r: (typeof W)[number]) => assistantOf(r.raw.t) === 'grok']] as [string, (r: (typeof W)[number]) => boolean][] : []),
+function topicAttrs(xs: { raw: Raw['videos'][number]; f: FormatId[]; x: number | null }[], ai: boolean): Attr[] {
+  type R = (typeof xs)[number]
+  const feats: [string, (r: R) => boolean][] = [
+    ['Under 10 minutes', r => r.raw.s < 600], ['10 to 20 minutes', r => r.raw.s >= 600 && r.raw.s < 1200], ['20 minutes or longer', r => r.raw.s >= 1200],
+    ['Has chapters', r => (r.raw.chapters ?? 0) >= 3],
+    ...FORMATS.map(f => [f.label, (r: R) => r.f.includes(f.id)] as [string, (r: R) => boolean]),
+    ...(ai ? ([['Names Claude', r => assistantOf(r.raw.t) === 'claude'], ['Names ChatGPT', r => assistantOf(r.raw.t) === 'chatgpt'], ['Names Grok', r => assistantOf(r.raw.t) === 'grok']] as [string, (r: R) => boolean][]) : []),
   ]
-  return feats.map(([label, p]) => ({ label, w: W.filter(p).length, wn: W.length, f: F.filter(p).length, fn: F.length }))
-    .filter(x => x.w + x.f >= 3)
-    .sort((a, b) => Math.abs(b.w / b.wn - b.f / b.fn) - Math.abs(a.w / a.wn - a.f / a.fn)).slice(0, 8)
+  const ok = (r: R) => r.x! >= SCAN.worked
+  return feats.map(([label, p]) => {
+    const yes = xs.filter(p), no = xs.filter(r => !p(r))
+    return { label, n: yes.length, worked: yes.filter(ok).length, restN: no.length, restWorked: no.filter(ok).length }
+  }).filter(a => a.n >= 3 && a.restN >= 3)
+    .sort((a, b) => (b.worked / b.n - b.restWorked / b.restN) - (a.worked / a.n - a.restWorked / a.restN)).slice(0, 10)
 }
 
 function separators(W: { raw: Raw['videos'][number]; f: FormatId[]; md: number | null }[], F: typeof W, all = false): Sep[] {

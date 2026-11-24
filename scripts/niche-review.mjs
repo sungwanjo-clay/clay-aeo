@@ -32,7 +32,7 @@ for (const r of d.recs) {
   console.log(`  formats ${r.formats.map(f => `${f.f} ${f.worked}/${f.n}`).join(', ') || '–'}`)
   for (const v of r.examples) console.log(`  worked  ${v.x}×  ${v.v} views  ${v.m}m  ch${v.ch}  “${v.t}” [${ch(v)}]`)
   for (const v of r.losers) console.log(`  failed  ${v.x}×  ${v.m}m  ch${v.ch}  “${v.t}” [${ch(v)}]`)
-  for (const x of r.seps) console.log(`  trait   ${x.label}: worked ${x.w}/${x.wn}, failed ${x.f}/${x.fn}`)
+  for (const a of r.attrs) console.log(`  attr    ${a.label}: ${a.worked}/${a.n} worked with it vs ${a.restWorked}/${a.restN} without (${Math.round(100 * (a.worked / a.n - a.restWorked / a.restN))} pts)`)
   console.log(`  words   worked: ${s.words.w.join(', ') || '–'} · failed: ${s.words.f.join(', ') || '–'}`)
   const t = r.themeRow
   if (t) console.log(`  ours    ${t.worked} worked / ${t.failed} failed of ${t.judged} judged, ${t.ws} workspaces${t.best ? `; best “${t.best.title}” ${t.best.perK?.toFixed(2)} per 1K` : ''}`)

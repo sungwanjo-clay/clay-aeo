@@ -2,10 +2,10 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
-import { ATTRIBUTION, REC, RESULT, r1, type CreatorsData, type Rec, type Result, type VideoRow } from '@/lib/plg/creators/compute'
+import { ATTRIBUTION, ATTR_LABEL, REC, RESULT, attrEffect, attrVerdict, r1, type CreatorsData, type Rec, type Result, type VideoRow } from '@/lib/plg/creators/compute'
 import { briefMarkdown } from '@/lib/plg/creators/brief'
 import { utmName, utmQuery } from '@/lib/plg/creators/utm'
-import { SCAN, type SV, type ScanDoc, type Sep } from '@/lib/plg/creators/scan'
+import { SCAN, type SV, type ScanDoc } from '@/lib/plg/creators/scan'
 import { assistantLabel, clayFit, formatLabel, themeLabel, type FormatId, type ThemeId } from '@/lib/plg/creators/themes'
 import SectionBar, { Chip } from '../SectionBar'
 import { Card, Def, Eyebrow, H2, InfoTip, T, fmtInt, fmtPct } from '../ui'
@@ -255,7 +255,6 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
     ['Related resources', <span key="r" className="flex flex-col gap-0.5">{b.resources.map(x => x.url
       ? <a key={x.label} href={x.url} target="_blank" rel="noreferrer" className="underline">{x.label}</a> : <span key={x.label}>{x.label}</span>)}</span>],
   ]
-  const lift = (x: Sep) => { const w = x.w / x.wn, f = x.f / x.fn; return f ? w / f : null }
   return <>
     {r.angle && <p className="text-[15px] max-w-[860px]" style={{ color: T.muted }}>{r.angle}</p>}
 
@@ -293,17 +292,18 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
       </dl></Card>
     </div>
 
-    {/* 4. How it's been sold: the topic's winners vs losers, condensed */}
-    {r.seps.length > 0 && <div className="flex flex-col gap-2">
-      <H2>How it’s been sold</H2>
-      <p className="text-[13px]" style={{ color: T.muted }}>The {r.topic?.traits?.length ? 'topic’s' : 'theme’s'} copies that worked (2×+ their channel) against the ones that failed (under 0.7×): how often each has the trait.</p>
-      <Card className="p-5"><div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 480 }}>
-        <thead><tr style={head}><th className={`${th} text-left pl-0`}>What we see</th><th className={`${th} text-right`}>Worked ({r.seps[0].wn})</th><th className={`${th} text-right`}>Failed ({r.seps[0].fn})</th><th className={`${th} text-right`}>Read</th></tr></thead>
-        <tbody>{r.seps.map(x => { const w = x.w / x.wn, f = x.f / x.fn, l = lift(x); return (
-          <tr key={x.label} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3">{x.label}</td>
-            <td className={num} style={{ ...mono, color: w > f ? GOOD.fg : T.ink }}>{fmtPct(w, 0)} <span style={{ color: T.faint }}>({x.w})</span></td>
-            <td className={num} style={{ ...mono, color: f > w ? T.neg : T.ink }}>{fmtPct(f, 0)} <span style={{ color: T.faint }}>({x.f})</span></td>
-            <td className={num} style={{ fontWeight: 600, color: w > f ? GOOD.fg : T.neg }}>{w > f ? (l == null ? 'Only in winners' : `Do it · ${r1(l)}×`) : 'Avoid'}</td></tr>) })}</tbody>
+    {/* 4. Winning attributes: with each attribute vs without it, over all the topic's copies */}
+    {r.attrs.length > 0 && <div className="flex flex-col gap-2">
+      <H2>Winning attributes</H2>
+      <p className="text-[13px] max-w-[860px]" style={{ color: T.muted }}>Of the topic’s {fmtInt(r.proof.n)} copies in the niche, the share that got 2×+ their channel’s median views when they have each attribute, against when they don’t. Helps or hurts at 10+ points with 5+ copies.</p>
+      <Card className="p-5"><div className="overflow-x-auto"><table className="w-full text-[14px]" style={{ minWidth: 560 }}>
+        <thead><tr style={head}><th className={`${th} text-left pl-0`}>Attribute</th><th className={`${th} text-right`}>Copies with it</th><th className={`${th} text-right`}>Worked with it</th><th className={`${th} text-right`}>Worked without it</th><th className={`${th} text-left`}>Read</th></tr></thead>
+        <tbody>{r.attrs.map(a => { const v = attrVerdict(a), e = attrEffect(a), tone = v === 'helps' ? GOOD.fg : v === 'hurts' ? T.neg : T.muted, quiet = v === 'unclear' || v === 'few'; return (
+          <tr key={a.label} style={{ borderBottom: `1px solid ${T.border}` }}><td className="py-2 pr-3">{a.label}</td>
+            <td className={num} style={mono}>{fmtInt(a.n)}</td>
+            <td className={num} style={{ ...mono, fontWeight: quiet ? 400 : 600, color: tone }}>{fmtPct(a.worked / a.n, 0)}</td>
+            <td className={num} style={mono}>{fmtPct(a.restWorked / a.restN, 0)}</td>
+            <td className="px-3 py-2 whitespace-nowrap" style={{ color: tone, fontWeight: quiet ? 400 : 600 }}>{ATTR_LABEL[v]}{v !== 'few' && <span style={{ ...mono, fontWeight: 400, color: T.muted }}> {e >= 0 ? '+' : '−'}{Math.abs(Math.round(e * 100))} pts</span>}</td></tr>) })}</tbody>
       </table></div></Card>
     </div>}
 
