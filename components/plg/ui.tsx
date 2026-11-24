@@ -121,8 +121,8 @@ export function InfoTip({ children, label = 'Definition' }: { children: ReactNod
         style={{ border: `1px solid ${T.faint}`, color: T.muted, fontFamily: T.mono, background: 'transparent' }}>i</button>
       {/* pt-2 bridges the gap so the pointer can move into the tip (links stay clickable). */}
       <span role="tooltip"
-        className="absolute left-1/2 top-full z-50 hidden w-[280px] max-w-[calc(100vw-2rem)] -translate-x-1/2 pt-2 group-hover:block group-focus-within:block">
-        <span className="block rounded-xl px-3.5 py-3 text-left text-[13px] font-normal normal-case leading-snug shadow-lg"
+        className="absolute left-1/2 top-full z-50 hidden w-[280px] max-w-[calc(100vw-2rem)] -translate-x-1/2 pt-2 whitespace-normal group-hover:block group-focus-within:block">
+        <span className="block rounded-xl px-3.5 py-3 text-left text-[13px] font-normal normal-case leading-snug shadow-lg break-words"
           style={{ background: T.ink, color: '#fff', letterSpacing: 'normal', fontFamily: 'inherit' }}>
           {children}
         </span>
