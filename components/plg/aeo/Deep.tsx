@@ -70,8 +70,8 @@ export function DomainsTable({ data, slice, rows, cur, show = 15 }: { data: AeoD
       <div className="overflow-x-auto">
         <table className="w-full text-[14px]" style={{ color: T.ink }}>
           <thead><tr style={head}>
-            <th className={`${th} text-left w-10`}>#</th><th className={`${th} text-left`}>Domain</th>
-            <th className={`${th} text-right`}>Answers</th><th className={`${th} text-right`}>Cited in</th><th className={`${th} text-right`}>Change</th><th className="w-8" />
+            <th className={`${th} text-left w-10 hidden sm:table-cell`}>#</th><th className={`${th} text-left`}>Domain</th>
+            <th className={`${th} text-right hidden sm:table-cell`}>Answers</th><th className={`${th} text-right`}><span className="sm:hidden">Share</span><span className="hidden sm:inline">Cited in</span></th><th className={`${th} text-right`}><span className="sm:hidden">Chg</span><span className="hidden sm:inline">Change</span></th><th className="w-8" />
           </tr></thead>
           <tbody>{visible.map(r => {
             const isOpen = open.has(r.name) || (!!needle && urlsOf[r.name].some(matchUrl))
@@ -80,19 +80,20 @@ export function DomainsTable({ data, slice, rows, cur, show = 15 }: { data: AeoD
               <tr key={r.name} onClick={() => hasUrls && toggle(open, r.name, setOpen)} aria-expanded={hasUrls ? isOpen : undefined}
                 className={hasUrls ? 'cursor-pointer hover:bg-[#FAF9F6]' : undefined}
                 style={{ borderBottom: isOpen ? 'none' : `1px solid ${T.border}`, background: r.isClay ? '#F6F5F1' : undefined }}>
-                <td className="px-3 py-2.5" style={{ ...mono, color: T.muted }}>{rows.indexOf(r) + 1}</td>
-                <td className="px-3 py-2.5 max-w-0 w-full">
-                  <div className="flex items-center gap-2 min-w-0" style={{ fontWeight: r.isClay ? 600 : 400 }}>
-                    <Tile name={r.name} clay={r.isClay} /><span className="truncate min-w-0">{r.name}</span><DomainChip r={r} />
+                <td className="px-2 sm:px-3 py-2.5 hidden sm:table-cell" style={{ ...mono, color: T.muted }}>{rows.indexOf(r) + 1}</td>
+                <td className="px-2 sm:px-3 py-2.5 max-w-0 w-full">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 min-w-0" style={{ fontWeight: r.isClay ? 600 : 400 }}>
+                    <span className="flex items-start sm:items-center gap-2 min-w-0"><Tile name={r.name} clay={r.isClay} /><span className="min-w-0 break-words sm:truncate">{r.name}</span></span>
+                    <span className="pl-7 sm:pl-0 flex"><DomainChip r={r} /></span>
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-right whitespace-nowrap" style={{ ...mono, color: T.muted }}>{fmtInt(r.n)}</td>
-                <td className="px-3 py-2.5 text-right whitespace-nowrap" style={mono}>{fmtPct(r.value)}</td>
-                <td className="px-3 py-2.5 text-right whitespace-nowrap"><PP c={r.value} p={r.prev} /></td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap hidden sm:table-cell" style={{ ...mono, color: T.muted }}>{fmtInt(r.n)}</td>
+                <td className="px-2 sm:px-3 py-2.5 text-right whitespace-nowrap" style={mono}>{fmtPct(r.value)}</td>
+                <td className="px-2 sm:px-3 py-2.5 text-right whitespace-nowrap"><PP c={r.value} p={r.prev} /></td>
                 <td className="px-2 py-2.5 text-center" style={{ color: T.muted }}>{hasUrls ? (isOpen ? '▾' : '▸') : ''}</td>
               </tr>,
               isOpen && <tr key={`${r.name}-urls`} style={{ borderBottom: `1px solid ${T.border}`, background: '#FAF9F6' }}>
-                <td />
+                <td className="hidden sm:table-cell" />
                 <td colSpan={5} className="px-3 pb-3 pt-1">
                   {urls.length === 0 ? <p className="text-[13px] py-1" style={{ color: T.faint }}>No page-level citations in this period.</p> : (
                     <ul className="flex flex-col">

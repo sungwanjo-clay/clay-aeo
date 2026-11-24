@@ -7,6 +7,7 @@ import {
   type AeoData, type AeoPlatform, type AeoPromptType, type GroupRow, type Kpis, type Ranked,
 } from '@/lib/plg/aeo/data'
 import { DomainsTable, Narratives, type NotesDb } from './Deep'
+import SectionBar from '../SectionBar'
 import { Card, Def, Eyebrow, H2, InfoTip, Pill, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
 
 const mono = { fontFamily: T.mono } as const
@@ -248,6 +249,16 @@ function SentimentChart({ rows }: { rows: { week: string; pos: number; neu: numb
   )
 }
 
+/** Compact select for the sticky bar on phones (three pill rows would cover the screen). */
+function MiniSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { id: string; label: string }[] }) {
+  return (
+    <select aria-label={label} value={value} onChange={e => onChange(e.target.value)} className="rounded-full px-2.5 py-1.5 text-[13px] min-w-0"
+      style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
+      {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  )
+}
+
 /** Fixed color per entity (by its overall rank across all data), so a filter never repaints a line. */
 function colorMap(names: string[]) { return Object.fromEntries(names.map((n, i) => [n, SERIES[i] ?? '#9A968E'])) }
 
@@ -292,13 +303,21 @@ export default function AeoView({ data, db }: { data: AeoData | null | undefined
 
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Segmented ariaLabel="Platform" value={platform} onChange={setPlatform} options={AEO_PLATFORMS.map(p => ({ id: p, label: PLATFORM_LABEL[p] }))} />
-        <Segmented ariaLabel="Prompt type" value={type} onChange={setType} options={TYPES} />
-        <Segmented ariaLabel="Period" value={period} onChange={setPeriod} options={PERIODS.map(p => ({ id: p.id, label: p.label }))} />
-        <span className="text-[14px]" style={{ color: T.muted, ...mono }}>{curLabel} vs {prevLabel}</span>
-      </div>
+      {/* Controls: stick under the page header while scrolling, like the other tabs' section bars. */}
+      <SectionBar label="AI visibility filters">
+        <div className="hidden md:flex flex-wrap items-center gap-2">
+          <Segmented ariaLabel="Platform" value={platform} onChange={setPlatform} options={AEO_PLATFORMS.map(p => ({ id: p, label: PLATFORM_LABEL[p] }))} />
+          <Segmented ariaLabel="Prompt type" value={type} onChange={setType} options={TYPES} />
+          <Segmented ariaLabel="Period" value={period} onChange={setPeriod} options={PERIODS.map(p => ({ id: p.id, label: p.label }))} />
+        </div>
+        <div className="flex md:hidden items-center gap-2">
+          <MiniSelect label="Platform" value={platform} onChange={v => setPlatform(v as AeoPlatform)} options={AEO_PLATFORMS.map(p => ({ id: p, label: p === 'all' ? 'All' : PLATFORM_LABEL[p] }))} />
+          <MiniSelect label="Prompt type" value={type} onChange={v => setType(v as AeoPromptType)} options={TYPES.map(t => ({ id: t.id, label: t.id === 'all' ? 'All prompts' : t.label }))} />
+          <MiniSelect label="Period" value={period} onChange={v => setPeriod(v as PeriodId)} options={PERIODS.map(p => ({ id: p.id, label: `${p.id} wks` }))} />
+        </div>
+        <span className="hidden sm:inline ml-auto text-[13px] whitespace-nowrap" title={`${curLabel} vs ${prevLabel}`} style={{ color: T.muted, ...mono }}>{curLabel}</span>
+      </SectionBar>
+      <p className="-mt-3 text-[13px]" style={{ color: T.muted, ...mono }}>{curLabel} vs {prevLabel}</p>
       {meta.sample && (
         <div className="rounded-2xl px-5 py-3 text-[14px] flex flex-wrap items-center gap-3" style={{ background: T.amberBg, color: T.amberInk }}>
           <Pill tone="amber">Sample data</Pill>
