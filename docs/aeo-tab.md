@@ -18,6 +18,18 @@ recommended-as-follow-up, sentiment, and visibility by PMM use case and by topic
 - Until `aeo/meta` exists the tab shows generated sample data (`lib/plg/aeo/sample.ts`), labelled "Sample data".
   A synced copy that fails `checkAeo` (missing slice, a count above its denominator) shows "not synced" instead.
 
+## Deeper sections
+
+- **Top cited domains** (`aeo_cache_domain_urls`): each kept domain's 15 most-cited pages per week (title and URL type in
+  `aeo/urlinfo`), so the drill-down follows the period and filters like everything else. Counts are answers citing the
+  page, not raw citations.
+- **Narrative intelligence** (`responses.themes`): counted as answers carrying a (theme, sentiment), one run day per week
+  (the earliest that week), with the 6 newest quotes each; top 40 themes per sentiment. Not
+  `get_sentiment_narratives_rpc`: it returns at most 1,000 rows (Negative only) and its `occurrence_count` is inflated
+  by a join (374,800 for one theme over 12 weeks of about 54,000 answers).
+- **Fix narrative** notes: `aeonotes/<theme id>` `{theme, sentiment, status, note, updatedAt}`, written from the page by
+  any signed-in viewer who can use it (rule `aeonotes` write `interact`).
+
 ## Definitions
 
 | Metric | Formula |
@@ -48,9 +60,9 @@ is retired.
 1. `git fetch origin claude/affectionate-noether-v0n9id && git checkout FETCH_HEAD`.
 2. `NODE_USE_ENV_PROXY=1 node scripts/sync-aeo.mjs W/aeo.json` (env `AEO_SUPABASE_URL`, `AEO_SUPABASE_KEY`; never print
    them). Exit 3 (a count above its denominator) or 2 (missing key, document too large): stop, write nothing, report.
-3. Split its `docs` into one JSON file per document. With `ArtifactData` on
-   https://claude.ai/artifact/R2pMQF57g3idB4EvtazAeC: `list` collection `aeo` for current versions, then one `batch` that
-   `set`s every `aeo/slice-*` (pinned with `if_version` when the document exists), then `set` `aeo/meta` last, pinned
-   the same way.
+3. Split its `docs` into one JSON file per document (29 documents: `slice-*`, `urls-*`, `narr-*`, `urlinfo`, `meta`).
+   With `ArtifactData` on https://claude.ai/artifact/R2pMQF57g3idB4EvtazAeC: `list` collection `aeo` for current
+   versions, then `batch` writes in the order the script lists them, each batch under 1 MB (about 4 `narr-*` documents
+   per batch), every entry pinned with `if_version` when the document exists, and `set` `aeo/meta` last on its own.
 4. Report one line: weeks covered, latest week, its Benchmark visibility and responses, and any warning the script
    printed.

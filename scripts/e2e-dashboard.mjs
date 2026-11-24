@@ -37,7 +37,7 @@ const TABS = {
   social: { hash: '#social', must: ['What moved'] },
   startup: { hash: '#startup', must: ['What moved', 'Funnel'] },
   portfolio: { hash: '#portfolio', must: [] },
-  aeo: { hash: '#aeo', must: ['Visibility by week', 'Most-mentioned brands', 'Citations by week', 'Most-cited domains', 'Claygent & MCP mentions', 'How answers describe Clay', 'By PMM use case', 'By topic'] },
+  aeo: { hash: '#aeo', must: ['Visibility by week', 'Most-mentioned brands', 'Citations by week', 'Top cited domains', 'Claygent & MCP mentions', 'How answers describe Clay', 'By PMM use case', 'By topic'] },
   insights: { hash: '#insights', must: ['videos to make next', 'New this week', 'Videos', 'What worked and what didn’t, by theme', 'Winners vs losers, side by side'] },
 }
 const PRESETS = quick ? ['last7', 'last28'] : ['last7', 'last28', 'last90', 'qtd', 'ytd']
@@ -57,7 +57,8 @@ async function visit(docs, hash, qs, wait = 4500) {
   await page.addInitScript(([d, q]) => {
     try { if (q) localStorage.setItem('plg-filters', q) } catch { /* storage blocked */ }
     const snap = k => (d && d[k] ? { exists: true, data: () => d[k] } : { exists: false, data: () => undefined })
-    window.claude = { use: async n => (n === 'db' ? (d ? { doc: k => ({ get: async () => snap(k), set: async () => { throw new Error('read-only viewer') } }) } : null) : null) }
+    window.claude = { use: async n => (n === 'db' ? (d ? { doc: k => ({ get: async () => snap(k), set: async () => { throw new Error('read-only viewer') } }),
+      collection: c => ({ get: async () => { const docs = Object.keys(d).filter(k => k.startsWith(c + '/')).map(k => ({ id: k.slice(c.length + 1), exists: true, data: () => d[k] })); return { docs, size: docs.length, empty: !docs.length } } }) } : null) : null) }
   }, [docs, qs])
   await page.goto(`file://${html}${hash}`)
   await page.waitForTimeout(wait)

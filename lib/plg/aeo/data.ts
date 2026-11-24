@@ -45,8 +45,35 @@ export type AeoMeta = {
   domType: Record<string, string>  // domain → its most common citation type
   clayDomains: string[]            // domains that count as Clay's own (clay.com, university.clay.com, …)
   slices: string[]                 // slice ids present
+  urls?: boolean                   // aeo/urls-<slice> + aeo/urlinfo synced
+  narratives?: boolean             // aeo/narr-<slice> synced
 }
-export type AeoData = { meta: AeoMeta; slices: Record<string, AeoSlice> }
+/** db `aeo/urls-<slice>`: cited URL → responses citing it per week, under each kept domain. */
+export type AeoUrls = Record<string, Record<string, number[]>>
+/** db `aeo/narr-<slice>`: (sentiment|theme) → answers per week (one run per week) and the newest snippets. */
+export type Sentiment = 'Negative' | 'Neutral' | 'Positive'
+export type Snippet = { t: string; p: string; tp: string; d: string }
+export type NarrTheme = { name: string; s: Sentiment; n: number[]; snip: Snippet[] }
+export type AeoData = {
+  meta: AeoMeta; slices: Record<string, AeoSlice>
+  urls?: Record<string, AeoUrls>; urlInfo?: Record<string, [string, string]>   // url → [title, url type]
+  narr?: Record<string, Record<string, NarrTheme>>
+}
+
+/** A domain's URLs over a range, most-cited first. */
+export function domainUrls(d: AeoData, slice: string, domain: string, r: Range) {
+  const m = d.urls?.[slice]?.[domain] ?? {}
+  return Object.entries(m).map(([url, a]) => ({ url, n: sum(a, r), title: d.urlInfo?.[url]?.[0] ?? '', type: d.urlInfo?.[url]?.[1] ?? '' }))
+    .filter(x => x.n > 0).sort((a, b) => b.n - a.n)
+}
+
+export type NarrRow = { key: string; name: string; s: Sentiment; n: number; prev: number | null; snip: Snippet[] }
+const SENT_ORDER: Record<Sentiment, number> = { Negative: 0, Neutral: 1, Positive: 2 }
+/** Themes over a range: Negative first, then Neutral, Positive; most answers first within each. */
+export function narratives(d: AeoData, slice: string, cur: Range, prev: Range | null): NarrRow[] {
+  return Object.entries(d.narr?.[slice] ?? {}).map(([key, v]) => ({ key, name: v.name, s: v.s, n: sum(v.n, cur), prev: prev ? sum(v.n, prev) : null, snip: v.snip }))
+    .filter(r => r.n > 0).sort((a, b) => SENT_ORDER[a.s] - SENT_ORDER[b.s] || b.n - a.n)
+}
 
 /** PMM use cases hidden everywhere (noise). */
 export const HIDDEN_PMM = new Set(['Event Campaigns'])

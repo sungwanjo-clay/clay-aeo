@@ -6,6 +6,7 @@ import {
   AEO_PLATFORMS, HIDDEN_PMM, W, competitorBoard, domainBoard, groupTable, kpis, ranges, shareSeries, sliceId, weekly,
   type AeoData, type AeoPlatform, type AeoPromptType, type GroupRow, type Kpis, type Ranked,
 } from '@/lib/plg/aeo/data'
+import { DomainsTable, Narratives, type NotesDb } from './Deep'
 import { Card, Def, Eyebrow, H2, InfoTip, Pill, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPctSigned, fmtPp } from '../ui'
 
 const mono = { fontFamily: T.mono } as const
@@ -250,7 +251,7 @@ function SentimentChart({ rows }: { rows: { week: string; pos: number; neu: numb
 /** Fixed color per entity (by its overall rank across all data), so a filter never repaints a line. */
 function colorMap(names: string[]) { return Object.fromEntries(names.map((n, i) => [n, SERIES[i] ?? '#9A968E'])) }
 
-export default function AeoView({ data }: { data: AeoData | null | undefined }) {
+export default function AeoView({ data, db }: { data: AeoData | null | undefined; db?: NotesDb }) {
   const [platform, setPlatform] = useState<AeoPlatform>('all')
   const [type, setType] = useState<AeoPromptType>('Benchmark')
   const [period, setPeriod] = useState<PeriodId>('13')
@@ -332,24 +333,16 @@ export default function AeoView({ data }: { data: AeoData | null | undefined }) 
       </div>
 
       {/* Citations */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-6">
-        <Card className="p-5 sm:p-6 flex flex-col gap-4 min-w-0">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2"><H2>Citations by week</H2>
-              <InfoTip label="About citation share"><Def d="Of answers that cite any source, the share citing each domain. Clay's line counts any Clay-owned domain." note="An answer can cite several domains, so shares add up to more than 100%." /></InfoTip></div>
-            <p className="text-[15px]" style={{ color: T.muted }}>Clay vs the five most-cited other domains</p>
-          </div>
-          <LegendRow items={[{ name: 'Clay', color: CLAY, clay: true }, ...topDom.map(d => ({ name: d, color: domColors[d] }))]} />
-          <ShareChart rows={citRows} names={topDom} colors={domColors} />
-        </Card>
-        <Card className="p-5 sm:p-6 flex flex-col gap-4 min-w-0">
-          <div className="flex flex-col gap-1">
-            <H2>Most-cited domains</H2>
-            <p className="text-[15px]" style={{ color: T.muted }}>Share of answers with citations that cite each domain</p>
-          </div>
-          <Board rows={doms} colors={domColors} what="domain" />
-        </Card>
-      </div>
+      <Card className="p-5 sm:p-6 flex flex-col gap-4 min-w-0">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2"><H2>Citations by week</H2>
+            <InfoTip label="About citation share"><Def d="Of answers that cite any source, the share citing each domain. Clay's line counts any Clay-owned domain." note="An answer can cite several domains, so shares add up to more than 100%." /></InfoTip></div>
+          <p className="text-[15px]" style={{ color: T.muted }}>Clay vs the five most-cited other domains</p>
+        </div>
+        <LegendRow items={[{ name: 'Clay', color: CLAY, clay: true }, ...topDom.map(d => ({ name: d, color: domColors[d] }))]} />
+        <ShareChart rows={citRows} names={topDom} colors={domColors} />
+      </Card>
+      <DomainsTable data={data} slice={sliceId(platform, type)} rows={doms} cur={cur} />
 
       {/* Agent mentions and follow-ups */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -380,6 +373,7 @@ export default function AeoView({ data }: { data: AeoData | null | undefined }) 
         <LegendRow items={[{ name: 'Positive', color: SENT.pos }, { name: 'Neutral', color: SENT.neu }, { name: 'Negative', color: SENT.neg }]} />
         <SentimentChart rows={sent} />
       </Card>
+      <Narratives data={data} slice={sliceId(platform, type)} cur={cur} prev={prev} mentioned={k.mentioned} db={db ?? null} />
 
       {/* Use cases and topics */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

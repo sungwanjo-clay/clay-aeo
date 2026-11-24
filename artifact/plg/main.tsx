@@ -226,7 +226,14 @@ function App() {
         if (!snap?.exists) { setAeo(sampleAeo()); return }
         const meta = snap.data() as AeoMeta
         const parts = await Promise.all(meta.slices.map(id => d.doc(`aeo/slice-${id}`).get().then((x: any) => [id, x?.exists ? x.data() : null] as const).catch(() => [id, null] as const)))
-        const out: AeoData = { meta, slices: Object.fromEntries(parts.filter(([, v]) => v)) as AeoData['slices'] }
+        const get = (k: string) => d.doc(k).get().then((x: any) => (x?.exists ? x.data() : null)).catch(() => null)
+        const [urlParts, narrParts, info] = await Promise.all([
+          meta.urls ? Promise.all(meta.slices.map(async id => [id, (await get(`aeo/urls-${id}`))?.u ?? null] as const)) : [],
+          meta.narratives ? Promise.all(meta.slices.map(async id => [id, (await get(`aeo/narr-${id}`))?.t ?? null] as const)) : [],
+          meta.urls ? get('aeo/urlinfo') : null,
+        ])
+        const out: AeoData = { meta, slices: Object.fromEntries(parts.filter(([, v]) => v)) as AeoData['slices'],
+          urls: Object.fromEntries(urlParts.filter(([, v]) => v)), narr: Object.fromEntries(narrParts.filter(([, v]) => v)), urlInfo: info?.i ?? {} }
         setAeo(checkAeo(out) ? null : out)
       }).catch(() => setAeo(sampleAeo()))
       d.doc('portfolio/meta').get().then(async (snap: any) => {
@@ -686,7 +693,7 @@ function App() {
       cro={croPane}
       health={health}
       tab={route.tab}
-      aeo={route.tab === 'aeo' ? <AeoView data={aeo} /> : null}
+      aeo={route.tab === 'aeo' ? <AeoView data={aeo} db={db} /> : null}
       startup={startupPane}
       portfolio={route.tab === 'portfolio' ? <PortfolioView data={portfolio}
         onExport={downloads ? async (filename, csv) => { await downloads.save({ filename, data: new Blob([csv], { type: 'text/csv' }) }) } : undefined} /> : null}
