@@ -28,7 +28,7 @@ export function briefMarkdown(r: Rec, d: CreatorsData): string {
   if (r.ours.length) for (const v of r.ours) L.push(`- “${v.title}”, ${v.creator} (${v.placement}): ${n(v.views)} views, ${n(v.m.ws)} new workspaces, ${n(v.m.t13)} Tier 1–3, ${v.perK == null ? 'shared link' : `${r1(v.perK)} per 1K views`}, result: ${v.result}`)
   else L.push('- None yet: this idea is also a test of whether the theme converts.')
   L.push('', '## The brief', '')
-  const rows: [string, string | null][] = [['Title', b.title], ['Use case to show', b.useCase], ['Related resources', b.resources.map(x => (x.url ? `${x.label} (${x.url})` : x.label)).join('; ')], ['Offer', b.offer], ['CTA', b.cta], ['UTMs', utmQuery(utmName(r.title))], ['Thumbnail', b.thumbnail], ['Structure', b.structure], ['Angle', r.angle]]
+  const rows: [string, string | null][] = [['Title', b.title], ['Use case to show', b.useCase], ['Related resources', b.resources.map(x => (x.url ? `${x.label} (${x.url})` : x.label)).join('; ')], ['Offer', b.offer], ['CTA', b.cta], ['Proposed UTMs', utmQuery(utmName(r.title))], ['Thumbnail', b.thumbnail], ['Structure', b.structure], ['Angle', r.angle]]
   for (const [k, v] of rows) if (v) L.push(`- **${k}:** ${v}`)
   L.push('', '## Why each decision', '')
   for (const x of r.reasons) L.push(`- **${x.label}** (${x.src === 'review' ? 'weekly review' : x.src === 'default' ? 'theme default' : 'from the data'}): ${x.why}`)

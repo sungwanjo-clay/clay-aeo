@@ -248,7 +248,7 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
   const [utmCopied, setUtmCopied] = useState(false)
   const rows: [string, React.ReactNode][] = [
     ['Title', <b key="t">{b.title}</b>], ['Use case', b.useCase], ['Offer', b.offer], ['CTA', b.cta],
-    ['UTMs', <span key="u" className="flex flex-wrap items-center gap-2"><code className="break-all text-[13px]" style={mono}>{utm}</code>
+    ['Proposed UTMs', <span key="u" className="flex flex-wrap items-center gap-2"><code className="break-all text-[13px]" style={mono}>{utm}</code>
       <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(utm); setUtmCopied(true) } catch { /* select instead */ } }}
         className="rounded-full px-3 py-1 text-[12px] font-medium whitespace-nowrap" style={{ border: `1px solid ${T.border}`, background: '#fff' }}>{utmCopied ? 'Copied' : 'Copy'}</button></span>],
     ...(b.thumbnail ? [['Thumbnail', b.thumbnail] as [string, React.ReactNode]] : []), ...(b.structure ? [['Structure', b.structure] as [string, React.ReactNode]] : []),
