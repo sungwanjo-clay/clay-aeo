@@ -1,0 +1,16 @@
+{
+  "about": "Settings for the portfolio routine (scripts/portfolio-run.py, docs/portfolio-routine.md). Costs are per item, measured on the Nov 19-20 runs; the runner stops before a group that the personal credit balance can't cover.",
+  "routines": {
+    "discover": { "id": "workflow:wf_0torcquSMPmUpqZUVsM", "group": 3, "cost": 400, "inputs": { "max_verify": 300, "lookback_months": 12 } },
+    "refresh": { "id": "workflow:wf_0torm87ruzTzETUGfjw", "group": 10, "cost": 6, "inputs": {} },
+    "publish": { "id": "workflow:wf_0torfb0HFxNBwqHMaT4", "group": 1, "cost": 3, "inputs": {} }
+  },
+  "hold": {
+    "about": "Listed firms the routine skips until a decision: non-investor partners (customer lists, not portfolios).",
+    "firms": ["Amplitude", "Boardy", "Jp Morgan", "Mercury", "SVB"]
+  },
+  "reserve": 500,
+  "rollingWeeks": 4,
+  "pollSeconds": 30,
+  "maxWaitMinutes": 240
+}
