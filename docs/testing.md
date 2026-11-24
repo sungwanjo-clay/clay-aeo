@@ -34,9 +34,9 @@ The weekly niche scan (docs/niche-scan.md) adds `youtube/scan` and `youtube/scan
   title, topic, median views vs channel, our signups where we've made it, trend. A row expands in place: the niche
   copies (views vs their channel's median, no Clay link), our creators on the topic (workspaces), the brief (title, use
   case, offer, CTA, up to 3 related resources), how it's been sold (the topic's winners vs losers by trait), and why each
-  decision; a tracked link (one of the resources with the UTMs the /campaign-create workflow builds for an Internal -
-  Influencer YouTube campaign, lib/plg/creators/utm.ts, plus a campaign brief to paste into the skill); and a Markdown
-  brief to download or copy for an agent (lib/plg/creators/brief.ts). An idea has its own
+  decision. The brief's UTMs line is the query to paste after a page's slug, named the way /campaign-create names an
+  Internal - Influencer YouTube campaign (lib/plg/creators/utm.ts). A Markdown brief downloads or copies for an agent
+  (lib/plg/creators/brief.ts). An idea has its own
   link, `#insights-idea=<theme:subject>`, which opens it expanded. Video rows open a side panel with the video's details.
 - **New this week** (a table, signups only where the video is ours), **Videos**, **Themes** and **Winners vs losers**
   (our factors, reach vs signups, the niche's traits by lift and title formats) follow. Rows open the same panel.
