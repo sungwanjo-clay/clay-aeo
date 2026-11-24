@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { ATTRIBUTION, REC, RESULT, r1, type CreatorsData, type Rec, type Result, type VideoRow } from '@/lib/plg/creators/compute'
 import { briefMarkdown } from '@/lib/plg/creators/brief'
+import { UTM, UTM_NOTE, campaignBrief, trackedUrl, tracksUtm, utmName } from '@/lib/plg/creators/utm'
 import { SCAN, type SV, type ScanDoc, type Sep } from '@/lib/plg/creators/scan'
 import { assistantLabel, clayFit, formatLabel, themeLabel, type FormatId, type ThemeId } from '@/lib/plg/creators/themes'
 import SectionBar, { Chip } from '../SectionBar'
@@ -287,6 +288,8 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
       </dl></Card>
     </div>
 
+    <TrackedLink r={r} />
+
     {/* 4. How it's been sold: the topic's winners vs losers, condensed */}
     {r.seps.length > 0 && <div className="flex flex-col gap-2">
       <H2>How it’s been sold</H2>
@@ -311,6 +314,54 @@ function IdeaDetail({ r, d, thumbs, open, onDownload }: { r: Rec; d: CreatorsDat
         </li>))}</ul>
     </div>
   </>
+}
+
+/**
+ * The tracked link to paste into the video's description: a related resource with the UTMs the campaign workflow
+ * builds (lib/plg/creators/utm.ts), and the brief to create its campaign with /campaign-create, without which the
+ * link isn't credited.
+ */
+function TrackedLink({ r }: { r: Rec }) {
+  const targets = r.brief.resources.filter((x): x is { label: string; url: string } => !!x.url)
+  const [person, setPerson] = useState('')
+  const [ti, setTi] = useState(() => Math.max(0, targets.findIndex(x => tracksUtm(x.url))))
+  const [name, setName] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  if (!targets.length) return null
+  const t = targets[Math.min(ti, targets.length - 1)]
+  const key = name ?? utmName(r.title, person)
+  const url = trackedUrl(t.url, key)
+  const copy = async (what: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(what) } catch { setCopied('failed') } }
+  const field = 'rounded-lg px-3 py-2 text-[14px] w-full'
+  return (
+    <div className="flex flex-col gap-3">
+      <H2>Tracked link</H2>
+      <p className="text-[13px] max-w-[860px]" style={{ color: T.muted }}>Built the way the campaign workflow builds it ({UTM.campaignType}, tactic {UTM.tactic}): utm_campaign is <code>short offer_video_youtube_creator</code>. It is credited only once a campaign with this utm name exists, so create it with <b>/campaign-create</b> before the video goes live.</p>
+      <Card className="p-5 flex flex-col gap-4">
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+          <label className="flex flex-col gap-1 text-[13px]" style={{ color: T.muted }}>Links to
+            <select value={ti} onChange={e => setTi(Number(e.target.value))} className={field} style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
+              {targets.map((x, i) => <option key={x.url} value={i}>{x.label}</option>)}
+            </select></label>
+          <label className="flex flex-col gap-1 text-[13px]" style={{ color: T.muted }}>Creator’s first name (optional)
+            <input value={person} onChange={e => { setPerson(e.target.value); setName(null) }} placeholder="e.g. jordan" className={field} style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }} /></label>
+          <label className="flex flex-col gap-1 text-[13px]" style={{ color: T.muted }}>utm campaign name
+            <input value={key} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]+/g, '_'))} className={field} style={{ ...mono, border: `1px solid ${T.border}`, background: '#fff', color: T.ink }} /></label>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <code className="flex-1 min-w-0 break-all rounded-lg px-3 py-2 text-[13px]" style={{ ...mono, background: T.tile }}>{url}</code>
+          <button type="button" onClick={() => copy('link', url)} className="rounded-full px-4 py-2 text-[13px] font-medium whitespace-nowrap" style={{ background: T.ink, color: '#fff' }}>{copied === 'link' ? 'Copied' : 'Copy link'}</button>
+        </div>
+        {!tracksUtm(t.url) && <p className="text-[13px] rounded-lg px-3 py-2" style={{ background: T.amberBg, color: T.amberInk }}>{UTM_NOTE}</p>}
+        <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: T.muted }}>
+          <button type="button" onClick={() => copy('brief', campaignBrief({ title: r.title, destination: t.url, key, person: person || null, useCase: r.brief.useCase, offer: r.brief.offer }))}
+            className="rounded-full px-4 py-2 font-medium" style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>{copied === 'brief' ? 'Copied' : 'Copy campaign brief for /campaign-create'}</button>
+          <span>Paste it into /campaign-create; it still asks for the parent, start date, audience, segment and region, and shows a preview before anything is written.</span>
+          {copied === 'failed' && <span style={{ color: T.neg }}>Copy failed: select the text instead.</span>}
+        </div>
+      </Card>
+    </div>
+  )
 }
 
 function NicheRow({ v, s, thumbs, open }: { v: SV; s: ScanDoc; thumbs: Record<string, string>; open: Open }) {

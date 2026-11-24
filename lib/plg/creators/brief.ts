@@ -6,6 +6,7 @@
 import type { CreatorsData, Rec } from './compute'
 import { r1 } from './compute'
 import { formatLabel, themeLabel } from './themes'
+import { UTM, UTM_NOTE, trackedUrl, tracksUtm, utmName } from './utm'
 
 const n = (x: number | null | undefined) => (x == null ? '–' : Math.round(x).toLocaleString('en-US'))
 const yt = (id: string) => `https://www.youtube.com/watch?v=${id}`
@@ -27,8 +28,16 @@ export function briefMarkdown(r: Rec, d: CreatorsData): string {
   if (r.ours.length) for (const v of r.ours) L.push(`- “${v.title}”, ${v.creator} (${v.placement}): ${n(v.views)} views, ${n(v.m.ws)} new workspaces, ${n(v.m.t13)} Tier 1–3, ${v.perK == null ? 'shared link' : `${r1(v.perK)} per 1K views`}, result: ${v.result}`)
   else L.push('- None yet: this idea is also a test of whether the theme converts.')
   L.push('', '## The brief', '')
-  const rows: [string, string | null][] = [['Title', b.title], ['Use case to show', b.useCase], ['Landing page', b.landingUrl ? `${b.landing} (${b.landingUrl})` : b.landing], ['Offer', b.offer], ['CTA', b.cta], ['Description copy', b.copy], ['Placement', b.placement], ['Thumbnail', b.thumbnail], ['Structure', b.structure], ['Angle', r.angle]]
+  const rows: [string, string | null][] = [['Title', b.title], ['Use case to show', b.useCase], ['Related resources', b.resources.map(x => (x.url ? `${x.label} (${x.url})` : x.label)).join('; ')], ['Offer', b.offer], ['CTA', b.cta], ['Thumbnail', b.thumbnail], ['Structure', b.structure], ['Angle', r.angle]]
   for (const [k, v] of rows) if (v) L.push(`- **${k}:** ${v}`)
+  const tgt = b.resources.find(x => x.url && tracksUtm(x.url)) ?? b.resources.find(x => x.url)
+  if (tgt?.url) {
+    const key = utmName(r.title)
+    L.push('', '## Tracked link', '', `${UTM.campaignType}, tactic ${UTM.tactic}. Add the creator's first name to the end of the utm name (\`${key}_<name>\`) and use the same name in the link and the campaign.`, '',
+      `- **Link:** ${trackedUrl(tgt.url, key)}`, `- **utm campaign name:** ${key}`,
+      '- **Campaign:** the link is credited only once a campaign with this utm name exists. Create it with /campaign-create before the video goes live.')
+    if (!tracksUtm(tgt.url)) L.push(`- **Note:** ${UTM_NOTE}`)
+  }
   L.push('', '## Why each decision', '')
   for (const x of r.reasons) L.push(`- **${x.label}** (${x.src === 'review' ? 'weekly review' : x.src === 'default' ? 'theme default' : 'from the data'}): ${x.why}`)
   L.push('', '## Evidence summary', '', ...r.why.map(w => `- ${w}`))
