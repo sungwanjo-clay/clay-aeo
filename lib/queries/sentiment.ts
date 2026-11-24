@@ -99,7 +99,12 @@ export async function getSentimentTimeseries(
   sb: SupabaseClient,
   f: FilterParams
 ): Promise<{ date: string; positive: number; neutral: number; negative: number }[]> {
-  const { data, error } = await sb.rpc('get_sentiment_timeseries_rpc', sentimentRpcParams(f))
+  // granularity is specific to time-bucketed RPCs — add it here, not to the
+  // shared sentimentRpcParams (other RPCs would reject the extra arg).
+  const { data, error } = await sb.rpc('get_sentiment_timeseries_rpc', {
+    ...sentimentRpcParams(f),
+    p_granularity: f.granularity || 'daily',
+  })
   if (error) console.error('[getSentimentTimeseries] RPC error:', error)
   return (data ?? []).map((r: any) => ({
     date:     String(r.date),

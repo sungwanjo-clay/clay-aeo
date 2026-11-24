@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import type { FilterParams } from '@/lib/queries/types'
+import type { FilterParams, Granularity } from '@/lib/queries/types'
 import { supabase } from '@/lib/supabase/client'
 import { getMaxCachedDate, getLastRunDate } from '@/lib/queries/visibility'
 
@@ -14,6 +14,10 @@ export interface GlobalFilters {
   platform: string    // 'all' | 'Claude' | 'ChatGPT'
   topics: string[]
   brandedFilter: 'all' | 'branded' | 'non-branded'
+  // Bucket size for timeseries charts. Since the ingest job runs weekly and
+  // straddles UTC midnight, daily points come in pairs; 'weekly' collapses
+  // each pair into one weighted average.
+  granularity: Granularity
 }
 
 interface GlobalFiltersContextValue {
@@ -92,6 +96,11 @@ function defaultFilters(storedCacheDate: string | null = null): GlobalFilters {
     platform: 'all',
     topics: [],
     brandedFilter: 'all',
+    // Default to weekly: as of 2026-10-31 the ingest job runs weekly and
+    // each batch straddles UTC midnight, so daily points come in pairs
+    // (ChatGPT-heavy day then Claude+Branded-heavy day). Weekly roll-up
+    // gives one point per batch at the correct weighted average.
+    granularity: 'weekly',
   }
 }
 
@@ -195,6 +204,7 @@ export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
       platforms: filters.platform === 'all' ? [] : [filters.platform],
       topics: filters.topics,
       brandedFilter: filters.brandedFilter,
+      granularity: filters.granularity,
     }
   }
 

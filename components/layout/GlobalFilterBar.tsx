@@ -164,6 +164,31 @@ export default function GlobalFilterBar() {
         {/* Divider */}
         <div className="w-px h-5 mx-1" style={{ background: 'var(--clay-border-dashed)' }} />
 
+        {/* Granularity (Daily / Weekly) */}
+        <div className="flex items-center gap-0.5" role="group" aria-label="Chart bucket size"
+             style={{ border: '1px solid var(--clay-border-dashed)', borderRadius: '8px', padding: '2px' }}>
+          {(['daily','weekly'] as const).map(g => {
+            const active = filters.granularity === g
+            return (
+              <button
+                key={g}
+                onClick={() => setFilters({ granularity: g })}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded transition-colors"
+                style={{
+                  background: active ? 'var(--clay-black)' : 'transparent',
+                  color: active ? 'white' : 'rgba(26,25,21,0.55)',
+                }}
+                aria-pressed={active}
+              >
+                {g === 'daily' ? 'Daily' : 'Weekly'}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-5 mx-1" style={{ background: 'var(--clay-border-dashed)' }} />
+
         {/* Platform */}
         <FilterSelect
           label="Platform"

@@ -13,8 +13,8 @@ import type { AnomalyRow, CompetitorRow } from '@/lib/queries/types'
 import AnomalyAlert from '@/components/cards/AnomalyAlert'
 import KpiCard from '@/components/cards/KpiCard'
 import { SkeletonCard, SkeletonChart } from '@/components/shared/Skeleton'
-import { formatDate, formatShortDate } from '@/lib/utils/formatters'
-import { generateDateRange } from '@/lib/utils/dateRange'
+import { formatDate, formatShortDate, formatWeekLabel } from '@/lib/utils/formatters'
+import { generateBucketRange } from '@/lib/utils/dateRange'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { Info } from 'lucide-react'
@@ -37,6 +37,7 @@ export default function HomePage() {
     filters.brandedFilter,
     filters.tags,
     filters.topics.join(','),
+    filters.granularity,
   ])
 
   // ── Tier 1: KPI cards (fast RPCs, renders first) ─────────
@@ -172,8 +173,10 @@ export default function HomePage() {
   const visCompLookup = new Map(competitorVisTimeseries.map(r => [`${r.date}|||${r.competitor}`, r.value]))
 
   // Span the full filter date range — dates without data simply omit the key,
-  // which Recharts renders as a gap rather than a flat zero.
-  const visChartDates = generateDateRange(f.startDate.split('T')[0], f.endDate.split('T')[0])
+  // which Recharts renders as a gap rather than a flat zero. When granularity
+  // is weekly, buckets are Monday-start weeks so x-axis labels line up with
+  // what the timeseries RPCs return.
+  const visChartDates = generateBucketRange(f.startDate.split('T')[0], f.endDate.split('T')[0], f.granularity)
   const visChartData = visChartDates.map(date => {
     const row: Record<string, string | number> = { date }
     if (sparkLookup.has(date)) row['Clay'] = sparkLookup.get(date)!
@@ -311,7 +314,7 @@ export default function HomePage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={formatShortDate}
+                  tickFormatter={filters.granularity === 'weekly' ? formatWeekLabel : formatShortDate}
                   tick={{ fontSize: 10, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
                   tickLine={false}
                   axisLine={false}
@@ -328,7 +331,7 @@ export default function HomePage() {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  labelFormatter={(l: any) => formatShortDate(String(l))}
+                  labelFormatter={(l: any) => filters.granularity === 'weekly' ? formatWeekLabel(String(l)) : formatShortDate(String(l))}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}
                 />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
@@ -394,7 +397,7 @@ export default function HomePage() {
       <div>
         <h2 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'rgba(26,25,21,0.45)' }}>Citations</h2>
         {loadingCitation ? <div className="space-y-4"><SkeletonChart /><SkeletonChart /></div> : (
-          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} />
+          <CitationSection timeseries={citationTimeseries} domains={citedDomains} competitorTimeseries={competitorCitTimeseries} citationRateKPI={citationRate?.current ?? null} startDate={f.startDate.split('T')[0]} endDate={f.endDate.split('T')[0]} granularity={f.granularity} />
         )}
       </div>
 
@@ -415,6 +418,7 @@ export default function HomePage() {
             followupData={followupTimeseries}
             startDate={f.startDate.split('T')[0]}
             endDate={f.endDate.split('T')[0]}
+            granularity={f.granularity}
           />
         )}
       </div>

@@ -2,11 +2,12 @@
 
 import React, { useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { formatShortDate } from '@/lib/utils/formatters'
+import { formatShortDate, formatWeekLabel } from '@/lib/utils/formatters'
 import { ChevronDown, ChevronRight, ExternalLink, Info } from 'lucide-react'
 import { getCitationTypeColor } from '@/lib/utils/colors'
 import DomainIcon from '@/components/shared/DomainIcon'
-import { generateDateRange } from '@/lib/utils/dateRange'
+import { generateBucketRange } from '@/lib/utils/dateRange'
+import type { Granularity } from '@/lib/queries/types'
 
 interface CitationTimepoint { date: string; value: number }
 interface DomainRow {
@@ -25,6 +26,7 @@ interface Props {
   citationRateKPI?: number | null
   startDate: string
   endDate: string
+  granularity: Granularity
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -57,6 +59,7 @@ function buildChartData(
   _clayKPI: number | null | undefined,
   startDate: string,
   endDate: string,
+  granularity: Granularity,
 ) {
   const clayRows = competitorTs.filter(r => r.domain.includes('clay'))
   const compRows = competitorTs.filter(r => !r.domain.includes('clay'))
@@ -65,7 +68,7 @@ function buildChartData(
   for (const r of compRows) compTotals.set(r.domain, (compTotals.get(r.domain) ?? 0) + r.value)
   const topDomains = [...compTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d)
 
-  const allDates = generateDateRange(startDate, endDate)
+  const allDates = generateBucketRange(startDate, endDate, granularity)
 
   // Clay: prefer competitorTs (same formula), fall back to overall timeseries
   const clayLookup = clayRows.length > 0
@@ -137,13 +140,13 @@ function TopCitedSidebar({ domains }: {
   )
 }
 
-export default function CitationSection({ timeseries, domains, competitorTimeseries = [], citationRateKPI, startDate, endDate }: Props) {
+export default function CitationSection({ timeseries, domains, competitorTimeseries = [], citationRateKPI, startDate, endDate, granularity }: Props) {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [showCompetitors, setShowCompetitors] = useState(true)   // default ON
   const [search, setSearch] = useState('')
 
-  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries, citationRateKPI, startDate, endDate)
+  const { competitorDomains, data: chartData } = buildChartData(timeseries, competitorTimeseries, citationRateKPI, startDate, endDate, granularity)
 
   // Dynamic Y-axis max
   const allVals = chartData.flatMap(r => Object.entries(r).filter(([k]) => k !== 'date').map(([, v]) => Number(v)))
@@ -183,7 +186,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
             <ResponsiveContainer width="100%" height={showCompetitors ? 200 : 160}>
               <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" />
-                <XAxis dataKey="date" tickFormatter={formatShortDate}
+                <XAxis dataKey="date" tickFormatter={granularity === 'weekly' ? formatWeekLabel : formatShortDate}
                   tick={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
                   tickLine={false} axisLine={false} />
                 <YAxis tickFormatter={v => `${Number(v).toFixed(0)}%`}
@@ -193,7 +196,7 @@ export default function CitationSection({ timeseries, domains, competitorTimeser
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(val: any, name: any) => [`${Number(val).toFixed(1)}%`, name]}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  labelFormatter={(l: any) => formatShortDate(String(l))}
+                  labelFormatter={(l: any) => granularity === 'weekly' ? formatWeekLabel(String(l)) : formatShortDate(String(l))}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   itemSorter={(item: any) => -(item.value as number)}
                   contentStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans', border: '1px solid var(--clay-border-dashed)', borderRadius: '8px' }}

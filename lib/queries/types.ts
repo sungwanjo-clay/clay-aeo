@@ -5,6 +5,8 @@
  */
 export const HIDDEN_PMM_USE_CASES = new Set<string>(['Event Campaigns'])
 
+export type Granularity = 'daily' | 'weekly'
+
 export interface FilterParams {
   promptType: string // 'benchmark' | 'campaign' | 'all'
   tags: string       // specific tag or 'all'
@@ -15,6 +17,11 @@ export interface FilterParams {
   platforms: string[]  // [] means all platforms
   topics: string[]
   brandedFilter: string // 'all' | 'branded' | 'non-branded'
+  // Bucket size for timeseries charts. 'weekly' groups run_day by
+  // date_trunc('week', ...) (Monday-start ISO week) and reports a weighted
+  // average across the bucket — collapses the Clay job's midnight-crossing
+  // two-day split into one point per week.
+  granularity: Granularity
 }
 
 export interface KpiMetrics {

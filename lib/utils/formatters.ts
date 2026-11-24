@@ -40,6 +40,17 @@ export function formatShortDate(date: string | Date | null | undefined): string 
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/**
+ * Format a bucket-start date for charts whose granularity is weekly.
+ * The RPCs return the Monday of the ISO week as the bucket date, so
+ * showing "Wk of Nov 2" is the correct semantics.
+ */
+export function formatWeekLabel(date: string | Date | null | undefined): string {
+  if (!date) return '—'
+  const d = parseDateLocal(date)
+  return `Wk of ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+}
+
 export function formatDelta(delta: number | null | undefined): { text: string; positive: boolean } {
   if (delta == null) return { text: '—', positive: true }
   const sign = delta >= 0 ? '↑' : '↓'

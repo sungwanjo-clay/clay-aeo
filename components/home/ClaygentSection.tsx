@@ -1,14 +1,16 @@
 'use client'
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { formatShortDate } from '@/lib/utils/formatters'
-import { generateDateRange } from '@/lib/utils/dateRange'
+import { formatShortDate, formatWeekLabel } from '@/lib/utils/formatters'
+import { generateBucketRange } from '@/lib/utils/dateRange'
+import type { Granularity } from '@/lib/queries/types'
 
 interface Props {
   claygentData: { date: string; count: number }[]
   followupData: { date: string; count: number }[]
   startDate: string
   endDate: string
+  granularity: Granularity
 }
 
 const cardStyle = { background: '#FFFFFF', border: '1px solid var(--clay-border)', borderRadius: '8px' }
@@ -21,6 +23,7 @@ function CountChart({
   color,
   startDate,
   endDate,
+  granularity,
 }: {
   data: { date: string; count: number }[]
   title: string
@@ -28,12 +31,13 @@ function CountChart({
   color: string
   startDate: string
   endDate: string
+  granularity: Granularity
 }) {
   const total = data.reduce((s, d) => s + d.count, 0)
 
   // Build full-range chart data — dates without data omit the key (renders as gap)
   const dataLookup = new Map(data.map(r => [r.date, r.count]))
-  const allDates = generateDateRange(startDate, endDate)
+  const allDates = generateBucketRange(startDate, endDate, granularity)
   const chartData = allDates.map(date => {
     const row: Record<string, string | number> = { date }
     if (dataLookup.has(date)) row['count'] = dataLookup.get(date)!
@@ -60,7 +64,7 @@ function CountChart({
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,25,21,0.06)" vertical={false} />
             <XAxis
               dataKey="date"
-              tickFormatter={formatShortDate}
+              tickFormatter={granularity === 'weekly' ? formatWeekLabel : formatShortDate}
               tick={{ fontSize: 10, fontFamily: 'Plus Jakarta Sans', fill: 'rgba(26,25,21,0.4)' }}
               tickLine={false}
               axisLine={false}
@@ -76,7 +80,7 @@ function CountChart({
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(val: any) => [Number(val).toLocaleString(), 'Mentions']}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              labelFormatter={(l: any) => formatShortDate(String(l))}
+              labelFormatter={(l: any) => granularity === 'weekly' ? formatWeekLabel(String(l)) : formatShortDate(String(l))}
               contentStyle={{
                 fontSize: 11,
                 fontFamily: 'Plus Jakarta Sans',
@@ -108,24 +112,27 @@ function CountChart({
   )
 }
 
-export default function ClaygentSection({ claygentData, followupData, startDate, endDate }: Props) {
+export default function ClaygentSection({ claygentData, followupData, startDate, endDate, granularity }: Props) {
+  const per = granularity === 'weekly' ? 'per week' : 'per day'
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
       <CountChart
         data={claygentData}
         title="ClayMCP & Agent Mentions"
-        subtitle="Times ClayMCP or Clay Agent was mentioned per day"
+        subtitle={`Times ClayMCP or Clay Agent was mentioned ${per}`}
         color="#4A5AFF"
         startDate={startDate}
         endDate={endDate}
+        granularity={granularity}
       />
       <CountChart
         data={followupData}
         title="Clay Recommended as Follow-up"
-        subtitle="Times Clay was recommended as a follow-up action per day"
+        subtitle={`Times Clay was recommended as a follow-up action ${per}`}
         color="#3DAA6A"
         startDate={startDate}
         endDate={endDate}
+        granularity={granularity}
       />
     </div>
   )

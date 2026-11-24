@@ -206,6 +206,7 @@ export async function getCompetitorCitationTimeseries(
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags || 'all',
     p_top_n:          topN,
+    p_granularity:    f.granularity || 'daily',
   })
   if (error) { console.error('[getCompetitorCitationTimeseries] RPC error:', error); return [] }
   return (data ?? []).map((r: any) => ({
@@ -234,17 +235,31 @@ export async function getCitationOverallTimeseries(
   if (error) { console.error('[getCitationOverallTimeseries] cache error:', error); return [] }
   if (!data?.length) return []
 
-  // Aggregate across platforms per day
-  const byDay = new Map<string, { cited: number; withCit: number }>()
-  for (const r of data) {
-    const day = String(r.run_day).substring(0, 10)
-    const cur = byDay.get(day) ?? { cited: 0, withCit: 0 }
-    cur.cited  += r.clay_cited_responses ?? 0
-    cur.withCit += r.total_with_citations ?? 0
-    byDay.set(day, cur)
+  // Aggregate across platforms per bucket (day or Monday-start ISO week).
+  // Weekly bucketing collapses the ingest job's midnight-crossing two-day
+  // split into one point per batch with a weighted average
+  // (sum numerator / sum denominator), not an average of daily rates.
+  const weekly = (f.granularity || 'daily') === 'weekly'
+  const bucketKey = (d: string) => {
+    if (!weekly) return d
+    const t = new Date(d + 'T00:00:00Z')
+    const dow = t.getUTCDay() // 0=Sun..6=Sat
+    const diff = dow === 0 ? -6 : 1 - dow
+    t.setUTCDate(t.getUTCDate() + diff)
+    return t.toISOString().slice(0, 10)
   }
 
-  return [...byDay.entries()]
+  const byBucket = new Map<string, { cited: number; withCit: number }>()
+  for (const r of data) {
+    const day = String(r.run_day).substring(0, 10)
+    const key = bucketKey(day)
+    const cur = byBucket.get(key) ?? { cited: 0, withCit: 0 }
+    cur.cited  += r.clay_cited_responses ?? 0
+    cur.withCit += r.total_with_citations ?? 0
+    byBucket.set(key, cur)
+  }
+
+  return [...byBucket.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, { cited, withCit }]) => ({
       date,

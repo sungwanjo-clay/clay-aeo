@@ -116,6 +116,7 @@ export async function getClayOverallTimeseries(
     p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
+    p_granularity:    f.granularity   || 'daily',
   })
   if (error) console.error('[getClayOverallTimeseries] RPC error:', error)
   return (data ?? []).map((r: any) => ({ date: String(r.date), value: r.value ?? 0 }))
@@ -191,6 +192,7 @@ export async function getCompetitorVisibilityTimeseries(
     p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
+    p_granularity:    f.granularity   || 'daily',
   })
   if (error) console.error('[getCompetitorVisibilityTimeseries] RPC error:', error)
   return (data ?? []).map((r: any) => ({
@@ -352,6 +354,7 @@ export async function getClaygentTimeseriesByPlatform(
     p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
+    p_granularity:    f.granularity   || 'daily',
   })
   if (error) console.error('[getClaygentTimeseriesByPlatform] RPC error:', error)
   // RPC returns only rows with data; fill zeros for all date×platform combos
@@ -379,6 +382,7 @@ export async function getClaygentTimeseries(
     p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
+    p_granularity:    f.granularity   || 'daily',
   })
   if (error) console.error('[getClaygentTimeseries] RPC error:', error)
   return (data ?? []).map((r: any) => ({ date: String(r.date), count: r.count ?? 0 }))
@@ -515,6 +519,7 @@ export async function getFollowupTimeseries(
     p_platforms:      (f.platforms && f.platforms.length > 0) ? f.platforms : null,
     p_branded_filter: f.brandedFilter || 'all',
     p_tags:           f.tags          || 'all',
+    p_granularity:    f.granularity   || 'daily',
   })
   if (error) console.error('[getFollowupTimeseries] RPC error:', error)
   return (data ?? []).map((r: any) => ({ date: String(r.date), count: r.count ?? 0 }))
