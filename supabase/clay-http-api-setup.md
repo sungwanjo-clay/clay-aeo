@@ -42,6 +42,7 @@ Authorization: Bearer [your supabase service role key]
 {
   "payload": {
     "platform": "Claude",
+    "run_day": "{{Batch Monday}}",
     "prompt_text": "{{Prompt}}",
     "prompt_type": "{{Prompt Type}}",
     "tags": "{{Tags}}",
@@ -86,14 +87,32 @@ Identical to the Claude body, with two changes:
 - All `{{Claude ...}}` references → `{{ChatGPT ...}}`
   (e.g. `{{ChatGPT Parsed Response.response}}`, `{{Chat GPT Response Analyzer.clayMentioned}}`, etc.)
 
+### About `run_day` (added 2026-11)
+
+`run_day` is the DATE every dashboard chart groups by. Since 2026-10-31
+the ingest job runs weekly, and a batch straddles UTC midnight: ChatGPT
+finishes early, Claude + Branded finish late, so Supabase's
+`CURRENT_DATE` stamps them on different calendar days. The fix is to
+pin every row in a batch to the same date by sending `run_day` from
+Clay.
+
+- Pass the **Monday of the batch's scheduled week** (YYYY-MM-DD, UTC).
+- Add a formula column to the Clay table named e.g. `Batch Monday`,
+  with value `monday_of_this_week()` or equivalent — any Clay
+  expression that returns the ISO Monday of the batch date.
+- If the field is missing or empty, the RPC falls back to
+  `CURRENT_DATE`, so this is a non-breaking change.
+- All rows in one batch MUST share one `run_day`; mixing values across
+  a batch splits the batch across chart points again.
+
 ## 3. Upsert behavior
 
 | Scenario | Result |
 |----------|--------|
-| Clay runs a prompt on a new day | New response row inserted |
-| Clay re-runs a prompt on the same day | Existing row overwritten (upsert) |
-| Prompt metadata changes, row re-runs | Prompt + that day's response updated |
-| Same prompt, different platform, same day | Two separate rows — one per platform |
+| Clay runs a prompt on a new `run_day` | New response row inserted |
+| Clay re-runs a prompt on the same `run_day` | Existing row overwritten (upsert) |
+| Prompt metadata changes, row re-runs | Prompt + that `run_day`'s response updated |
+| Same prompt, different platform, same `run_day` | Two separate rows — one per platform |
 | Row deleted from Clay | Prompt marked `is_active = false` after 7 days by scheduled job |
 
 ## 4. Prompt lifecycle notes

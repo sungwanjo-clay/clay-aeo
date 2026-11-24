@@ -26,11 +26,24 @@ DECLARE
   v_cited_urls    JSONB;
   v_cited_domains JSONB;
   v_cited_titles  JSONB;
+  v_run_day       DATE;
 BEGIN
   -- ── Normalise payload ───────────────────────────────────────
   -- If Clay sends { analyzer: { clayMentioned: ... }, parsed_response: "..." }
   -- we read from the nested object; otherwise fall back to flat snake_case keys.
   v_analyzer := COALESCE(payload->'analyzer', '{}'::jsonb);
+
+  -- ── Resolve run_day ─────────────────────────────────────────
+  -- A weekly batch can straddle UTC midnight — when it does and we stamp
+  -- run_day with CURRENT_DATE at write time, half the batch lands on
+  -- day N and half on day N+1 with a non-random platform split, which
+  -- shows up on the dashboard as pair-dot spikes per week. If Clay sends
+  -- an explicit `run_day` (e.g. the Monday of the scheduled batch), pin
+  -- every row in the batch to that same date. Empty / missing → today.
+  v_run_day := CASE
+    WHEN COALESCE(payload->>'run_day', '') = '' THEN CURRENT_DATE
+    ELSE (payload->>'run_day')::date
+  END;
 
   v_citations := COALESCE(
     v_analyzer->'citations',
@@ -87,9 +100,11 @@ BEGIN
   RETURNING prompt_id INTO v_prompt_id;
 
   -- ── Upsert response ─────────────────────────────────────────
-  -- run_date is stamped by Supabase (NOW()), not sent by Clay.
+  -- run_date is stamped by Supabase (NOW()) — the actual write time.
   -- run_day is the DATE-only column used for the unique index
-  -- (prompt_id, platform, run_day) — same-day re-runs overwrite.
+  -- (prompt_id, platform, run_day) and for every daily/weekly chart.
+  -- It's taken from payload->>'run_day' when Clay sends one, and from
+  -- CURRENT_DATE otherwise — see the resolution block above.
   INSERT INTO responses (
     run_date, run_day, prompt_id, platform,
     response_text, cited_urls, cited_domains, cited_titles,
@@ -106,7 +121,7 @@ BEGIN
   )
   VALUES (
     NOW(),
-    CURRENT_DATE,
+    v_run_day,
     v_prompt_id,
     payload->>'platform',
     -- response_text: flat key or parsed_response (Claude demo formula column)
