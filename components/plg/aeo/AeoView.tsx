@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   AEO_PLATFORMS, HIDDEN_PMM, W, competitorBoard, domainBoard, groupTable, kpis, ranges, shareSeries, sliceId, weekly,
@@ -267,6 +267,15 @@ export default function AeoView({ data, db }: { data: AeoData | null | undefined
   const [type, setType] = useState<AeoPromptType>('Benchmark')
   const [period, setPeriod] = useState<PeriodId>('13')
   const [showComp, setShowComp] = useState(true)
+  // The filter bar's height, so section bars further down (Narrative intelligence) stick right under it.
+  const barRef = useRef<HTMLDivElement>(null)
+  const [barH, setBarH] = useState(0)
+  useEffect(() => {
+    const el = barRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setBarH(el.offsetHeight)); ro.observe(el); setBarH(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [data])
 
   const base = data?.slices['all-all']
   const compColors = useMemo(() => colorMap(base ? Object.entries(base.comp).sort((a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0)).map(([k]) => k) : []), [base])
@@ -304,7 +313,7 @@ export default function AeoView({ data, db }: { data: AeoData | null | undefined
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
       {/* Controls: stick under the page header while scrolling, like the other tabs' section bars. */}
-      <SectionBar label="AI visibility filters">
+      <SectionBar label="AI visibility filters" top="0px" barRef={barRef}>
         <div className="hidden md:flex flex-wrap items-center gap-2">
           <Segmented ariaLabel="Platform" value={platform} onChange={setPlatform} options={AEO_PLATFORMS.map(p => ({ id: p, label: PLATFORM_LABEL[p] }))} />
           <Segmented ariaLabel="Prompt type" value={type} onChange={setType} options={TYPES} />
@@ -392,7 +401,7 @@ export default function AeoView({ data, db }: { data: AeoData | null | undefined
         <LegendRow items={[{ name: 'Positive', color: SENT.pos }, { name: 'Neutral', color: SENT.neu }, { name: 'Negative', color: SENT.neg }]} />
         <SentimentChart rows={sent} />
       </Card>
-      <Narratives data={data} slice={sliceId(platform, type)} cur={cur} prev={prev} mentioned={k.mentioned} db={db ?? null} />
+      <Narratives data={data} slice={sliceId(platform, type)} cur={cur} prev={prev} mentioned={k.mentioned} db={db ?? null} stickTop={barH} />
 
       {/* Use cases and topics */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

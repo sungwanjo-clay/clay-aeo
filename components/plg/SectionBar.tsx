@@ -8,11 +8,15 @@ import { T } from './ui'
  * screen and scrolls away with the section, so the filters that apply stack: dates on top, then this section's cuts.
  * `inCard`: the bar sits inside a card (tighter bleed, card background), like the Portfolio companies table.
  */
-export default function SectionBar({ children, inCard, label }: { children: React.ReactNode; inCard?: boolean; label?: string }) {
+export default function SectionBar({ children, inCard, label, top, barRef }: {
+  children: React.ReactNode; inCard?: boolean; label?: string
+  /** Where it sticks (default: under the page's sticky date bar). Tabs without that bar stack their own bars with this. */
+  top?: string; barRef?: React.Ref<HTMLDivElement>
+}) {
   return (
-    <div role="toolbar" aria-label={label ?? 'Section filters'}
+    <div ref={barRef} role="toolbar" aria-label={label ?? 'Section filters'}
       className={`sticky z-30 py-3 flex flex-wrap items-center gap-2 ${inCard ? '-mx-5 sm:-mx-8 px-5 sm:px-8' : '-mx-4 sm:-mx-10 xl:-mx-16 px-4 sm:px-10 xl:px-16'}`}
-      style={{ top: 'var(--plg-sticky, 0px)', background: inCard ? T.card : T.page, borderBottom: `1px solid ${T.border}` }}>
+      style={{ top: top ?? 'var(--plg-sticky, 0px)', background: inCard ? T.card : T.page, borderBottom: `1px solid ${T.border}` }}>
       {children}
     </div>
   )

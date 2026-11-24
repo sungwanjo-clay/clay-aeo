@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { domainUrls, narratives, type AeoData, type NarrRow, type Range, type Ranked, type Sentiment, type Snippet } from '@/lib/plg/aeo/data'
 import { Card, Def, H2, InfoTip, Segmented, T, deltaColor, fmtInt, fmtPct, fmtPp } from '../ui'
+import SectionBar from '../SectionBar'
 
 const mono = { fontFamily: T.mono } as const
 const th = 'px-3 py-2.5 text-[12px] font-medium uppercase whitespace-nowrap'
@@ -208,7 +209,7 @@ function Drawer({ row, share, note, onClose, onSave, canWrite }: {
   )
 }
 
-export function Narratives({ data, slice, cur, prev, mentioned, db }: { data: AeoData; slice: string; cur: Range; prev: Range | null; mentioned: number; db: NotesDb }) {
+export function Narratives({ data, slice, cur, prev, mentioned, db, stickTop = 0 }: { data: AeoData; slice: string; cur: Range; prev: Range | null; mentioned: number; db: NotesDb; stickTop?: number }) {
   const [tab, setTab] = useState<'all' | Sentiment>('all')
   const [q, setQ] = useState('')
   const [n, setN] = useState(25)
@@ -241,16 +242,21 @@ export function Narratives({ data, slice, cur, prev, mentioned, db }: { data: Ae
   const tabs = [{ id: 'all', label: `All (${fmtInt(count())})` }, ...(['Negative', 'Neutral', 'Positive'] as Sentiment[]).map(s => ({ id: s, label: `${s} (${fmtInt(count(s))})` }))] as { id: 'all' | Sentiment; label: string }[]
 
   return (
-    <Card className="p-5 sm:p-6 flex flex-col gap-4 min-w-0">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2"><H2>Narrative intelligence</H2>
-            <InfoTip label="About narrative themes"><Def d="The themes AI answers attach to Clay, with the sentiment of each. Counted as answers that carry the theme, one run of every prompt per week." note="Negative themes come first: fix the narrative or the source it comes from." /></InfoTip></div>
-          <p className="text-[15px]" style={{ color: T.muted }}>Every theme AI answers attach to Clay. Negative ones need attention: fix the narrative or the source.</p>
-        </div>
-        <Search value={q} onChange={v => { setQ(v); setN(25) }} placeholder="Search theme or quote…" />
+    <Card className="p-5 sm:p-8 flex flex-col gap-4 min-w-0">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2"><H2>Narrative intelligence</H2>
+          <InfoTip label="About narrative themes"><Def d="The themes AI answers attach to Clay, with the sentiment of each. Counted as answers that carry the theme, one run of every prompt per week." note="Negative themes come first: fix the narrative or the source it comes from." /></InfoTip></div>
+        <p className="text-[15px]" style={{ color: T.muted }}>Every theme AI answers attach to Clay. Negative ones need attention: fix the narrative or the source.</p>
       </div>
-      <Segmented ariaLabel="Sentiment" value={tab} onChange={v => { setTab(v); setN(25) }} options={tabs} />
+      {/* Sentiment and search stick under the tab's filter bar while the list is on screen, like the other tabs' section bars. */}
+      <SectionBar inCard label="Narrative filters" top={`${stickTop}px`}>
+        <div className="hidden sm:block"><Segmented ariaLabel="Sentiment" value={tab} onChange={v => { setTab(v); setN(25) }} options={tabs} /></div>
+        <select aria-label="Sentiment" value={tab} onChange={e => { setTab(e.target.value as 'all' | Sentiment); setN(25) }} className="sm:hidden rounded-full px-2.5 py-1.5 text-[13px] shrink-0 max-w-[46%]"
+          style={{ border: `1px solid ${T.border}`, background: '#fff', color: T.ink }}>
+          {tabs.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+        <div className="flex-1 min-w-0 sm:flex-none sm:ml-auto"><Search value={q} onChange={v => { setQ(v); setN(25) }} placeholder="Search theme or quote…" /></div>
+      </SectionBar>
       <ul className="flex flex-col">
         {list.slice(0, n).map(r => {
           const id = noteId(r.key), nt = notes[id], isOpen = open.has(r.key) || (!!needle && r.snip.slice(1).some(s => s.t.toLowerCase().includes(needle)))
