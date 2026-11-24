@@ -121,4 +121,7 @@ Clay.
   the old row and add a new one instead.
 - To retroactively propagate a metadata change across all historical responses,
   run: `SELECT backfill_prompt_metadata('your prompt text here');`
-- Dates are set by Supabase (`NOW()`), not Clay. Clay sends no date in the payload.
+- `run_date` (timestamptz) is set by Supabase (`NOW()`) at write time —
+  always the actual ingestion moment. `run_day` (date) is taken from
+  `payload.run_day` when Clay sends one (see §2 above), with
+  `CURRENT_DATE` as the fallback.
