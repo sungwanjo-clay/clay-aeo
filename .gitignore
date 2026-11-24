@@ -42,3 +42,4 @@ next-env.d.ts
 
 # built artifact
 /dist
+__pycache__/
