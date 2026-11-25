@@ -91,6 +91,6 @@ YouTube data comes through Viewer access to Peter's channel, a path Google doesn
 
 The YouTube sync can't follow dub.sh or clay.link from the cloud network, so it reads known shortlinks' destinations
 from `lib/plg/social/shortlinks.json` (host/path → final URL with its UTMs). Add a line when a creator uses a new
-shortlink; until then the video shows as "short link, unresolved" with no campaign. Payton's makes.clay.com visits
-arrive without their campaign or referrer in Snowflake, so that video's referral visits read 0 even while its
-Salesforce captures count.
+shortlink; until then the video shows as "short link, unresolved" with no campaign. makes.clay.com (Ploy) page views
+keep their UTMs and referrer (raw `SEGMENT.PLOY.PAGES`, and `DBT.PROD.MARKETING_PAGEVIEWS` once built), so a lead-magnet
+video's referral visits match on its utm_campaign like any other; they appear when MARKETING_PAGEVIEWS has the day.
