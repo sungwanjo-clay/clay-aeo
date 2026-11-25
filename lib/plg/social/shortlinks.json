@@ -1,0 +1,6 @@
+{
+  "about": "Shortlinks in creator video descriptions and where they go. The YouTube sync can't follow dub.sh or clay.link from the cloud network, so it reads the destination (with its UTMs) from here. Add one line per new shortlink: the key is host/path as written in the description, the value is the final URL.",
+  "links": {
+    "dub.sh/fbrr4em": "https://makes.clay.com/product-market-fit?utm_source=other&utm_medium=marketingcontentowned&utm_campaign=youtube_PMFleadmagnet_nmb_creatorinresidence_11_23_2026"
+  }
+}

@@ -23,7 +23,8 @@ export interface CreatorChannel {
   /** utm_campaign prefix the creator uses on every video (flags tagged-but-unmapped campaigns). */
   campaignPrefix: string | null
   requireSource: string | null
-  fallback: { pageview: string; firstTouch: string; note: string } | null
+  /** `destination`: the rule is for the video linking this page (else: the channel's one linked video, or the channel). */
+  fallback: { pageview: string; firstTouch: string; note: string; destination?: RegExp } | null
 }
 
 export const CHANNELS: CreatorChannel[] = [
@@ -37,6 +38,7 @@ export const CHANNELS: CreatorChannel[] = [
       pageview: `(p."UTM_MEDIUM" = 'marketingcontentowned' AND (LOWER(p."UTM_CAMPAIGN") = 'not-my-business' OR (p."UTM_SOURCE" = 'other' AND p."PATH" = '/wedge' AND p."REFERRER_RAW" ILIKE '%youtu%')))`,
       firstTouch: `(f."UTM_MEDIUM" = 'marketingcontentowned' AND (LOWER(f."UTM_CAMPAIGN") = 'not-my-business' OR (f."UTM_SOURCE" = 'other' AND (f."RAW_REFERRER" ILIKE '%youtu%' OR f."PATH" ILIKE '/wedge%'))))`,
       note: 'Matched on utm_medium=marketingcontentowned + the /wedge offer page + a YouTube referrer, because Snowflake drops utm_campaign on cohorts.clay.com. Form submits keep the campaign (not-my-business).',
+      destination: /^cohorts\.clay\.com\/wedge/,
     } },
   { id: 'eric', label: 'Eric Nowoslawski', youtubeId: 'UC6ef5yDFz7gm8rARwX3HaDw', handle: '@ericnowoslawski',
     campaignPrefix: null, requireSource: null,

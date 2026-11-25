@@ -18,3 +18,7 @@ export const tierAccountsSql = `SELECT LOWER("DOMAIN_C") AS "dom", MIN("SALES_TI
 
 /** SQL condition: may this workspace carry a tier? `seg` = its CUSTOMER_DOMAIN_SEGMENT column. */
 export const tierEligible = (seg: string) => `COALESCE(${seg}, '') <> 'personal'`
+
+/** Free-mail domains: a captured email at one of these never gets a company tier (lead-magnet captures by email). */
+export const PERSONAL_DOMAINS = ['gmail.com', 'googlemail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'msn.com', 'icloud.com', 'me.com',
+  'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com', 'gmx.de', 'yandex.com', 'mail.com', 'zoho.com', 'hey.com', 'fastmail.com', 'qq.com', '163.com']

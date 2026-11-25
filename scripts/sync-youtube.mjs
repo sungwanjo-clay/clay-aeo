@@ -82,9 +82,15 @@ async function tryAnalytics(ch, params, state) {
  * target we can't resolve (clay.link is blocked by the network policy, dub.sh
  * is third-party) are flagged, never guessed.
  */
+// Known shortlinks → final URL (lib/plg/social/shortlinks.json): the sync can't follow them from the cloud network.
+const SHORTLINKS = (() => { try { return JSON.parse(readFileSync(resolve(import.meta.dirname, '../lib/plg/social/shortlinks.json'), 'utf8')).links ?? {} } catch { return {} } })()
+const expandShort = raw => { try { const u = new URL(raw); const k = `${u.hostname.replace(/^www\./, '')}${u.pathname}`.replace(/\/$/, ''); return SHORTLINKS[k] ? { url: SHORTLINKS[k], short: k } : null } catch { return null } }
+
 function parseLinks(description) {
   const urls = [...new Set(description.match(/https?:\/\/[^\s)\]]+/g) ?? [])]
-  const links = urls.map(raw => {
+  const links = urls.map(written => {
+    const ex = expandShort(written.replace(/[.,;:!?'"]+$/, ''))
+    const raw = ex ? ex.url : written
     let u
     try { u = new URL(raw) } catch { return null }
     const host = u.hostname.replace(/^www\./, '')
@@ -92,7 +98,7 @@ function parseLinks(description) {
     const kind = host === 'clay.link' ? 'clay_short' : host === 'dub.sh' ? 'short' : /(^|\.)clay\.com$/.test(host) ? 'clay' : 'external'
     // full: the link as written (trailing punctuation trimmed); params: every query parameter (UTMs, affiliate codes like via).
     const full = raw.replace(/[.,;:!?'"]+$/, '')
-    return { url: `${host}${u.pathname}`.replace(/\/$/, ''), full, params: Object.fromEntries(u.searchParams), host, kind, ...utm }
+    return { url: `${host}${u.pathname}`.replace(/\/$/, ''), full, params: Object.fromEntries(u.searchParams), host, kind, ...(ex ? { via: ex.short } : {}), ...utm }
   }).filter(Boolean)
   const clayLinks = links.filter(l => l.kind === 'clay' || l.kind === 'clay_short')
   const tagged = clayLinks.find(l => l.utm_campaign)
@@ -101,7 +107,7 @@ function parseLinks(description) {
     campaign: tagged?.utm_campaign ?? null,
     destination: primary ? primary.url : null,
     destinationKind: primary ? (primary.kind === 'clay_short' || primary.kind === 'short' ? 'short_unresolved' : primary.kind) : 'none',
-    links: links.filter(l => l.kind !== 'external').map(l => ({ url: l.url, full: l.full, params: l.params, kind: l.kind, campaign: l.utm_campaign })),
+    links: links.filter(l => l.kind !== 'external').map(l => ({ url: l.url, full: l.full, params: l.params, kind: l.kind, campaign: l.utm_campaign, ...(l.via ? { via: l.via } : {}) })),
   }
 }
 const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10)

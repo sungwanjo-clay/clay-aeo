@@ -17,7 +17,7 @@ Each video is measured as **Impressions → Views → Site visits → New worksp
 | Tier | `CUSTOMERS.DOMAIN` → `DBT.STAGING.STG_SALESFORCE__ACCOUNT.SALES_TIER_C`, best tier per domain, business domains only (`CUSTOMER_DOMAIN_SEGMENT = 'other'`). Personal, academic or no SFDC account → Untiered | | |
 | Persona | **Source TBD** (candidate: `ONBOARDING_SURVEY.TEAMS`) | | |
 
-- The email steps (captures 20%, qualified 40%, opens 50%, clicks 40%) appear only for videos whose link goes to the startup offer page (`OFFER_PAGE_PATTERNS`). Payton's video links `cohorts.clay.com/wedge`, so her tab shows them; no current Peter video does. Captures come from `SEGMENT.VERCEL.FORM_SUBMITTED` on `/wedge`. Qualified, opens and clicks read "Not connected". While they are, the new-workspace goal is a placeholder: 10% of captures.
+- The email steps (captures 20%, qualified 40%, opens 50%, clicks 40%) appear only for videos whose link goes to the startup offer page (`OFFER_PAGE_PATTERNS`). Payton's video links `cohorts.clay.com/wedge`, so her tab shows them; no current Peter video does. Captures come from `SEGMENT.VERCEL.FORM_SUBMITTED` on `/wedge`, or, for a video with a Salesforce campaign named after its `utm_campaign` (lead magnets such as Payton's makes.clay.com/product-market-fit video), from that campaign's members (`FIVETRAN.SALESFORCE.CAMPAIGN_MEMBER`, by the day they joined); a video with such a campaign takes its captures from Salesforce only, so nothing is counted twice. Opens and clicks read "Not connected". While they are, the new-workspace goal is a placeholder: 10% of captures.
 - "If at goal" = extra new workspaces if a step hit its goal while every other step stays at today's rate.
 - Biggest leak = the step with the largest "If at goal" impact, among steps with data. The impression → view step is excluded until it is connected.
 
@@ -77,7 +77,7 @@ YouTube data comes through Viewer access to Peter's channel, a path Google doesn
 - **Impressions and impression CTR are removed.** The funnel starts at Views (YouTube Analytics API). Views read "Not connected" for channels without Viewer access, such as Payton's.
 - **The email steps always show**, as placeholders until their data exists:
   - Email captures: real for offer-page videos.
-  - MQALs (Tier 1–3 domains): captured emails aren't in Snowflake yet.
+  - Tier 1–3 signup domains: Salesforce-captured work emails whose domain's best live Salesforce account is Tier 1–3 (`lib/plg/tier.ts`; personal email domains never count). Form submits don't keep the email in Snowflake, so offer-page videos show it as not connected.
   - Email sends, opens and clicks: lifecycle email data isn't in Snowflake yet.
 
 ## Eric Nowoslawski (@ericnowoslawski, UC6ef5yDFz7gm8rARwX3HaDw)
@@ -86,3 +86,11 @@ YouTube data comes through Viewer access to Peter's channel, a path Google doesn
 - **Matching:** the channel rule matches page views on `AFFILIATE_ID = 'bb305b'` and first touch on a URL containing `via=bb305b`. Visits are credited to his channel as a whole, not to individual videos.
 - **Attribution:** in blended attribution this traffic is the Influencer: Affiliate channel. On this tab it counts toward Eric's row, not the excluded affiliate footnote.
 - **Views:** "Not connected" until Eric does the owner sign-in.
+
+## Shortlinks in descriptions
+
+The YouTube sync can't follow dub.sh or clay.link from the cloud network, so it reads known shortlinks' destinations
+from `lib/plg/social/shortlinks.json` (host/path → final URL with its UTMs). Add a line when a creator uses a new
+shortlink; until then the video shows as "short link, unresolved" with no campaign. Payton's makes.clay.com visits
+arrive without their campaign or referrer in Snowflake, so that video's referral visits read 0 even while its
+Salesforce captures count.

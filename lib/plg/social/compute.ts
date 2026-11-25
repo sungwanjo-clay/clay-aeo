@@ -71,7 +71,9 @@ export function channelFallbacks(docs: YtChannelDoc[], dataEnd: ISODate): Channe
     const ch = channelOf(doc)
     if (!ch?.fallback) return []
     const linked = doc.videos.filter(v => v.campaign)
-    const only = linked.length === 1 ? linked[0] : null
+    // A rule tied to a destination belongs to the video linking it (Payton's wedge-page rule, now that she has more videos).
+    const matching = ch.fallback.destination ? linked.filter(v => v.destination && ch.fallback!.destination!.test(v.destination)) : linked
+    const only = matching.length === 1 ? matching[0] : null
     // Channel-level rule: start no earlier than the sync window (an old channel's first video can be years back).
     const since = (doc as YtChannelDoc & { since?: ISODate }).since ?? addDays(dataEnd, -180)
     const firstVideo = [...doc.videos].map(v => v.published).sort()[0] ?? dataEnd
@@ -147,12 +149,15 @@ export function buildSocial(o: {
       const imprRows = v.impressions?.length ? v.impressions.filter(r => r[0] >= v.published && r[0] <= addDays(v.published, COHORT_DAYS - 1) && (!viewsThrough || r[0] <= viewsThrough)) : null
       const impr28 = imprRows ? sum(imprRows.map(r => r[1])) : null
       const clicks28 = imprRows ? sum(imprRows.map(r => r[2])) : null
-      const offerPage = !!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!))
+      // Email capture: the link goes to an offer page with a tracked form, or the video has a Salesforce campaign named
+      // after its utm_campaign (lead magnets, captured in Salesforce).
+      const sfCapture = rows.some(r => r.k === 'sfx' && r.key === v.id)
+      const offerPage = sfCapture || (!!v.destination && OFFER_PAGE_PATTERNS.some(re => re.test(v.destination!)))
       return {
         id: v.id, title: v.title, published: v.published, channel: ch.label, durationSec: v.durationSec,
         cohortDay, cohortComplete: cohortDay >= COHORT_DAYS, analytics, lifetimeViews: v.lifetimeViews, impressions: impr28, imprClicks: clicks28,
         views, viewsPending: analytics && !coh?.views, minutes: coh?.minutes ?? 0, avgViewPct: analytics && coh ? coh.avgViewPct / 100 : null, subsGained: coh?.subsGained ?? 0,
-        destination: v.destination, campaign: v.campaign, tagged: isTracked, offerPage,
+        destination: v.destination, campaign: v.campaign, tagged: isTracked, offerPage, sfCapture,
         links: v.links, likes: v.likes ?? null, comments: v.comments ?? null, publishedAt: v.publishedAt ?? null, live: !!v.live,
         avgViewPct28: coh?.avgViewPct ?? null, subsGained28: coh?.subsGained ?? null,
         visits: vis?.n ?? null, captures: offerPage && form ? form.n : null,
@@ -207,7 +212,7 @@ export function buildSocial(o: {
         videos: vs.length, pending: c.analytics ? vs.length - reported.length : 0, impressions, imprClicks, imprDays, imprHave,
         views, minutes: sum(vs.map(v => v.minutes)), subs: sum(vs.map(v => v.subsGained)),
         avgPct: views ? sum(reported.map(v => v.views! * (v.avgViewPct ?? 0))) / views : null,
-        visits: sum(tagged.map(v => v.visits ?? 0)), captures: sum(tagged.map(v => v.captures ?? 0)),
+        visits: sum(tagged.map(v => v.visits ?? 0)), captures: sum(tagged.map(v => v.captures ?? 0)), mq: sum(tagged.map(v => one('mq', 'coh', v.id).n)),
         newWs: sum(tagged.map(v => v.newWs ?? 0)), activated: sum(tagged.map(v => v.activated ?? 0)), paid: sum(tagged.map(v => v.paid ?? 0)),
         expanded: sum(tagged.map(v => v.expanded ?? 0)), churned: sum(tagged.map(v => v.churned ?? 0)),
         plans: plansOf(rows.filter(r => r.k === 'plan' && r.b === 'coh' && tagged.some(v => v.id === r.key))),
@@ -228,7 +233,7 @@ export function buildSocial(o: {
       videos: null as number | null, pending: 0, impressions, imprClicks, imprDays: cov.days, imprHave: cov.have,
       views, minutes: yt ? sum(yt.map(r => r[2])) : 0, subs: yt ? sum(yt.map(r => r[3] - r[4])) : 0,
       avgPct: yt && views ? sum(yt.map(r => r[1] * r[5])) / views / 100 : null,
-      visits: sum(kr('vis').map(r => r.n)), captures: sum(kr('form').map(r => r.n)),
+      visits: sum(kr('vis').map(r => r.n)), captures: sum(kr('form').map(r => r.n)), mq: sum(kr('mq').map(r => r.n)),
       newWs: sum(ws.map(r => r.n)), activated: sum(ws.map(r => r.a)), paid: sum(ws.map(r => r.p)),
       expanded: sum(ws.map(r => r.x)), churned: sum(ws.map(r => r.c)), plans: plansOf(kr('plan')),
       tiersNew: ws.reduce((acc, r) => addT(acc, r.t), zeroT()),
@@ -243,7 +248,7 @@ export function buildSocial(o: {
     videos: ts.every(t => t.videos == null) ? null : sum(ts.map(t => t.videos ?? 0)), pending: sum(ts.map(t => t.pending)),
     impressions: nsum(ts.map(t => t.impressions)), imprClicks: nsum(ts.map(t => t.imprClicks)), imprDays: sum(ts.map(t => t.imprDays)), imprHave: sum(ts.map(t => t.imprHave)),
     views: nsum(ts.map(t => t.views)), minutes: sum(ts.map(t => t.minutes)), subs: sum(ts.map(t => t.subs)), avgPct: ts.length === 1 ? ts[0].avgPct : null,
-    visits: sum(ts.map(t => t.visits)), captures: sum(ts.map(t => t.captures)), newWs: sum(ts.map(t => t.newWs)),
+    visits: sum(ts.map(t => t.visits)), captures: sum(ts.map(t => t.captures)), mq: sum(ts.map(t => t.mq)), newWs: sum(ts.map(t => t.newWs)),
     activated: sum(ts.map(t => t.activated)), paid: sum(ts.map(t => t.paid)), expanded: sum(ts.map(t => t.expanded)), churned: sum(ts.map(t => t.churned)),
     plans: plansOf(ts.flatMap(t => t.plans.map(p => ({ k: 'plan', b: '', key: '', d: p.plan, n: p.n, a: 0, p: p.paid, x: p.exp, c: p.churn, t: zeroT() })))),
     tiersNew: ts.reduce((acc, t) => addT(acc, t.tiersNew), zeroT()), existing: sum(ts.map(t => t.existing)),
@@ -350,6 +355,7 @@ export function buildSocial(o: {
   // Names are shared with the tiles, the trend picker and the tables, so a metric reads the same everywhere.
   const periodVideos = o.mode === 'cohort' ? scopeVideos.filter(v => inCohort(v.published, o.cur)) : scopeVideos
   const showEmailSteps = periodVideos.some(v => v.offerPage && v.tagged)
+  const sfAny = periodVideos.some(v => v.sfCapture && v.tagged)
   const viewsKnown = inScope.length > 0 && inScope.every(c => c.analytics)
   const IMPR_NC = 'Needs the channel owner’s one-time sign-in (YouTube Reporting API)'
   const LIFECYCLE = 'Lifecycle email sends, opens and clicks (Inflection) aren’t in Snowflake yet'
@@ -372,9 +378,10 @@ export function buildSocial(o: {
     cnt('views', 'Reach', 'Views', 'YouTube views', vc?.views ?? null, vp?.views ?? null, noViews),
     cnt('visits', 'Click', 'Referral visits', 'Visitors from the creators’ clay.com links', pc.visits, pp.visits),
     rt('cta_ctr', 'Click', 'CTA CTR', 'Referral visits ÷ views', rate(vc?.visits ?? null, vc?.views ?? null), rate(vp?.visits ?? null, vp?.views ?? null), STEP_GOALS.viewToVisit, noViews),
-    cnt('captures', 'Capture', 'Email captures', 'Offer-page form submits', pc.captures, pp.captures, showEmailSteps ? null : NO_CAPTURE),
+    cnt('captures', 'Capture', 'Email captures', sfAny ? 'Offer-page form submits, or members of the video’s Salesforce campaign (named after its utm_campaign)' : 'Offer-page form submits', pc.captures, pp.captures, showEmailSteps ? null : NO_CAPTURE),
     rt('capture_rate', 'Capture', 'Email capture rate', 'Email captures ÷ referral visits', rate(pc.captures, pc.visits), rate(pp.captures, pp.visits), STEP_GOALS.capture, showEmailSteps ? null : NO_CAPTURE),
-    cnt('mqal', 'Capture', 'Tier 1–3 signup domains', 'Captured emails at Tier 1–3 companies', null, null, 'Captured emails aren’t stored in Snowflake, so their domains can’t be tiered yet'),
+    cnt('mqal', 'Capture', 'Tier 1–3 signup domains', 'Captured work emails at Salesforce Tier 1–3 companies (by email domain; personal emails don’t count)',
+      pc.mq, pp.mq, sfAny ? null : 'Only Salesforce-captured emails can be tiered: form submits on the offer page don’t keep the email in Snowflake'),
     cnt('sends', 'Nurture', 'Email sends', 'Follow-up emails sent', null, null, LIFECYCLE),
     cnt('opens', 'Nurture', 'Email opens', 'Follow-up emails opened', null, null, LIFECYCLE),
     rt('open_rate', 'Nurture', 'Email open rate', 'Email opens ÷ email sends', null, null, STEP_GOALS.open, LIFECYCLE),

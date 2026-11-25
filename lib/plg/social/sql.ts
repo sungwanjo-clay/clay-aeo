@@ -30,7 +30,7 @@
  */
 import { addDays, type ISODate } from '../dates'
 import { ACTIVATION_DAYS, CHANNELS } from './config'
-import { TIER_ACCOUNTS, tierEligible } from '../tier'
+import { PERSONAL_DOMAINS, TIER_ACCOUNTS, tierEligible } from '../tier'
 import { bot } from '../cro/sql'
 import { rangeTable } from '../offline'
 
@@ -42,6 +42,8 @@ const T = {
   accounts: TIER_ACCOUNTS,                          // FIVETRAN.SALESFORCE.ACCOUNT (lib/plg/tier.ts, the Marketing tile's rule)
   credits: '990653ed-fe9f-4d3c-a674-f4278de7049f',   // DBT.PROD.CREDIT_PACK_INVOICES
   forms: '794d9f65-d34c-4173-94d1-1b0709c1b040',     // SEGMENT.VERCEL.FORM_SUBMITTED (offer page captures)
+  sfMembers: 'eda2a685-3b8b-4f4d-90c8-311d5d44be55', // FIVETRAN.SALESFORCE.CAMPAIGN_MEMBER (lead-magnet captures)
+  sfCampaigns: 'b79c47cb-23bb-4aed-bfde-58a7a0dce118', // FIVETRAN.SALESFORCE.CAMPAIGN (name = the video's utm_campaign)
   survey: '49872add-0b3c-4321-8746-f67ec6cf5510',    // DBT.PROD.ONBOARDING_SURVEY (persona = TEAMS)
   cookies: '22e14a56-e32f-4d31-aff8-b6bc3b23190b',   // DBT.PROD.COOKIE_TO_WORKSPACE_RELATIONSHIP
   crawler: '08b06a57-54a4-42dc-aa3c-d6222a15b09a',   // DBT.PROD.MARKETING_IP_CRAWLER_CLASSIFICATION (bot rule)
@@ -92,7 +94,7 @@ export function socialSql(q: SocialQuery): string {
   const R = (src: string) => (multi ? `${src}_r` : src)
   const multiCtes = !multi ? '' : `,
 rng AS (${rangeTable(multi)}),
-${['pv', 'fs2', 'fx', 'exx', 'pw', 'cutv'].map(x => `${x}_r AS (SELECT ${x}.*, rng."lbl" AS "rlbl" FROM ${x} JOIN rng ON ${x}."day" BETWEEN rng."rs" AND rng."re")`).join(',\n')}`
+${['pv', 'fs2', 'sfm', 'fx', 'exx', 'pw', 'cutv'].map(x => `${x}_r AS (SELECT ${x}.*, rng."lbl" AS "rlbl" FROM ${x} JOIN rng ON ${x}."day" BETWEEN rng."rs" AND rng."re")`).join(',\n')}`
   const prefixes = CHANNELS.map(c => c.campaignPrefix).filter(Boolean) as string[]
   const prefixMatch = (col: string) => prefixes.length ? `(${prefixes.map(p => `${col} LIKE ${lit(`${p}%`)}`).join(' OR ')})` : 'FALSE'
   // Lookup table; a sentinel row keeps the CTE valid when no video is tagged.
@@ -195,7 +197,23 @@ fsub AS (
   LEFT JOIN (SELECT "aid", MIN("key") AS "key", MIN("cs") AS "cs", MIN("ce") AS "ce" FROM pv WHERE "cs" IS NOT NULL GROUP BY "aid") pk ON pk."aid" = f."ANONYMOUS_ID"
   WHERE f."CONTEXT_PAGE_PATH" ILIKE '/wedge%' AND CAST(f."TIMESTAMP" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
 ),
-fs2 AS (SELECT * FROM fsub WHERE "key" IS NOT NULL),
+-- Lead-magnet captures: members of the Salesforce campaign named after the video's utm_campaign (the campaign naming
+-- rule), by when they joined. A video with such a campaign takes its captures from Salesforce instead of form submits,
+-- so nothing is counted twice. Tier = the email domain's best live Salesforce account tier; personal email → 'Personal'.
+sfm AS (
+  SELECT m."LEAD_OR_CONTACT_ID" AS "aid", CAST(m."CREATED_DATE" AS date) AS "day", vm."vid" AS "key", vm."cs", vm."ce",
+         CASE WHEN LOWER(SPLIT_PART(m."EMAIL", '@', 2)) IN (${PERSONAL_DOMAINS.map(lit).join(', ')}) THEN 'Personal'
+              ELSE COALESCE(ac."tier", 'Untiered') END AS "tier"
+  FROM ${t(T.sfMembers)} m
+  JOIN ${t(T.sfCampaigns)} c ON c."ID" = m."CAMPAIGN_ID" AND c."IS_DELETED" = false
+  JOIN vmap vm ON vm."camp" = LOWER(TRIM(c."NAME"))
+  LEFT JOIN acct ac ON ac."dom" = LOWER(SPLIT_PART(m."EMAIL", '@', 2))
+  WHERE m."IS_DELETED" = false AND CAST(m."CREATED_DATE" AS date) BETWEEN ${d(lo)} AND ${d(hi)}
+),
+fs2 AS (
+  SELECT "aid", "day", "key", "cs", "ce" FROM fsub WHERE "key" IS NOT NULL AND "key" NOT IN (SELECT DISTINCT "key" FROM sfm)
+  UNION ALL SELECT "aid", "day", "key", "cs", "ce" FROM sfm
+),
 tv AS (
   SELECT COALESCE(NULLIF(pv."uid", ''), cu2."USER_ID") AS "uid", pv."key", pv."cs", pv."ce", pv."day", pv."ts"
   FROM pv LEFT JOIN ${t(T.cookieUsers)} cu2 ON cu2."ANONYMOUS_ID" = pv."aid" AND NULLIF(pv."uid", '') IS NULL
@@ -241,6 +259,17 @@ FROM ${R('fs2')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')
 UNION ALL
 SELECT 'form', 'coh', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
 FROM fs2 WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"
+UNION ALL
+-- Which videos capture through Salesforce (any member ever, so the capture steps show even in a quiet period).
+SELECT 'sfx', 'all', "key", '', COUNT(DISTINCT "aid"), 0, 0, ${zeroT}
+FROM sfm GROUP BY "key"
+UNION ALL
+-- Captured work emails by tier (n = Tier 1–3); personal emails are left out of the tiers.
+SELECT 'mq', ${bucket('"day"')}, "key", '', COUNT(DISTINCT CASE WHEN "tier" IN ('Tier 1', 'Tier 2', 'Tier 3') THEN "aid" END), 0, 0, 0 AS "x", 0 AS "c", ${tierCols}
+FROM ${R('sfm')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
+UNION ALL
+SELECT 'mq', 'coh', "key", '', COUNT(DISTINCT CASE WHEN "tier" IN ('Tier 1', 'Tier 2', 'Tier 3') THEN "aid" END), 0, 0, 0 AS "x", 0 AS "c", ${tierCols}
+FROM sfm WHERE "day" BETWEEN "cs" AND "ce" GROUP BY "key"
 UNION ALL
 SELECT 'ws', ${bucket('"day"')}, "key", '', COUNT(DISTINCT "wid"), SUM("act"), SUM("paid"), SUM("exp"), SUM("churn"), ${tierCols}
 FROM ${R('fx')} WHERE ${bucket('"day"')} IS NOT NULL GROUP BY ${bucket('"day"')}, "key"
